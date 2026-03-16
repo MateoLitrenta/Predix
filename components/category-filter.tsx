@@ -7,6 +7,11 @@ import {
   TrendingUp,
   Clapperboard,
   LayoutGrid,
+  Bitcoin,
+  Cpu,
+  Atom,
+  CloudSun,
+  Music
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -20,7 +25,12 @@ const categories = [
   { id: "política", label: "Política", icon: Landmark },
   { id: "deportes", label: "Deportes", icon: Trophy },
   { id: "finanzas", label: "Finanzas", icon: TrendingUp },
+  { id: "cripto", label: "Cripto", icon: Bitcoin },
+  { id: "tecnología", label: "Tecnología", icon: Cpu },
+  { id: "ciencia", label: "Ciencia", icon: Atom },
+  { id: "clima", label: "Clima", icon: CloudSun },
   { id: "entretenimiento", label: "Entretenimiento", icon: Clapperboard },
+  { id: "música", label: "Música", icon: Music },
 ];
 
 export function CategoryFilter({

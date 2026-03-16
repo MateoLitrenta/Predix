@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { getProfile, getMyBets, updateProfileName, getMyTransactions, updateUserPassword, type BetWithMarket } from "@/lib/actions";
+import { getProfile, getMyBets, getMyTransactions, updateUserPassword, updateProfileSettings, type BetWithMarket } from "@/lib/actions";
 import { createClient } from "@/lib/supabase/client";
 import { NavHeader } from "@/components/nav-header";
 import { Button } from "@/components/ui/button";
@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Coins, User, ArrowLeft, Loader2, TrendingUp, TrendingDown, History, Pencil, Landmark, Lock } from "lucide-react";
+import { Coins, User, ArrowLeft, Loader2, TrendingUp, TrendingDown, History, Pencil, Landmark, Lock, Camera } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
 const ACTIVE_STATUSES = ["active", "pending"];
@@ -40,10 +40,13 @@ export default function ProfilePage() {
   const [isLoadingTransactions, setIsLoadingTransactions] = useState(true);
   const [isDarkMode, setIsDarkMode] = useState(true);
 
-  // Estados para Modal de Perfil
+  // Estados para Modal de Perfil (Con Foto)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [newUsername, setNewUsername] = useState("");
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Estados para Modal de Contraseña
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
@@ -60,6 +63,7 @@ export default function ProfilePage() {
       }
       setProfile(p);
       setNewUsername(p.username || "");
+      setPreviewUrl((p as any).avatar_url || null);
       setIsChecking(false);
     };
     load();
@@ -85,20 +89,53 @@ export default function ProfilePage() {
     loadData();
   }, [profile?.id]);
 
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setSelectedImage(file);
+      setPreviewUrl(URL.createObjectURL(file)); // Muestra la previsualización al instante
+    }
+  };
+
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newUsername.trim()) return;
     
     setIsSaving(true);
-    const { ok, error } = await updateProfileName(newUsername.trim());
+    const supabase = createClient();
+    let finalAvatarUrl = profile.avatar_url;
+
+    // 1. Si seleccionó una foto, la subimos al storage primero
+    if (selectedImage) {
+      const fileExt = selectedImage.name.split('.').pop();
+      const filePath = `${profile.id}-${Date.now()}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("avatars")
+        .upload(filePath, selectedImage, { upsert: true });
+
+      if (uploadError) {
+        toast({ title: "Error", description: "No se pudo subir la imagen. Intenta con una más liviana.", variant: "destructive" });
+        setIsSaving(false);
+        return;
+      }
+
+      // Obtenemos el link público de la foto recién subida
+      const { data } = supabase.storage.from("avatars").getPublicUrl(filePath);
+      finalAvatarUrl = data.publicUrl;
+    }
+
+    // 2. Guardamos todo en la base de datos
+    const { ok, error } = await updateProfileSettings(newUsername.trim(), finalAvatarUrl);
     setIsSaving(false);
 
     if (error) {
       toast({ title: "Error", description: error, variant: "destructive" });
     } else {
-      toast({ title: "Perfil actualizado", description: "Tu nombre de usuario se cambió con éxito." });
-      setProfile({ ...profile, username: newUsername.trim() });
+      toast({ title: "Perfil actualizado", description: "Tus datos se guardaron con éxito." });
+      setProfile({ ...profile, username: newUsername.trim(), avatar_url: finalAvatarUrl });
       setIsEditModalOpen(false);
+      setSelectedImage(null);
       router.refresh(); 
     }
   };
@@ -141,7 +178,7 @@ export default function ProfilePage() {
   const displayName = profile.username || profile.email?.split("@")[0] || "Usuario";
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background flex flex-col">
       <NavHeader
         points={profile.points ?? 10000}
         isDarkMode={isDarkMode}
@@ -158,8 +195,8 @@ export default function ProfilePage() {
         username={profile.username ?? null}
       />
 
-      <div className="container mx-auto px-4 py-8">
-        <Button variant="ghost" size="sm" asChild className="mb-6">
+      <main className="container mx-auto px-4 py-8 flex-1">
+        <Button variant="ghost" size="sm" asChild className="mb-6 -ml-2">
           <Link href="/" className="flex items-center gap-2">
             <ArrowLeft className="w-4 h-4" />
             Volver
@@ -179,7 +216,12 @@ export default function ProfilePage() {
                   <Button variant="outline" size="sm" onClick={() => setIsPasswordModalOpen(true)} title="Cambiar Contraseña">
                     <Lock className="w-4 h-4" />
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => setIsEditModalOpen(true)}>
+                  <Button variant="outline" size="sm" onClick={() => {
+                    setNewUsername(profile.username || "");
+                    setPreviewUrl(profile.avatar_url || null);
+                    setSelectedImage(null);
+                    setIsEditModalOpen(true);
+                  }}>
                     <Pencil className="w-4 h-4 mr-2" />
                     Editar
                   </Button>
@@ -188,8 +230,12 @@ export default function ProfilePage() {
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="flex items-center gap-4">
-                <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center text-primary border border-primary/30 shrink-0">
-                  <User className="w-8 h-8" />
+                <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center text-primary border-2 border-primary/20 overflow-hidden shrink-0">
+                  {profile.avatar_url ? (
+                    <img src={profile.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+                  ) : (
+                    <User className="w-10 h-10" />
+                  )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-muted-foreground">Usuario</p>
@@ -204,7 +250,6 @@ export default function ProfilePage() {
                 </div>
               </div>
 
-              {/* Nuevos Datos Personales */}
               <div className="grid grid-cols-2 gap-4 pt-4 border-t border-border/50">
                 <div>
                   <p className="text-sm text-muted-foreground">Nombre Completo</p>
@@ -238,7 +283,7 @@ export default function ProfilePage() {
             </CardContent>
           </Card>
 
-          {/* Tarjeta de Historiales */}
+          {/* Tarjeta de Historiales (se mantiene igual, omito el código largo repetido de tu pestaña para que sea rápido, pero está acá abajo) */}
           <Card className="bg-card border-border/50 mt-6 shadow-md">
             <CardContent className="p-4 sm:p-6">
               <Tabs defaultValue="active" className="w-full">
@@ -358,18 +403,50 @@ export default function ProfilePage() {
             </CardContent>
           </Card>
         </div>
-      </div>
+      </main>
 
-      {/* Modal para Editar Nombre de Usuario */}
+      {/* Modal para Editar Perfil (FOTO + NOMBRE) */}
       <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Editar Nombre de Usuario</DialogTitle>
+            <DialogTitle>Editar Perfil</DialogTitle>
             <DialogDescription>
-              Elegí cómo querés que te vean los demás en el ranking y en la plataforma.
+              Personalizá tu avatar y tu nombre de usuario para el ranking.
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleSaveProfile} className="space-y-4 pt-4">
+          <form onSubmit={handleSaveProfile} className="space-y-6 pt-4">
+            
+            {/* Foto de Perfil */}
+            <div className="flex flex-col items-center justify-center gap-3">
+              <div 
+                onClick={() => fileInputRef.current?.click()}
+                className="relative w-24 h-24 rounded-full bg-muted border-2 border-dashed border-border flex items-center justify-center cursor-pointer overflow-hidden group hover:border-primary transition-colors"
+              >
+                {previewUrl ? (
+                  <>
+                    <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" />
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                      <Camera className="w-6 h-6 text-white" />
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex flex-col items-center text-muted-foreground group-hover:text-primary transition-colors">
+                    <Camera className="w-8 h-8 mb-1" />
+                    <span className="text-[10px] uppercase font-bold">Subir</span>
+                  </div>
+                )}
+              </div>
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                onChange={handleImageSelect} 
+                accept="image/png, image/jpeg, image/webp" 
+                className="hidden" 
+              />
+              <p className="text-xs text-muted-foreground">Recomendado: 1:1 (Cuadrada), máx 2MB</p>
+            </div>
+
+            {/* Nombre de Usuario */}
             <div className="space-y-2">
               <Label htmlFor="username">Nombre de Usuario</Label>
               <Input
@@ -381,11 +458,12 @@ export default function ProfilePage() {
                 required
               />
             </div>
+
             <DialogFooter className="pt-4">
               <Button type="button" variant="outline" onClick={() => setIsEditModalOpen(false)}>
                 Cancelar
               </Button>
-              <Button type="submit" disabled={isSaving || !newUsername.trim() || newUsername === profile?.username}>
+              <Button type="submit" disabled={isSaving || !newUsername.trim()}>
                 {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : "Guardar Cambios"}
               </Button>
             </DialogFooter>
@@ -398,9 +476,6 @@ export default function ProfilePage() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Cambiar Contraseña</DialogTitle>
-            <DialogDescription>
-              Ingresá tu nueva contraseña. Asegurate de usar al menos 6 caracteres.
-            </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleChangePassword} className="space-y-4 pt-4">
             <div className="space-y-2">
@@ -426,9 +501,7 @@ export default function ProfilePage() {
               />
             </div>
             <DialogFooter className="pt-4">
-              <Button type="button" variant="outline" onClick={() => setIsPasswordModalOpen(false)}>
-                Cancelar
-              </Button>
+              <Button type="button" variant="outline" onClick={() => setIsPasswordModalOpen(false)}>Cancelar</Button>
               <Button type="submit" disabled={isChangingPassword || !newPassword || !confirmPassword}>
                 {isChangingPassword ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : "Actualizar Contraseña"}
               </Button>

@@ -66,15 +66,28 @@ export function MarketCard({
   const noPercentage = 100 - yesPercentage;
 
   const getCategoryColor = (cat: string) => {
-    switch (cat.toLowerCase()) {
-      case "política":
+    // Normalizamos para evitar problemas si se guarda con o sin tilde
+    const normalizedCat = cat.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+    switch (normalizedCat) {
+      case "politica":
         return "bg-primary/10 text-primary border-primary/20";
       case "deportes":
         return "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20";
       case "finanzas":
         return "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20";
+      case "cripto":
+        return "bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20";
+      case "tecnologia":
+        return "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20";
+      case "ciencia":
+        return "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20";
+      case "clima":
+        return "bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20";
       case "entretenimiento":
         return "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20";
+      case "musica":
+        return "bg-pink-500/10 text-pink-600 dark:text-pink-400 border-pink-500/20";
       default:
         return "bg-muted text-muted-foreground";
     }

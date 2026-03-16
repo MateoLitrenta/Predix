@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-
 import { useState } from "react";
 import {
   Dialog,
@@ -164,12 +163,15 @@ export function CreateMarketModal({ isOpen, onClose, userId, onMarketCreated }: 
                     <SelectValue placeholder="Seleccionar" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Política">Política</SelectItem>
-                    <SelectItem value="Deportes">Deportes</SelectItem>
-                    <SelectItem value="Finanzas">Finanzas</SelectItem>
-                    <SelectItem value="Entretenimiento">
-                      Entretenimiento
-                    </SelectItem>
+                    <SelectItem value="política">Política</SelectItem>
+                    <SelectItem value="deportes">Deportes</SelectItem>
+                    <SelectItem value="finanzas">Finanzas</SelectItem>
+                    <SelectItem value="cripto">Cripto</SelectItem>
+                    <SelectItem value="tecnología">Tecnología</SelectItem>
+                    <SelectItem value="ciencia">Ciencia</SelectItem>
+                    <SelectItem value="clima">Clima</SelectItem>
+                    <SelectItem value="entretenimiento">Entretenimiento</SelectItem>
+                    <SelectItem value="música">Música</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

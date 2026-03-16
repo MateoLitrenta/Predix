@@ -12,21 +12,26 @@ export type ProfileResult = {
   date_of_birth?: string | null;
 } | null;
 
-export async function getProfile(): Promise<ProfileResult> {
+export async function getProfile() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
+
   if (!user) return null;
 
-  const { data: profile, error } = await supabase
+  // Al poner "*" le decimos que traiga TODAS las columnas, incluyendo avatar_url
+  const { data, error } = await supabase
     .from("profiles")
-    .select("id, username, role, points, full_name, date_of_birth")
+    .select("*")
     .eq("id", user.id)
     .single();
 
-  if (error || !profile) return null;
-  return { ...profile, email: user.email ?? null } as ProfileResult;
+  if (error) {
+    console.error("Error obteniendo perfil:", error.message);
+    return null;
+  }
+
+  // Combinamos los datos de la tabla profiles con el email de la sesión
+  return { ...data, email: user.email };
 }
 
 export type BetWithMarket = {
@@ -356,4 +361,44 @@ export async function createAdminMarket(params: {
 
   if (error) return { ok: false, error: error.message };
   return { ok: true, error: null };
+}
+
+// --- RANKING / LEADERBOARD ---
+
+export async function getLeaderboard(limit = 50) {
+  const supabase = await createClient();
+  
+  // ACÁ ESTÁ EL CAMBIO: agregamos avatar_url al select
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, username, points, avatar_url")
+    .order("points", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    console.error("Error al traer el ranking:", error.message);
+    return { data: null, error: error.message };
+  }
+  
+  return { data, error: null };
+}
+
+export async function updateProfileSettings(username: string, avatar_url: string | null) {
+  const supabase = await createClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  
+  if (authError || !user) {
+    return { ok: false, error: "No autorizado" };
+  }
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ username, avatar_url })
+    .eq("id", user.id);
+
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+
+  return { ok: true };
 }
