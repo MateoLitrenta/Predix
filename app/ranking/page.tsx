@@ -8,13 +8,19 @@ import { getProfile, getLeaderboard } from "@/lib/actions";
 import { NavHeader } from "@/components/nav-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Trophy, Loader2, ArrowLeft, Medal, User as UserIcon, ChevronRight } from "lucide-react";
 
 interface RankedUser {
   id: string;
   username: string | null;
   points: number;
-  avatar_url?: string | null; // <-- Le enseñamos que puede venir una foto
+  avatar_url?: string | null;
 }
 
 export default function RankingPage() {
@@ -23,6 +29,11 @@ export default function RankingPage() {
   const [profile, setProfile] = useState<any>(null);
   const [leaderboard, setLeaderboard] = useState<RankedUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Estados para el Modal de Resumen
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isLoadingProfileStats, setIsLoadingProfileStats] = useState(false);
+  const [selectedUserProfile, setSelectedUserProfile] = useState<any>(null);
 
   useEffect(() => {
     const loadData = async () => {
@@ -48,6 +59,56 @@ export default function RankingPage() {
       return profile.email.split("@")[0];
     }
     return "Usuario Anónimo";
+  };
+
+  // Función para abrir la tarjeta del usuario
+  const openUserProfile = async (user: RankedUser, position: number) => {
+    // Ya tenemos puntos, avatar y ranking. Solo calculamos la tasa de acierto.
+    setSelectedUserProfile({
+      id: user.id,
+      username: getDisplayName(user),
+      points: user.points,
+      rank: position,
+      winRate: 0,
+      totalResolved: 0,
+      avatar_url: user.avatar_url
+    });
+    
+    setIsProfileModalOpen(true);
+    setIsLoadingProfileStats(true);
+
+    try {
+      const supabase = createClient();
+      const { data: bData } = await supabase
+        .from('bets')
+        .select('outcome, markets(status, winning_outcome)')
+        .eq('user_id', user.id);
+
+      let wins = 0;
+      let resolvedCount = 0;
+
+      if (bData) {
+        bData.forEach((bet) => {
+          const m = Array.isArray(bet.markets) ? bet.markets[0] : bet.markets;
+          if (m && m.status === 'resolved') {
+            resolvedCount++;
+            if (m.winning_outcome === bet.outcome) wins++;
+          }
+        });
+      }
+
+      const winRate = resolvedCount > 0 ? Math.round((wins / resolvedCount) * 100) : 0;
+
+      setSelectedUserProfile((prev: any) => ({
+        ...prev,
+        winRate,
+        totalResolved: resolvedCount
+      }));
+    } catch (err) {
+      console.error("Error al cargar resumen del perfil", err);
+    } finally {
+      setIsLoadingProfileStats(false);
+    }
   };
 
   return (
@@ -116,9 +177,10 @@ export default function RankingPage() {
                     const position = index + 1;
 
                     return (
-                      <Link
-                        href={`/profile/${user.id}`}
+                      // Cambiamos el Link por un div con onClick para abrir el modal
+                      <div
                         key={user.id}
+                        onClick={() => openUserProfile(user, position)}
                         className={`group flex items-center justify-between p-4 sm:px-6 transition-all duration-200 hover:bg-muted/40 cursor-pointer ${
                           isCurrentUser ? "bg-primary/5 border-l-4 border-l-primary" : "border-l-4 border-l-transparent"
                         }`}
@@ -137,7 +199,6 @@ export default function RankingPage() {
                           </div>
 
                           <div className="flex items-center gap-3 sm:gap-4">
-                            {/* ACÁ ESTÁ LA MAGIA DE LA FOTO */}
                             <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center shrink-0 border overflow-hidden ${
                               position === 1 ? "bg-amber-400/10 text-amber-500 border-amber-400/30" :
                               position === 2 ? "bg-slate-300/10 text-slate-400 border-slate-300/30" :
@@ -171,7 +232,7 @@ export default function RankingPage() {
                           </div>
                           <ChevronRight className="w-5 h-5 text-muted-foreground opacity-0 -ml-2 group-hover:opacity-100 group-hover:translate-x-1 transition-all shrink-0 hidden sm:block" />
                         </div>
-                      </Link>
+                      </div>
                     );
                   })}
                 </div>
@@ -180,6 +241,60 @@ export default function RankingPage() {
           </Card>
         </div>
       </div>
+
+      {/* MODAL DE RESUMEN DE PERFIL */}
+      <Dialog open={isProfileModalOpen} onOpenChange={setIsProfileModalOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-center">Resumen del Jugador</DialogTitle>
+          </DialogHeader>
+          
+          {isLoadingProfileStats ? (
+            <div className="py-12 flex flex-col items-center justify-center text-muted-foreground">
+              <Loader2 className="w-8 h-8 animate-spin text-primary mb-4" />
+              <p className="text-sm">Analizando estadísticas...</p>
+            </div>
+          ) : selectedUserProfile ? (
+            <div className="flex flex-col items-center gap-4 py-2">
+              <div className="w-20 h-20 rounded-full bg-primary/10 border-2 border-primary/20 flex items-center justify-center shadow-sm overflow-hidden">
+                {selectedUserProfile.avatar_url ? (
+                  <img src={selectedUserProfile.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+                ) : (
+                  <UserIcon className="w-10 h-10 text-primary" />
+                )}
+              </div>
+              
+              <h3 className="text-2xl font-bold text-foreground mt-1">{selectedUserProfile.username}</h3>
+              
+              <div className="grid grid-cols-2 gap-3 w-full text-center mt-2">
+                <div className="bg-muted/30 p-3 rounded-xl border border-border/50 shadow-sm">
+                  <p className="text-xs text-muted-foreground font-bold uppercase tracking-wider mb-1">Puntos</p>
+                  <p className="font-bold text-lg text-amber-500">{selectedUserProfile.points.toLocaleString()}</p>
+                </div>
+                <div className="bg-muted/30 p-3 rounded-xl border border-border/50 shadow-sm">
+                  <p className="text-xs text-muted-foreground font-bold uppercase tracking-wider mb-1">Ranking</p>
+                  <p className="font-bold text-lg text-foreground">#{selectedUserProfile.rank}</p>
+                </div>
+                <div className="bg-muted/30 p-3 rounded-xl border border-border/50 col-span-2 shadow-sm">
+                  <p className="text-xs text-muted-foreground font-bold uppercase tracking-wider mb-1">Tasa de Acierto</p>
+                  <p className="font-bold text-2xl text-green-500">
+                    {selectedUserProfile.totalResolved > 0 ? `${selectedUserProfile.winRate}%` : 'Sin datos'}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground uppercase font-medium mt-0.5">
+                    De {selectedUserProfile.totalResolved} predicciones finalizadas
+                  </p>
+                </div>
+              </div>
+
+              <Button asChild className="w-full mt-4" size="lg">
+                <Link href={`/profile/${selectedUserProfile.id}`}>
+                  Ver Perfil Completo
+                </Link>
+              </Button>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

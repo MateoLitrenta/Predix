@@ -16,7 +16,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { createClient } from "@/lib/supabase/client";
-import { Loader2, ArrowLeft, TrendingUp, TrendingDown, Clock, Coins, History, CheckCheck, X, User as UserIcon } from "lucide-react";
+import { Loader2, ArrowLeft, TrendingUp, TrendingDown, Clock, Coins, History, CheckCheck, X, User as UserIcon, MessageSquare } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +30,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
   
   const [market, setMarket] = useState<any>(null);
   const [bets, setBets] = useState<any[]>([]);
+  const [comments, setComments] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
   const [user, setUser] = useState<any>(null);
@@ -41,6 +42,10 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
   const [selectedOption, setSelectedOption] = useState<"yes" | "no" | null>(null);
   const [betAmount, setBetAmount] = useState("");
   const [isPlacingBet, setIsPlacingBet] = useState(false);
+
+  // Comentarios
+  const [newComment, setNewComment] = useState("");
+  const [isSubmittingComment, setIsSubmittingComment] = useState(false);
 
   // Modal de Resumen de Perfil
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -60,7 +65,6 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
   }, [supabase]);
 
   const fetchData = useCallback(async () => {
-    // 1. Traer Mercado
     const { data: mData, error: mError } = await supabase.from("markets").select("*").eq("id", marketId).single();
     if (mError) {
       toast({ title: "Error", description: "Mercado no encontrado", variant: "destructive" });
@@ -69,37 +73,23 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     }
     setMarket(mData);
 
-    // 2. Traer Historial de Apuestas (Método Infalible)
-    const { data: betsData } = await supabase
-      .from("bets")
-      .select("*")
-      .eq("market_id", marketId)
-      .order("created_at", { ascending: false });
-    
+    const { data: betsData } = await supabase.from("bets").select("*").eq("market_id", marketId).order("created_at", { ascending: false });
     if (betsData && betsData.length > 0) {
       const userIds = [...new Set(betsData.map(b => b.user_id))];
-      
-      const { data: profilesData } = await supabase
-        .from("profiles")
-        .select("id, username")
-        .in("id", userIds);
-        
+      const { data: profilesData } = await supabase.from("profiles").select("id, username").in("id", userIds);
       const profileMap: Record<string, string> = {};
-      if (profilesData) {
-        profilesData.forEach(p => {
-          profileMap[p.id] = p.username || "Usuario Anónimo";
-        });
-      }
-
-      const finalBets = betsData.map(bet => ({
-        ...bet,
-        profiles: { username: profileMap[bet.user_id] || "Usuario Anónimo" }
-      }));
-      
-      setBets(finalBets);
+      if (profilesData) profilesData.forEach(p => { profileMap[p.id] = p.username || "Usuario Anónimo"; });
+      setBets(betsData.map(bet => ({ ...bet, profiles: { username: profileMap[bet.user_id] || "Usuario Anónimo" } })));
     } else {
       setBets([]);
     }
+
+    const { data: commentsData } = await supabase
+      .from("comments")
+      .select("*, profiles(username, avatar_url)")
+      .eq("market_id", marketId)
+      .order("created_at", { ascending: false });
+    setComments(commentsData || []);
     
     setIsLoading(false);
   }, [marketId, router, supabase]);
@@ -111,7 +101,11 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     const channel = supabase.channel(`market-${marketId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "bets", filter: `market_id=eq.${marketId}` }, () => {
         fetchData();
-      }).subscribe();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "comments", filter: `market_id=eq.${marketId}` }, () => {
+        fetchData();
+      })
+      .subscribe();
 
     return () => { supabase.removeChannel(channel); };
   }, [fetchUserAndProfile, fetchData, marketId, supabase]);
@@ -154,34 +148,47 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     }
   };
 
-  // Función para abrir la mini-tarjeta del usuario
+  const handleAddComment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) { setIsAuthModalOpen(true); return; }
+    if (!newComment.trim()) return;
+
+    setIsSubmittingComment(true);
+    try {
+      const { error } = await supabase.from("comments").insert({
+        market_id: marketId,
+        user_id: user.id,
+        content: newComment.trim()
+      });
+
+      if (error) {
+        toast({ title: "Error al comentar", description: error.message, variant: "destructive" });
+      } else {
+        setNewComment("");
+        fetchData();
+      }
+    } catch (err: any) {
+      toast({ title: "Error crítico", description: "Revisá la consola", variant: "destructive" });
+    } finally {
+      setIsSubmittingComment(false);
+    }
+  };
+
   const openUserProfile = async (userId: string, username: string) => {
     setSelectedUserProfile({ id: userId, username, points: 0, rank: 0, winRate: 0, totalResolved: 0, avatar_url: null });
     setIsProfileModalOpen(true);
     setIsLoadingProfileStats(true);
 
     try {
-      // 1. Puntos y Foto del usuario (ACÁ AGREGAMOS avatar_url)
       const { data: pData } = await supabase.from('profiles').select('points, avatar_url').eq('id', userId).single();
       const userPoints = pData?.points || 0;
       const userAvatarUrl = pData?.avatar_url || null;
 
-      // 2. Ranking Global
-      const { count } = await supabase
-        .from('profiles')
-        .select('*', { count: 'exact', head: true })
-        .gt('points', userPoints);
+      const { count } = await supabase.from('profiles').select('*', { count: 'exact', head: true }).gt('points', userPoints);
       const userRank = (count || 0) + 1;
 
-      // 3. Tasa de Acierto (Win Rate)
-      const { data: bData } = await supabase
-        .from('bets')
-        .select('outcome, markets(status, winning_outcome)')
-        .eq('user_id', userId);
-
-      let wins = 0;
-      let resolvedCount = 0;
-
+      const { data: bData } = await supabase.from('bets').select('outcome, markets(status, winning_outcome)').eq('user_id', userId);
+      let wins = 0; let resolvedCount = 0;
       if (bData) {
         bData.forEach((bet) => {
           const m = Array.isArray(bet.markets) ? bet.markets[0] : bet.markets;
@@ -191,18 +198,9 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
           }
         });
       }
-
       const winRate = resolvedCount > 0 ? Math.round((wins / resolvedCount) * 100) : 0;
 
-      setSelectedUserProfile({
-        id: userId,
-        username,
-        points: userPoints,
-        rank: userRank,
-        winRate,
-        totalResolved: resolvedCount,
-        avatar_url: userAvatarUrl // Pasamos la foto al estado del modal
-      });
+      setSelectedUserProfile({ id: userId, username, points: userPoints, rank: userRank, winRate, totalResolved: resolvedCount, avatar_url: userAvatarUrl });
     } catch (err) {
       console.error("Error al cargar resumen del perfil", err);
     } finally {
@@ -217,30 +215,134 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
   const yesPercentage = totalVotes === 0 ? 50 : Math.round((Number(market.yes_votes) / totalVotes) * 100);
   const noPercentage = 100 - yesPercentage;
 
+  // BLOQUE 1: Últimas Apuestas
+  const UltimasApuestasBlock = (
+    <div className="pt-8 border-t border-border/50 lg:pt-0 lg:border-t-0">
+      <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><History className="w-5 h-5 text-primary" /> Últimas Apuestas</h3>
+      <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
+        {bets.length === 0 ? (
+          <p className="text-center py-8 text-muted-foreground text-sm">Nadie ha apostado aún. ¡Sé el primero!</p>
+        ) : (
+          <div className="divide-y divide-border/50 max-h-[400px] overflow-y-auto">
+            {bets.map((bet) => (
+              <div key={bet.id} className="flex items-center justify-between p-4 hover:bg-muted/30 transition-colors">
+                <div className="flex items-center gap-3">
+                  <div className={cn("w-8 h-8 rounded-full flex items-center justify-center shrink-0", bet.outcome === 'yes' ? "bg-primary/20 text-primary" : "bg-red-500/20 text-red-500")}>
+                    {bet.outcome === 'yes' ? <CheckCheck className="w-4 h-4" /> : <X className="w-4 h-4" />}
+                  </div>
+                  <div>
+                    <button onClick={() => openUserProfile(bet.user_id, bet.profiles?.username || "Usuario Anónimo")} className="font-medium text-sm hover:text-primary transition-colors hover:underline text-left">
+                      {bet.profiles?.username || "Usuario Anónimo"}
+                    </button>
+                    <p className="text-xs text-muted-foreground block">{new Date(bet.created_at).toLocaleTimeString()}</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="font-bold text-foreground">{bet.amount.toLocaleString()} pts</p>
+                  <p className={cn("text-xs font-medium uppercase", bet.outcome === 'yes' ? "text-primary" : "text-red-500")}>{bet.outcome}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  // BLOQUE 2: Comentarios (Debate)
+  const DebateBlock = (
+    <div className="pt-8 border-t border-border/50">
+      <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
+        <MessageSquare className="w-6 h-6 text-primary" /> Debate del Mercado
+      </h3>
+      
+      <form onSubmit={handleAddComment} className="mb-8 flex gap-3">
+        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden border border-primary/20">
+          {profile?.avatar_url ? (
+            <img src={profile.avatar_url} alt="Tu Avatar" className="w-full h-full object-cover" />
+          ) : (
+            <UserIcon className="w-5 h-5 text-primary" />
+          )}
+        </div>
+        <div className="flex-1 flex gap-2">
+          <Input 
+            value={newComment}
+            onChange={(e) => setNewComment(e.target.value)}
+            placeholder={user ? "Opiná sobre este mercado..." : "Iniciá sesión para comentar..."}
+            className="flex-1 bg-muted/20"
+            disabled={isSubmittingComment || !user}
+          />
+          <Button type="submit" disabled={!newComment.trim() || isSubmittingComment || !user}>
+            {isSubmittingComment ? <Loader2 className="w-4 h-4 animate-spin" /> : "Enviar"}
+          </Button>
+        </div>
+      </form>
+
+      <div className="space-y-4">
+        {comments.length === 0 ? (
+          <p className="text-center py-8 text-muted-foreground bg-muted/10 rounded-xl border border-dashed border-border/50">
+            Todavía no hay comentarios. ¡Rompé el hielo!
+          </p>
+        ) : (
+          comments.map(comment => {
+            const userBets = bets.filter(b => b.user_id === comment.user_id);
+            const hasBet = userBets.length > 0;
+            const totalBet = hasBet ? userBets.reduce((sum, b) => sum + Number(b.amount), 0) : 0;
+            const mainOutcome = hasBet ? userBets[0].outcome : null;
+
+            return (
+              <div key={comment.id} className="flex gap-4 p-4 rounded-xl bg-card border border-border/50 hover:border-primary/30 transition-colors">
+                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden border border-primary/20 cursor-pointer" onClick={() => openUserProfile(comment.user_id, comment.profiles?.username || "Usuario")}>
+                  {comment.profiles?.avatar_url ? (
+                    <img src={comment.profiles.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+                  ) : (
+                    <UserIcon className="w-5 h-5 text-primary" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <span className="font-bold text-sm cursor-pointer hover:text-primary transition-colors" onClick={() => openUserProfile(comment.user_id, comment.profiles?.username || "Usuario")}>
+                      {comment.profiles?.username || "Usuario Anónimo"}
+                    </span>
+                    
+                    {hasBet && (
+                      <span className={cn(
+                        "text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider border",
+                        mainOutcome === 'yes' ? "bg-primary/10 text-primary border-primary/20" : "bg-red-500/10 text-red-500 border-red-500/20"
+                      )}>
+                        Apostó {mainOutcome === 'yes' ? 'SÍ' : 'NO'} ({totalBet.toLocaleString()} pts)
+                      </span>
+                    )}
+
+                    <span className="text-[10px] text-muted-foreground ml-auto">
+                      {new Date(comment.created_at).toLocaleString('es-AR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                  <p className="text-sm text-foreground/90 leading-relaxed break-words">
+                    {comment.content}
+                  </p>
+                </div>
+              </div>
+            )
+          })
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      <NavHeader
-        points={profile?.points ?? 10000}
-        isDarkMode={isDarkMode}
-        onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
-        onPointsUpdate={() => fetchUserAndProfile()}
-        userId={user?.id ?? null}
-        userEmail={user?.email ?? null}
-        onOpenAuthModal={() => setIsAuthModalOpen(true)}
-        onSignOut={async () => { await supabase.auth.signOut(); fetchUserAndProfile(); }}
-        isAdmin={profile?.role === "admin"}
-        username={profile?.username}
-      />
+      <NavHeader points={profile?.points ?? 10000} isDarkMode={isDarkMode} onToggleDarkMode={() => setIsDarkMode(!isDarkMode)} onPointsUpdate={() => fetchUserAndProfile()} userId={user?.id ?? null} userEmail={user?.email ?? null} onOpenAuthModal={() => setIsAuthModalOpen(true)} onSignOut={async () => { await supabase.auth.signOut(); fetchUserAndProfile(); }} isAdmin={profile?.role === "admin"} username={profile?.username} />
 
-      <main className="container mx-auto px-4 py-8 flex-1">
+      <main className="container mx-auto px-4 py-8 flex-1 max-w-6xl">
         <Button variant="ghost" size="sm" asChild className="mb-6 -ml-2 text-muted-foreground hover:text-foreground">
           <Link href="/"><ArrowLeft className="w-4 h-4 mr-2" />Volver a Mercados</Link>
         </Button>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+        <div className="flex flex-col lg:grid lg:grid-cols-3 gap-8 items-start">
           
-          {/* COLUMNA IZQUIERDA */}
-          <div className="lg:col-span-2 space-y-8">
+          {/* COLUMNA IZQUIERDA (Info y Gráficos) -> Orden 1 */}
+          <div className="lg:col-span-2 space-y-8 w-full order-1">
             <div className="flex gap-4 sm:gap-6 items-start">
               {market.image_url && (
                 <img src={market.image_url} alt="Mercado" className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl object-cover shrink-0 shadow-md border border-border/50" />
@@ -280,61 +382,25 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
               </div>
             </div>
 
-            <div>
-              <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><History className="w-5 h-5 text-primary" /> Últimas Apuestas</h3>
-              <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
-                {bets.length === 0 ? (
-                  <p className="text-center py-8 text-muted-foreground text-sm">Nadie ha apostado aún. ¡Sé el primero!</p>
-                ) : (
-                  <div className="divide-y divide-border/50">
-                    {bets.map((bet) => (
-                      <div key={bet.id} className="flex items-center justify-between p-4 hover:bg-muted/30 transition-colors">
-                        <div className="flex items-center gap-3">
-                          <div className={cn("w-8 h-8 rounded-full flex items-center justify-center shrink-0", bet.outcome === 'yes' ? "bg-primary/20 text-primary" : "bg-red-500/20 text-red-500")}>
-                            {bet.outcome === 'yes' ? <CheckCheck className="w-4 h-4" /> : <X className="w-4 h-4" />}
-                          </div>
-                          <div>
-                            <button 
-                              onClick={() => openUserProfile(bet.user_id, bet.profiles?.username || "Usuario Anónimo")}
-                              className="font-medium text-sm hover:text-primary transition-colors hover:underline text-left"
-                            >
-                              {bet.profiles?.username || "Usuario Anónimo"}
-                            </button>
-                            <p className="text-xs text-muted-foreground block">{new Date(bet.created_at).toLocaleTimeString()}</p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <p className="font-bold text-foreground">{bet.amount.toLocaleString()} pts</p>
-                          <p className={cn("text-xs font-medium uppercase", bet.outcome === 'yes' ? "text-primary" : "text-red-500")}>{bet.outcome}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+            {/* EN PC: Debate y Apuestas a la izquierda */}
+            <div className="hidden lg:block mt-8">
+              {DebateBlock}
+            </div>
+            <div className="hidden lg:block mt-8 pt-8 border-t border-border/50">
+              {UltimasApuestasBlock}
             </div>
           </div>
 
-          {/* COLUMNA DERECHA */}
-          <div className="lg:col-span-1 lg:sticky lg:top-24">
+          {/* COLUMNA DERECHA (Panel de Apuesta) -> Orden 2 */}
+          <div className="lg:col-span-1 lg:sticky lg:top-24 w-full order-2">
             <div className="rounded-2xl border border-border/50 bg-card shadow-xl p-5 sm:p-6">
               <h2 className="text-xl font-bold mb-5 flex items-center gap-2">
                 <Coins className="w-5 h-5 text-amber-500" /> Operar Mercado
               </h2>
               
               <div className="flex gap-2 mb-6">
-                <button
-                  onClick={() => setSelectedOption("yes")}
-                  className={cn("flex-1 py-3 px-4 rounded-xl font-bold transition-all border-2", selectedOption === "yes" ? "bg-primary border-primary text-primary-foreground shadow-md" : "bg-transparent border-border hover:border-primary/50 text-foreground")}
-                >
-                  Comprar Sí
-                </button>
-                <button
-                  onClick={() => setSelectedOption("no")}
-                  className={cn("flex-1 py-3 px-4 rounded-xl font-bold transition-all border-2", selectedOption === "no" ? "bg-red-500 border-red-500 text-white shadow-md" : "bg-transparent border-border hover:border-red-500/50 text-foreground")}
-                >
-                  Comprar No
-                </button>
+                <button onClick={() => setSelectedOption("yes")} className={cn("flex-1 py-3 px-4 rounded-xl font-bold transition-all border-2", selectedOption === "yes" ? "bg-primary border-primary text-primary-foreground shadow-md" : "bg-transparent border-border hover:border-primary/50 text-foreground")}>Comprar Sí</button>
+                <button onClick={() => setSelectedOption("no")} className={cn("flex-1 py-3 px-4 rounded-xl font-bold transition-all border-2", selectedOption === "no" ? "bg-red-500 border-red-500 text-white shadow-md" : "bg-transparent border-border hover:border-red-500/50 text-foreground")}>Comprar No</button>
               </div>
 
               <div className="space-y-4 mb-6">
@@ -363,69 +429,41 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
               <Button size="lg" className={cn("w-full h-12 text-base font-bold", selectedOption === 'no' ? "bg-red-600 hover:bg-red-700 text-white" : "")} disabled={!selectedOption || !betAmount || isPlacingBet} onClick={handlePlaceBet}>
                 {isPlacingBet ? <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Procesando...</> : !user ? "Ingresar para Operar" : !selectedOption ? "Seleccioná Sí o No" : `Confirmar Inversión`}
               </Button>
-              <p className="text-center text-xs text-muted-foreground mt-4">Al operar, aceptás bloquear tus puntos hasta que el mercado finalice.</p>
             </div>
+          </div>
+
+          {/* EN CELULAR: Debate y Apuestas abajo de Operar (Orden 3 y 4) */}
+          <div className="block lg:hidden w-full order-3 mt-2">
+            {DebateBlock}
+          </div>
+          <div className="block lg:hidden w-full order-4 mt-2">
+            {UltimasApuestasBlock}
           </div>
 
         </div>
       </main>
 
-      {/* MODAL DE RESUMEN DE PERFIL CON FOTO */}
       <Dialog open={isProfileModalOpen} onOpenChange={setIsProfileModalOpen}>
         <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-center">Resumen del Jugador</DialogTitle>
-          </DialogHeader>
-          
+          <DialogHeader><DialogTitle className="text-center">Resumen del Jugador</DialogTitle></DialogHeader>
           {isLoadingProfileStats ? (
-            <div className="py-12 flex flex-col items-center justify-center text-muted-foreground">
-              <Loader2 className="w-8 h-8 animate-spin text-primary mb-4" />
-              <p className="text-sm">Analizando estadísticas...</p>
-            </div>
+             <div className="py-12 flex flex-col items-center justify-center text-muted-foreground"><Loader2 className="w-8 h-8 animate-spin text-primary mb-4" /><p className="text-sm">Analizando estadísticas...</p></div>
           ) : selectedUserProfile ? (
             <div className="flex flex-col items-center gap-4 py-2">
-              
-              {/* ACÁ ESTÁ EL CAMBIO 3: La foto en el modal */}
               <div className="w-20 h-20 rounded-full bg-primary/10 border-2 border-primary/20 flex items-center justify-center shadow-sm overflow-hidden">
-                {selectedUserProfile.avatar_url ? (
-                  <img src={selectedUserProfile.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
-                ) : (
-                  <UserIcon className="w-10 h-10 text-primary" />
-                )}
+                {selectedUserProfile.avatar_url ? <img src={selectedUserProfile.avatar_url} alt="Avatar" className="w-full h-full object-cover" /> : <UserIcon className="w-10 h-10 text-primary" />}
               </div>
-              
               <h3 className="text-2xl font-bold text-foreground mt-1">{selectedUserProfile.username}</h3>
-              
               <div className="grid grid-cols-2 gap-3 w-full text-center mt-2">
-                <div className="bg-muted/30 p-3 rounded-xl border border-border/50 shadow-sm">
-                  <p className="text-xs text-muted-foreground font-bold uppercase tracking-wider mb-1">Puntos</p>
-                  <p className="font-bold text-lg text-amber-500">{selectedUserProfile.points.toLocaleString()}</p>
-                </div>
-                <div className="bg-muted/30 p-3 rounded-xl border border-border/50 shadow-sm">
-                  <p className="text-xs text-muted-foreground font-bold uppercase tracking-wider mb-1">Ranking</p>
-                  <p className="font-bold text-lg text-foreground">#{selectedUserProfile.rank}</p>
-                </div>
-                <div className="bg-muted/30 p-3 rounded-xl border border-border/50 col-span-2 shadow-sm">
-                  <p className="text-xs text-muted-foreground font-bold uppercase tracking-wider mb-1">Tasa de Acierto</p>
-                  <p className="font-bold text-2xl text-green-500">
-                    {selectedUserProfile.totalResolved > 0 ? `${selectedUserProfile.winRate}%` : 'Sin datos'}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground uppercase font-medium mt-0.5">
-                    De {selectedUserProfile.totalResolved} predicciones finalizadas
-                  </p>
-                </div>
+                <div className="bg-muted/30 p-3 rounded-xl border border-border/50 shadow-sm"><p className="text-xs text-muted-foreground font-bold uppercase tracking-wider mb-1">Puntos</p><p className="font-bold text-lg text-amber-500">{selectedUserProfile.points.toLocaleString()}</p></div>
+                <div className="bg-muted/30 p-3 rounded-xl border border-border/50 shadow-sm"><p className="text-xs text-muted-foreground font-bold uppercase tracking-wider mb-1">Ranking</p><p className="font-bold text-lg text-foreground">#{selectedUserProfile.rank}</p></div>
+                <div className="bg-muted/30 p-3 rounded-xl border border-border/50 col-span-2 shadow-sm"><p className="text-xs text-muted-foreground font-bold uppercase tracking-wider mb-1">Tasa de Acierto</p><p className="font-bold text-2xl text-green-500">{selectedUserProfile.totalResolved > 0 ? `${selectedUserProfile.winRate}%` : 'Sin datos'}</p><p className="text-[10px] text-muted-foreground uppercase font-medium mt-0.5">De {selectedUserProfile.totalResolved} predicciones finalizadas</p></div>
               </div>
-
-              <Button asChild className="w-full mt-4" size="lg">
-                <Link href={`/profile/${selectedUserProfile.id}`}>
-                  Ver Perfil Completo
-                </Link>
-              </Button>
+              <Button asChild className="w-full mt-4" size="lg"><Link href={`/profile/${selectedUserProfile.id}`}>Ver Perfil Completo</Link></Button>
             </div>
           ) : null}
         </DialogContent>
       </Dialog>
-
       <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} onAuthSuccess={() => { setIsAuthModalOpen(false); fetchUserAndProfile(); }} isDarkMode={isDarkMode} />
     </div>
   );

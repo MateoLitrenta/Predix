@@ -385,10 +385,15 @@ export default function AdminDashboardClient() {
                   <Select value={createForm.category} onValueChange={(v) => setCreateForm((f) => ({ ...f, category: v }))}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="politica">Política</SelectItem>
-                      <SelectItem value="deportes">Deportes</SelectItem>
-                      <SelectItem value="finanzas">Finanzas</SelectItem>
-                      <SelectItem value="entretenimiento">Entretenimiento</SelectItem>
+                    <SelectItem value="política">Política</SelectItem>
+<SelectItem value="deportes">Deportes</SelectItem>
+<SelectItem value="finanzas">Finanzas</SelectItem>
+<SelectItem value="cripto">Cripto</SelectItem>
+<SelectItem value="tecnología">Tecnología</SelectItem>
+<SelectItem value="ciencia">Ciencia</SelectItem>
+<SelectItem value="clima">Clima</SelectItem>
+<SelectItem value="entretenimiento">Entretenimiento</SelectItem>
+<SelectItem value="música">Música</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -426,10 +431,15 @@ export default function AdminDashboardClient() {
                 <Select value={editForm.category} onValueChange={(v) => setEditForm((f) => ({ ...f, category: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="politica">Política</SelectItem>
-                    <SelectItem value="deportes">Deportes</SelectItem>
-                    <SelectItem value="finanzas">Finanzas</SelectItem>
-                    <SelectItem value="entretenimiento">Entretenimiento</SelectItem>
+                  <SelectItem value="política">Política</SelectItem>
+<SelectItem value="deportes">Deportes</SelectItem>
+<SelectItem value="finanzas">Finanzas</SelectItem>
+<SelectItem value="cripto">Cripto</SelectItem>
+<SelectItem value="tecnología">Tecnología</SelectItem>
+<SelectItem value="ciencia">Ciencia</SelectItem>
+<SelectItem value="clima">Clima</SelectItem>
+<SelectItem value="entretenimiento">Entretenimiento</SelectItem>
+<SelectItem value="música">Música</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
