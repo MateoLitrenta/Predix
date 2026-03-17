@@ -48,7 +48,6 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
   const [isDeletingComment, setIsDeletingComment] = useState(false);
 
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
-  const [selectedUserProfile, setSelectedUserProfile] = useState<any>(null);
 
   const fetchUserAndProfile = useCallback(async () => {
     const { data: { user: currentUser } } = await supabase.auth.getUser();
@@ -74,27 +73,46 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     const { data: optionsData } = await supabase.from("market_options").select("*").eq("market_id", marketId).order("created_at", { ascending: true });
     setOptions(optionsData || []);
 
-    const { data: historyData } = await supabase.from("market_history").select("*").eq("market_id", marketId).order("created_at", { ascending: true });
-    let formattedHistory = historyData?.map(h => ({
-      time: new Date(h.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
-      yes: h.yes_percentage,
-      no: 100 - h.yes_percentage,
-    })) || [];
+    // RECUPERAMOS EL HISTORIAL (El nuevo múltiple y el viejo binario)
+    const { data: newHistoryData } = await supabase.from("market_option_history").select("*").eq("market_id", marketId).order("created_at", { ascending: true });
+    const { data: oldHistoryData } = await supabase.from("market_history").select("*").eq("market_id", marketId).order("created_at", { ascending: true });
 
+    let formattedHistory: any[] = [];
+
+    // Si tiene historial múltiple (El nuevo)
+    if (newHistoryData && newHistoryData.length > 0) {
+      const historyMap = new Map();
+      newHistoryData.forEach(h => {
+        const time = new Date(h.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+        if (!historyMap.has(time)) historyMap.set(time, { time });
+        historyMap.get(time)[h.option_id] = Number(h.percentage);
+      });
+      formattedHistory = Array.from(historyMap.values());
+    } 
+    // Si tiene historial viejo y es Sí/No (Retro-compatibilidad)
+    else if (oldHistoryData && oldHistoryData.length > 0 && optionsData && optionsData.length === 2) {
+      const yesOpt = optionsData.find(o => o.option_name.toLowerCase().includes('s'));
+      const noOpt = optionsData.find(o => o.option_name.toLowerCase().includes('n'));
+      formattedHistory = oldHistoryData.map(h => ({
+        time: new Date(h.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
+        [yesOpt?.id || 'yes']: h.yes_percentage,
+        [noOpt?.id || 'no']: 100 - h.yes_percentage,
+      }));
+    }
+
+    // Un puntito extra para que el gráfico no se vea vacío si hay 1 solo movimiento
     if (formattedHistory.length === 1) formattedHistory.push({ ...formattedHistory[0], time: "Ahora" });
     setHistory(formattedHistory);
 
-    // RECUPERAMOS APUESTAS Y CASHOUTS JUNTOS
+    // RECUPERAMOS APUESTAS Y CASHOUTS
     const { data: betsData } = await supabase.from("bets").select("*").eq("market_id", marketId).order("created_at", { ascending: false });
     const { data: cashoutsData } = await supabase.from("transactions").select("*").eq("market_id", marketId).eq("type", "cashout").order("created_at", { ascending: false });
 
     const rawBets = betsData || [];
     const rawCashouts = cashoutsData || [];
     
-    // Obtenemos los nombres de usuario de todos
     const userIds = [...new Set([...rawBets.map(b => b.user_id), ...rawCashouts.map(c => c.user_id)])];
     const profileMap: Record<string, string> = {};
-    
     if (userIds.length > 0) {
       const { data: profilesData } = await supabase.from("profiles").select("id, username").in("id", userIds);
       if (profilesData) profilesData.forEach(p => { profileMap[p.id] = p.username || "Usuario Anónimo"; });
@@ -103,7 +121,6 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     const mappedBets = rawBets.map(bet => ({ ...bet, activityType: 'bet', profiles: { username: profileMap[bet.user_id] || "Usuario Anónimo" } }));
     const mappedCashouts = rawCashouts.map(c => ({ ...c, activityType: 'cashout', profiles: { username: profileMap[c.user_id] || "Usuario Anónimo" } }));
 
-    // Unimos todo y ordenamos por fecha
     const combinedFeed = [...mappedBets, ...mappedCashouts].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     setActivityFeed(combinedFeed);
 
@@ -121,6 +138,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       .on("postgres_changes", { event: "*", schema: "public", table: "bets", filter: `market_id=eq.${marketId}` }, () => { fetchData(); })
       .on("postgres_changes", { event: "*", schema: "public", table: "transactions", filter: `market_id=eq.${marketId}` }, () => { fetchData(); })
       .on("postgres_changes", { event: "*", schema: "public", table: "comments", filter: `market_id=eq.${marketId}` }, () => { fetchData(); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "market_option_history", filter: `market_id=eq.${marketId}` }, () => { fetchData(); })
       .on("postgres_changes", { event: "*", schema: "public", table: "market_history", filter: `market_id=eq.${marketId}` }, () => { fetchData(); })
       .on("postgres_changes", { event: "*", schema: "public", table: "market_options", filter: `market_id=eq.${marketId}` }, () => { fetchData(); })
       .subscribe();
@@ -150,18 +168,14 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     }
 
     setIsPlacingBet(true);
-    const { error } = await supabase.rpc("realizar_apuesta", { 
-      p_amount: numericAmount, 
-      p_market_id: marketId, 
-      p_outcome: selectedOptionId 
-    });
+    const { error } = await supabase.rpc("realizar_apuesta", { p_amount: numericAmount, p_market_id: marketId, p_outcome: selectedOptionId });
     setIsPlacingBet(false);
 
     if (error) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } else {
       const optionName = options.find(o => o.id === selectedOptionId)?.option_name || "la opción";
-      toast({ title: "¡Apuesta confirmada!", description: `Invertiste ${numericAmount} pts a ${optionName}` });
+      toast({ title: "¡Predicción confirmada!", description: `Invertiste ${numericAmount} pts a ${optionName}` });
       setBetAmount("");
       fetchUserAndProfile();
     }
@@ -200,7 +214,6 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
   if (!market) return null;
 
   const totalVotesMulti = options.reduce((sum, opt) => sum + Number(opt.total_votes), 0);
-  const isBinary = options.length === 2 && options.some(o => o.option_name.toLowerCase().includes('s'));
 
   const topLevelComments = comments.filter(c => !c.parent_id).reverse();
 
@@ -261,7 +274,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                         <ArrowUpRight className="w-4 h-4" />
                       </div>
                       <div>
-                        <span className="font-medium text-sm">{item.profiles?.username || "Usuario"} apostó</span>
+                        <span className="font-medium text-sm">{item.profiles?.username || "Usuario"} invirtió</span>
                         <p className="text-xs text-muted-foreground block">{new Date(item.created_at).toLocaleTimeString()}</p>
                       </div>
                     </div>
@@ -354,15 +367,26 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                 <span className="text-muted-foreground font-normal">{totalVotesMulti.toLocaleString()} pts en juego</span>
               </h3>
 
-              {isBinary && (
+              {/* EL SÚPER GRÁFICO DINÁMICO */}
+              {history.length > 0 && (
                 <div className="h-[250px] w-full mt-4 mb-6">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={history}>
                       <XAxis dataKey="time" stroke="#888888" fontSize={10} tickLine={false} axisLine={false} minTickGap={30} />
                       <YAxis stroke="#888888" fontSize={10} tickLine={false} axisLine={false} domain={[0, 100]} tickFormatter={(val) => `${val}%`} width={40} />
                       <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', borderRadius: '8px', border: '1px solid hsl(var(--border))' }} />
-                      <Line type="linear" dataKey="yes" stroke="#0ea5e9" strokeWidth={3} dot={false} name="Sí" />
-                      <Line type="linear" dataKey="no" stroke="#ef4444" strokeWidth={3} dot={false} name="No" />
+                      
+                      {options.map((opt) => (
+                        <Line 
+                          key={opt.id} 
+                          type="monotone" 
+                          dataKey={opt.id} 
+                          stroke={opt.color} 
+                          strokeWidth={3} 
+                          dot={false} 
+                          name={opt.option_name} 
+                        />
+                      ))}
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
@@ -411,7 +435,6 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                 ))}
               </div>
 
-              {/* ¡ACÁ BORRAMOS LOS BOTONES DE SUGERENCIA DE +100, +500! */}
               <div className="space-y-4 mb-6">
                 <div>
                   <Label className="text-muted-foreground mb-1.5 block">Monto a invertir</Label>
