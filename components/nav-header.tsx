@@ -34,7 +34,8 @@ import {
   CheckCheck,
   Trophy,
   Trash2,
-  MessageSquare
+  MessageSquare,
+  TrendingUp // <-- ¡ACÁ ESTÁ LA FLECHA QUE FALTABA!
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
@@ -54,11 +55,10 @@ interface NavHeaderProps {
   username?: string | null;
 }
 
-// Actualizamos la interfaz para soportar los nuevos campos
 interface AppNotification {
   id: string;
-  message?: string; // Para las notificaciones viejas
-  type?: string;    // Para saber si es 'reply'
+  message?: string;
+  type?: string;    
   sender_id?: string;
   market_id?: string;
   is_read: boolean;
@@ -101,7 +101,6 @@ export function NavHeader({
         .limit(10);
         
       if (data && !error) {
-        // Buscamos los perfiles de los que nos respondieron
         const senderIds = [...new Set(data.map(n => n.sender_id).filter(Boolean))];
         const profMap: Record<string, any> = {};
         
@@ -124,11 +123,10 @@ export function NavHeader({
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${userId}` },
         () => {
-          // Si hay una nueva, recargamos para traer los nombres y fotos
           fetchNotifications();
           toast({
             title: "¡Nueva notificación!",
-            description: "Alguien interactuó con vos en PredicAR.",
+            description: "Alguien interactuó con vos en PREDIX.",
           });
           router.refresh(); 
         }
@@ -196,7 +194,6 @@ export function NavHeader({
   };
 
   const handleNotificationClick = (notif: AppNotification) => {
-    // Si la notificación tiene un mercado asociado, navegamos ahí
     if (notif.market_id) {
       router.push(`/market/${notif.market_id}`);
     }
@@ -231,7 +228,6 @@ export function NavHeader({
                   )}
                 >
                   <div className="flex gap-3">
-                    {/* Ícono o Avatar */}
                     <div className="mt-0.5 shrink-0">
                       {isReply ? (
                         <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20 overflow-hidden">
@@ -246,7 +242,6 @@ export function NavHeader({
                       )}
                     </div>
                     
-                    {/* Texto */}
                     <div className="flex-1 min-w-0">
                       {isReply ? (
                         <p className="text-foreground leading-snug whitespace-pre-wrap break-words">
@@ -262,7 +257,6 @@ export function NavHeader({
                     </div>
                   </div>
                   
-                  {/* Botón Tachito */}
                   <button
                     onClick={(e) => handleDeleteNotification(e, notif.id)}
                     className="absolute top-2 right-2 p-1.5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-red-500 hover:bg-red-500/10 rounded-md transition-all"
@@ -283,11 +277,24 @@ export function NavHeader({
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container mx-auto px-4">
         <div className="flex h-16 items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center shadow-lg">
-              <span className="text-lg font-bold text-primary-foreground">P</span>
+          
+          {/* LOGO PREDIX CON CÓDIGO (Sin imágenes) */}
+          <Link href="/" className="flex items-center hover:opacity-90 transition-opacity py-2 group mr-4">
+            <div className="flex items-baseline">
+              <span className="text-2xl sm:text-3xl font-black tracking-tighter text-foreground">
+                PREDI
+              </span>
+              <div className="relative">
+                <span className="text-2xl sm:text-3xl font-black tracking-tighter text-amber-400 drop-shadow-[0_0_10px_rgba(251,191,36,0.3)]">
+                  X
+                </span>
+                {/* La flecha de crecimiento saliendo de la X */}
+                <TrendingUp 
+                  className="absolute -top-2.5 -right-5 w-6 h-6 text-amber-400 drop-shadow-[0_0_10px_rgba(251,191,36,0.4)] group-hover:-translate-y-1 group-hover:translate-x-1 transition-transform duration-300" 
+                  strokeWidth={3} 
+                />
+              </div>
             </div>
-            <span className="text-xl font-bold tracking-tight">Predic<span className="text-primary">AR</span></span>
           </Link>
 
           <div className="hidden md:flex items-center gap-3">

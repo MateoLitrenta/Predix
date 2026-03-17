@@ -8,8 +8,8 @@ const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'PredicAR - Mercado de Predicciones',
-  description: 'Predecí el futuro y ganá puntos. El mercado de predicciones argentino.',
+  title: 'Predix - Predictive Markets',
+  description: 'Operá sobre el futuro y ganá puntos. La plataforma global de mercados predictivos.',
   generator: 'v0.app',
   icons: {
     icon: [
@@ -38,7 +38,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en">
+    <html lang="es">
       <body className={`font-sans antialiased`}>
         {children}
         <Toaster />
