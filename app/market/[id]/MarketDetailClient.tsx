@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { createClient } from "@/lib/supabase/client";
 import { sellBet } from "@/lib/actions";
-import { Loader2, ArrowLeft, Clock, Coins, X, User as UserIcon, MessageSquare, Reply, ChevronDown, ChevronUp, Trash2, ArrowDownRight, ArrowUpRight, TrendingUp, LineChart as LineChartIcon, Share2, Twitter, MessageCircle, Copy, Check } from "lucide-react";
+import { Loader2, ArrowLeft, Clock, Coins, X, User as UserIcon, MessageSquare, Reply, ChevronDown, ChevronUp, Trash2, ArrowDownRight, ArrowUpRight, TrendingUp, LineChart as LineChartIcon, Share2, Twitter, MessageCircle, Copy, Check, Lock } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
@@ -68,7 +68,6 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
   const [isDeletingComment, setIsDeletingComment] = useState(false);
 
   useEffect(() => {
-    // Seteamos la URL actual para el botón de compartir
     setMarketUrl(window.location.href);
   }, []);
 
@@ -177,7 +176,6 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     else document.documentElement.classList.remove("dark");
   }, [isDarkMode]);
 
-  // FUNCIONES PARA COMPARTIR
   const handleCopyLink = () => {
     navigator.clipboard.writeText(marketUrl);
     setIsCopied(true);
@@ -195,7 +193,6 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
   };
 
-  // CÁLCULO DE PRECIOS AMM (SPOT PRICE para compras)
   const getOptionPrice = (optionVotes: number) => {
     const totalVol = Number(market?.total_volume || 0);
     const totalOpts = options.length || 2;
@@ -203,7 +200,6 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     return Math.max(0.01, Math.min(0.99, price));
   };
 
-  // LA FÓRMULA MÁGICA: CÁLCULO REAL DE VENTA CON SLIPPAGE (Para que nadie saque puntos gratis)
   const calculateRealCashout = (bet: any, opt: any) => {
     const shares = Number(bet.shares || 0);
     if (shares <= 0) return Math.round(bet.amount * 0.95);
@@ -314,6 +310,9 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
   if (isLoading) return <div className="min-h-screen bg-background flex justify-center items-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
   if (!market) return null;
 
+  // LÓGICA DE CIERRE DE MERCADO
+  const isMarketClosed = market.status === 'resolved' || (market.end_date && new Date(market.end_date) <= new Date());
+
   const totalVotesMulti = options.reduce((sum, opt) => sum + Number(opt.total_votes), 0);
   const topLevelComments = comments.filter(c => !c.parent_id).reverse();
 
@@ -364,7 +363,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
 
   const UltimasApuestasBlock = (
     <div className="pt-8 border-t border-border/50 lg:pt-0 lg:border-t-0">
-      <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><ActivityIcon /> Actividad del Mercado</h3>
+      <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><TrendingUp className="w-5 h-5 text-primary" /> Actividad del Mercado</h3>
       <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
         {activityFeed.length === 0 ? (
           <p className="text-center py-8 text-muted-foreground text-sm">Aún no hay actividad. ¡Sé el primero!</p>
@@ -470,6 +469,11 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
               <div>
                 <div className="flex flex-wrap gap-2 mb-3 items-center">
                    <Badge variant="secondary" className="capitalize">{market.category}</Badge>
+                   {isMarketClosed && (
+                     <Badge variant="destructive" className="bg-red-500/10 text-red-500 hover:bg-red-500/20 border-red-500/30 gap-1.5 font-bold">
+                       <Lock className="w-3 h-3" /> Cerrado
+                     </Badge>
+                   )}
                    <Button variant="outline" size="sm" className="h-6 px-3 text-[10px] uppercase font-bold rounded-full flex items-center gap-1.5 border-border/50 hover:bg-primary/10 hover:text-primary transition-colors" onClick={() => setIsShareModalOpen(true)}>
                      <Share2 className="w-3 h-3" /> Compartir
                    </Button>
@@ -477,7 +481,10 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                 <h1 className="text-2xl sm:text-3xl font-bold text-foreground leading-tight mb-2">{market.title}</h1>
                 <div className="flex items-center gap-4 text-sm text-muted-foreground mt-3">
                   <div className="flex items-center gap-1.5"><Coins className="w-4 h-4" />{totalVotesMulti.toLocaleString()} pts Vol.</div>
-                  <div className="flex items-center gap-1.5"><Clock className="w-4 h-4" />Cierra: {new Date(market.end_date).toLocaleDateString()}</div>
+                  <div className={cn("flex items-center gap-1.5", isMarketClosed ? "text-red-500 font-medium" : "")}>
+                    <Clock className="w-4 h-4" />
+                    {isMarketClosed ? `Cerró el ${new Date(market.end_date).toLocaleDateString()}` : `Cierra: ${new Date(market.end_date).toLocaleDateString()}`}
+                  </div>
                 </div>
               </div>
             </div>
@@ -509,15 +516,19 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
               {isBinaryYesNo && yesOption && noOption ? (
                 <div className="flex gap-4 mt-6">
                    <div
-                     onClick={() => { setSelectedOptionId(yesOption.id); setSelectedDirection('yes'); setTradeTab("buy"); }}
-                     className={cn("flex-1 flex flex-col items-center justify-center p-6 sm:p-8 rounded-xl border-2 cursor-pointer transition-all shadow-sm", selectedOptionId === yesOption.id ? "bg-green-500/10 border-green-500 text-green-600 dark:text-green-500" : "bg-card border-border/50 hover:border-green-500/50 hover:bg-green-500/5 text-foreground")}
+                     onClick={() => { if(!isMarketClosed) { setSelectedOptionId(yesOption.id); setSelectedDirection('yes'); setTradeTab("buy"); } }}
+                     className={cn("flex-1 flex flex-col items-center justify-center p-6 sm:p-8 rounded-xl border-2 transition-all shadow-sm", 
+                       isMarketClosed ? "opacity-60 cursor-not-allowed bg-muted" : "cursor-pointer",
+                       selectedOptionId === yesOption.id ? "bg-green-500/10 border-green-500 text-green-600 dark:text-green-500" : "bg-card border-border/50 hover:border-green-500/50 hover:bg-green-500/5 text-foreground")}
                    >
                      <span className="text-3xl font-black mb-2">Sí</span>
                      <span className="text-xl font-bold opacity-80">{Math.round(getOptionPrice(yesOption.total_votes) * 100)}¢</span>
                    </div>
                    <div
-                     onClick={() => { setSelectedOptionId(noOption.id); setSelectedDirection('yes'); setTradeTab("buy"); }}
-                     className={cn("flex-1 flex flex-col items-center justify-center p-6 sm:p-8 rounded-xl border-2 cursor-pointer transition-all shadow-sm", selectedOptionId === noOption.id ? "bg-red-500/10 border-red-500 text-red-600 dark:text-red-500" : "bg-card border-border/50 hover:border-red-500/50 hover:bg-red-500/5 text-foreground")}
+                     onClick={() => { if(!isMarketClosed) { setSelectedOptionId(noOption.id); setSelectedDirection('yes'); setTradeTab("buy"); } }}
+                     className={cn("flex-1 flex flex-col items-center justify-center p-6 sm:p-8 rounded-xl border-2 transition-all shadow-sm", 
+                       isMarketClosed ? "opacity-60 cursor-not-allowed bg-muted" : "cursor-pointer",
+                       selectedOptionId === noOption.id ? "bg-red-500/10 border-red-500 text-red-600 dark:text-red-500" : "bg-card border-border/50 hover:border-red-500/50 hover:bg-red-500/5 text-foreground")}
                    >
                      <span className="text-3xl font-black mb-2">No</span>
                      <span className="text-xl font-bold opacity-80">{Math.round(getOptionPrice(noOption.total_votes) * 100)}¢</span>
@@ -541,7 +552,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                     const isSelectedNo = selectedOptionId === opt.id && selectedDirection === 'no';
 
                     return (
-                      <div key={opt.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 sm:p-4 rounded-xl border border-border/50 bg-card hover:bg-muted/20 transition-colors gap-4">
+                      <div key={opt.id} className={cn("flex flex-col sm:flex-row sm:items-center justify-between p-3 sm:p-4 rounded-xl border border-border/50 bg-card transition-colors gap-4", isMarketClosed && "opacity-70")}>
                         <div className="flex items-center gap-3 flex-1 min-w-0">
                           <div className="w-4 h-4 rounded-full shadow-inner shrink-0" style={{ backgroundColor: opt.color }} />
                           <span className="font-bold text-base sm:text-lg text-foreground truncate">{opt.option_name}</span>
@@ -554,6 +565,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                         <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
                           <Button
                             variant="outline"
+                            disabled={isMarketClosed}
                             onClick={() => { setSelectedOptionId(opt.id); setSelectedDirection('yes'); setTradeTab("buy"); }}
                             className={cn("flex-1 sm:w-24 h-11 font-bold text-sm transition-all border-2", isSelectedYes ? "bg-green-500/20 text-green-600 dark:text-green-500 border-green-500 shadow-sm" : "bg-card text-green-600 dark:text-green-500 border-border hover:border-green-500/50 hover:bg-green-500/10")}
                           >
@@ -561,6 +573,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                           </Button>
                           <Button
                             variant="outline"
+                            disabled={isMarketClosed}
                             onClick={() => { setSelectedOptionId(opt.id); setSelectedDirection('no'); setTradeTab("buy"); }}
                             className={cn("flex-1 sm:w-24 h-11 font-bold text-sm transition-all border-2", isSelectedNo ? "bg-red-500/20 text-red-600 dark:text-red-500 border-red-500 shadow-sm" : "bg-card text-red-600 dark:text-red-500 border-border hover:border-red-500/50 hover:bg-red-500/10")}
                           >
@@ -591,6 +604,16 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                   </TabsTrigger>
                 </TabsList>
 
+                {/* AVISO DE MERCADO CERRADO */}
+                {isMarketClosed && (
+                  <div className="mb-4 mx-2 p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-2 text-red-500">
+                    <Lock className="w-4 h-4 mt-0.5 shrink-0" />
+                    <p className="text-xs font-medium leading-relaxed">
+                      Este mercado ya cerró y las operaciones están bloqueadas. Los puntos de las apuestas ganadoras se repartirán cuando el administrador confirme el resultado final.
+                    </p>
+                  </div>
+                )}
+
                 {/* PESTAÑA COMPRAR */}
                 <TabsContent value="buy" className="p-2 sm:p-3 mt-0">
                   <div className="flex flex-col gap-4">
@@ -619,7 +642,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                         <div>
                           <Label className="text-muted-foreground mb-1.5 block">Monto a invertir</Label>
                           <div className="relative">
-                            <Input type="number" placeholder="0" value={betAmount} onChange={(e) => setBetAmount(e.target.value)} className="pl-4 h-14 text-xl font-bold bg-muted/20 border-border/50 focus-visible:ring-1 focus-visible:ring-primary/50" />
+                            <Input type="number" placeholder="0" value={betAmount} onChange={(e) => setBetAmount(e.target.value)} disabled={isMarketClosed} className="pl-4 h-14 text-xl font-bold bg-muted/20 border-border/50 focus-visible:ring-1 focus-visible:ring-primary/50 disabled:opacity-50" />
                             <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground font-bold">pts</span>
                           </div>
                         </div>
@@ -652,11 +675,11 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                         
                         <Button 
                           size="lg" 
-                          className={cn("w-full h-14 text-lg font-bold text-white shadow-lg mt-2 transition-all hover:scale-[1.02] active:scale-[0.98]", !isRedTheme ? 'bg-green-600 hover:bg-green-700 shadow-green-500/20' : 'bg-red-600 hover:bg-red-700 shadow-red-500/20')} 
-                          disabled={!betAmount || isPlacingBet} 
+                          className={cn("w-full h-14 text-lg font-bold text-white shadow-lg mt-2 transition-all", isMarketClosed ? "bg-muted text-muted-foreground shadow-none" : (!isRedTheme ? 'bg-green-600 hover:bg-green-700 shadow-green-500/20 hover:scale-[1.02] active:scale-[0.98]' : 'bg-red-600 hover:bg-red-700 shadow-red-500/20 hover:scale-[1.02] active:scale-[0.98]'))} 
+                          disabled={!betAmount || isPlacingBet || isMarketClosed} 
                           onClick={handlePlaceBet}
                         >
-                          {isPlacingBet ? <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Procesando...</> : !user ? "Ingresar para Operar" : `Confirmar Orden`}
+                          {isMarketClosed ? <><Lock className="w-5 h-5 mr-2" /> Mercado Cerrado</> : isPlacingBet ? <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Procesando...</> : !user ? "Ingresar para Operar" : `Confirmar Orden`}
                         </Button>
                       </>
                     )}
@@ -685,7 +708,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                         const pnlPct = (pnl / bet.amount) * 100;
 
                         return (
-                          <div key={bet.id} className="p-4 rounded-xl border border-border/50 bg-muted/10 space-y-3">
+                          <div key={bet.id} className={cn("p-4 rounded-xl border border-border/50 bg-muted/10 space-y-3", isMarketClosed && "opacity-75")}>
                             <div className="flex justify-between items-start">
                               <div>
                                 <p className="text-[10px] uppercase font-bold text-muted-foreground">Tu posición</p>
@@ -724,9 +747,9 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                               size="sm" 
                               className="w-full h-10 font-bold bg-secondary hover:bg-secondary/80 text-secondary-foreground" 
                               onClick={() => handleSellBet(bet.id)} 
-                              disabled={sellingBetId === bet.id}
+                              disabled={sellingBetId === bet.id || isMarketClosed}
                             >
-                              {sellingBetId === bet.id ? <Loader2 className="w-4 h-4 animate-spin" /> : `Liquidar por ${cashoutVal} pts`}
+                              {isMarketClosed ? <><Lock className="w-4 h-4 mr-2" /> Bloqueado</> : sellingBetId === bet.id ? <Loader2 className="w-4 h-4 animate-spin" /> : `Liquidar por ${cashoutVal} pts`}
                             </Button>
                           </div>
                         );
@@ -774,13 +797,5 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
 
       <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} onAuthSuccess={() => { setIsAuthModalOpen(false); fetchUserAndProfile(); }} isDarkMode={isDarkMode} />
     </div>
-  );
-}
-
-function ActivityIcon() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary">
-      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
-    </svg>
   );
 }

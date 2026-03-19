@@ -8,7 +8,7 @@ import { CreateMarketModal } from "@/components/create-market-modal";
 import { AuthModal } from "@/components/auth-modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Search, Flame, Clock, TrendingUp, Loader2 } from "lucide-react";
+import { Plus, Search, Flame, Clock, TrendingUp, Loader2, Timer } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import type { User } from "@supabase/supabase-js";
@@ -26,12 +26,14 @@ interface Market {
   category: string;
   total_volume: number;
   end_date: string;
+  created_at: string;
+  updated_at: string;
   trending?: "up" | "down";
   image_url?: string | null;
   options?: MarketOption[];
 }
 
-type SortOption = "trending" | "newest" | "volume";
+type SortOption = "trending" | "newest" | "ending_soon" | "volume";
 
 export default function PredictionMarketDashboard() {
   const [isDarkMode, setIsDarkMode] = useState(true);
@@ -112,11 +114,12 @@ export default function PredictionMarketDashboard() {
         category, 
         total_volume, 
         end_date, 
+        created_at,
+        updated_at,
         image_url,
         market_options (id, option_name, color, total_votes)
       `)
-      .eq("status", "active")
-      .order("total_volume", { ascending: false });
+      .eq("status", "active");
 
     if (error) {
       console.log("[v0] Error fetching markets:", error.message);
@@ -135,6 +138,16 @@ export default function PredictionMarketDashboard() {
   useEffect(() => {
     fetchMarkets();
   }, [fetchMarkets]);
+
+  useEffect(() => {
+    const channel = supabase.channel('realtime-markets')
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "markets" }, () => {
+         fetchMarkets(); 
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [supabase, fetchMarkets]);
 
   useEffect(() => {
     if (isDarkMode) document.documentElement.classList.add("dark");
@@ -160,10 +173,16 @@ export default function PredictionMarketDashboard() {
   const sortedMarkets = useMemo(() => {
     return [...filteredMarkets].sort((a, b) => {
       switch (sortBy) {
-        case "trending": return b.total_volume - a.total_volume;
-        case "newest": return new Date(b.end_date).getTime() - new Date(a.end_date).getTime();
-        case "volume": return b.total_volume - a.total_volume;
-        default: return 0;
+        case "trending": 
+          return new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime();
+        case "newest": 
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        case "ending_soon":
+          return new Date(a.end_date).getTime() - new Date(b.end_date).getTime();
+        case "volume": 
+          return b.total_volume - a.total_volume;
+        default: 
+          return 0;
       }
     });
   }, [filteredMarkets, sortBy]);
@@ -177,49 +196,72 @@ export default function PredictionMarketDashboard() {
     <div className="min-h-screen bg-background">
       <NavHeader points={userPoints} isDarkMode={isDarkMode} onToggleDarkMode={() => setIsDarkMode(!isDarkMode)} onPointsUpdate={handlePointsUpdate} userId={user?.id ?? null} userEmail={user?.email ?? null} onOpenAuthModal={() => setIsAuthModalOpen(true)} onSignOut={handleSignOut} isAdmin={userRole === "admin"} username={username} />
 
-      <main className="container mx-auto px-4 py-6 md:py-8">
-        <div className="mb-6 md:mb-8 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <main className="container mx-auto px-4 py-8 md:py-12 max-w-7xl">
+        <div className="mb-8 md:mb-12 flex flex-col md:flex-row md:items-center md:justify-between gap-6">
           <div>
-            <h1 className="text-3xl md:text-4xl font-bold mb-1 md:mb-2 text-balance">
+            <h1 className="text-4xl md:text-5xl font-extrabold mb-3 tracking-tight text-balance">
               Mercado de <span className="text-primary">Predicciones</span>
             </h1>
-            <p className="text-muted-foreground text-sm md:text-lg">Predecí el futuro y ganá puntos apostando a tus convicciones</p>
+            <p className="text-muted-foreground text-base md:text-lg font-medium">Predecí el futuro y ganá puntos apostando a tus convicciones</p>
           </div>
-          {/* Ocultamos el botón gigante en mobile, solo se ve en pantallas medianas/grandes */}
-          <Button onClick={() => user ? setIsCreateModalOpen(true) : setIsAuthModalOpen(true)} className="hidden md:flex shrink-0"><Plus className="w-4 h-4 mr-2" /> Crear Mercado</Button>
+          <Button onClick={() => user ? setIsCreateModalOpen(true) : setIsAuthModalOpen(true)} className="hidden md:flex shrink-0 h-12 px-6 rounded-full font-bold shadow-lg hover:shadow-primary/25 transition-all hover:-translate-y-1">
+            <Plus className="w-5 h-5 mr-2" /> Crear Mercado
+          </Button>
         </div>
 
-        <div className="space-y-4 mb-6 md:mb-8">
-          <div className="flex flex-col md:flex-row gap-3 md:gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 md:w-5 md:h-5 text-muted-foreground" />
-              <Input placeholder="Buscar mercados..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-9 md:pl-10 bg-card border-border/50 h-10 md:h-11" />
+        {/* EL BLOQUE DE CONTROL: Ahora es un panel unificado */}
+        <div className="bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-4 sm:p-6 mb-8 md:mb-10 shadow-sm">
+          <div className="flex flex-col xl:flex-row gap-4 xl:items-center">
+            
+            {/* Buscador Redondeado con OKLCH */}
+            <div className="relative flex-1 max-w-xl">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+              <Input 
+                placeholder="Buscar mercados, eventos, debates..." 
+                value={searchQuery} 
+                onChange={(e) => setSearchQuery(e.target.value)} 
+                className="pl-12 bg-background border-border/60 h-12 rounded-full text-base focus-visible:ring-primary/30 transition-all shadow-inner" 
+              />
             </div>
 
-            {/* Filtros de orden (Popular, Recientes, etc) con Scroll Horizontal ocultando barra */}
-            <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 md:mx-0 md:px-0 md:overflow-visible [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-              <Button variant={sortBy === "trending" ? "default" : "outline"} size="sm" onClick={() => setSortBy("trending")} className={cn("whitespace-nowrap shrink-0 h-9", sortBy !== "trending" && "border-border/50")}><Flame className="w-4 h-4 mr-1.5" /> Popular</Button>
-              <Button variant={sortBy === "newest" ? "default" : "outline"} size="sm" onClick={() => setSortBy("newest")} className={cn("whitespace-nowrap shrink-0 h-9", sortBy !== "newest" && "border-border/50")}><Clock className="w-4 h-4 mr-1.5" /> Recientes</Button>
-              <Button variant={sortBy === "volume" ? "default" : "outline"} size="sm" onClick={() => setSortBy("volume")} className={cn("whitespace-nowrap shrink-0 h-9", sortBy !== "volume" && "border-border/50")}><TrendingUp className="w-4 h-4 mr-1.5" /> Volumen</Button>
+            {/* Filtros de orden (Más estilizados y redondeados) */}
+            <div className="flex gap-2 overflow-x-auto pb-2 xl:pb-0 -mx-4 px-4 xl:mx-0 xl:px-0 xl:overflow-visible [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+              <Button variant={sortBy === "trending" ? "default" : "secondary"} onClick={() => setSortBy("trending")} className={cn("whitespace-nowrap shrink-0 h-10 rounded-full font-semibold transition-all", sortBy !== "trending" && "hover:bg-muted bg-background border border-border/50")}>
+                <Flame className={cn("w-4 h-4 mr-2", sortBy === "trending" ? "text-primary-foreground" : "text-orange-500")} /> Popular
+              </Button>
+              <Button variant={sortBy === "newest" ? "default" : "secondary"} onClick={() => setSortBy("newest")} className={cn("whitespace-nowrap shrink-0 h-10 rounded-full font-semibold transition-all", sortBy !== "newest" && "hover:bg-muted bg-background border border-border/50")}>
+                <Clock className={cn("w-4 h-4 mr-2", sortBy === "newest" ? "text-primary-foreground" : "text-blue-400")} /> Recientes
+              </Button>
+              <Button variant={sortBy === "ending_soon" ? "default" : "secondary"} onClick={() => setSortBy("ending_soon")} className={cn("whitespace-nowrap shrink-0 h-10 rounded-full font-semibold transition-all", sortBy !== "ending_soon" && "hover:bg-muted bg-background border border-border/50")}>
+                <Timer className={cn("w-4 h-4 mr-2", sortBy === "ending_soon" ? "text-primary-foreground" : "text-red-400")} /> Próx. a terminar
+              </Button>
+              <Button variant={sortBy === "volume" ? "default" : "secondary"} onClick={() => setSortBy("volume")} className={cn("whitespace-nowrap shrink-0 h-10 rounded-full font-semibold transition-all", sortBy !== "volume" && "hover:bg-muted bg-background border border-border/50")}>
+                <TrendingUp className={cn("w-4 h-4 mr-2", sortBy === "volume" ? "text-primary-foreground" : "text-green-400")} /> Volumen
+              </Button>
             </div>
           </div>
 
-          {/* Categorías con Scroll Horizontal */}
-          <div className="overflow-x-auto pb-1 -mx-4 px-4 md:mx-0 md:px-0 md:overflow-visible [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+          {/* Separador sutil */}
+          <div className="h-px w-full bg-border/50 my-4 xl:my-5" />
+
+          {/* Categorías (también con bordes redondeados) */}
+          <div className="overflow-x-auto pb-1 -mx-4 px-4 sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
             <CategoryFilter selectedCategory={selectedCategory} onSelectCategory={setSelectedCategory} />
           </div>
         </div>
 
-        <div className="mb-4 text-xs md:text-sm text-muted-foreground">
-          Mostrando <span className="font-medium text-foreground">{sortedMarkets.length}</span> mercados
-          {selectedCategory !== "all" && <span> en <span className="font-medium text-primary capitalize">{selectedCategory}</span></span>}
+        <div className="mb-6 flex items-center justify-between text-sm font-medium text-muted-foreground px-1">
+          <p>Explorando <span className="font-bold text-foreground">{sortedMarkets.length}</span> mercados {selectedCategory !== "all" && <span>en <span className="text-primary capitalize">{selectedCategory}</span></span>}</p>
         </div>
 
         {isLoadingMarkets ? (
-          <div className="flex items-center justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
+          <div className="flex flex-col items-center justify-center py-24 gap-4">
+            <Loader2 className="w-10 h-10 animate-spin text-primary" />
+            <p className="text-muted-foreground font-medium">Cargando mercados...</p>
+          </div>
         ) : (
           <>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 md:gap-6">
               {sortedMarkets.map((market) => (
                 <MarketCard
                   key={market.id}
@@ -234,24 +276,32 @@ export default function PredictionMarketDashboard() {
                   userPoints={userPoints}
                   onBetPlaced={handlePointsUpdate}
                   onOpenAuthModal={() => setIsAuthModalOpen(true)}
+                  onCategoryClick={(cat) => {
+                    const normalizedCat = cat.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                    setSelectedCategory(normalizedCat);
+                    window.scrollTo({ top: 0, behavior: 'smooth' }); 
+                  }}
                 />
               ))}
             </div>
 
             {sortedMarkets.length === 0 && (
-              <div className="text-center py-16 px-4">
-                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-muted flex items-center justify-center"><Search className="w-8 h-8 text-muted-foreground" /></div>
-                <h3 className="text-lg font-semibold mb-2">No se encontraron mercados</h3>
-                <p className="text-muted-foreground mb-4 text-sm">Probá con otros filtros o creá tu propio mercado</p>
-                <Button onClick={() => setIsCreateModalOpen(true)}><Plus className="w-4 h-4 mr-2" /> Crear Mercado</Button>
+              <div className="text-center py-20 px-4 bg-muted/10 rounded-3xl border border-dashed border-border/50 mt-8">
+                <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-background border border-border/50 flex items-center justify-center shadow-sm">
+                  <Search className="w-10 h-10 text-muted-foreground" />
+                </div>
+                <h3 className="text-xl font-bold mb-2">No se encontraron mercados</h3>
+                <p className="text-muted-foreground mb-6 max-w-md mx-auto">No hay predicciones activas con estos filtros. Podés ser el primero en abrir el debate.</p>
+                <Button size="lg" className="rounded-full font-bold shadow-md hover:-translate-y-1 transition-all" onClick={() => setIsCreateModalOpen(true)}>
+                  <Plus className="w-5 h-5 mr-2" /> Crear Nuevo Mercado
+                </Button>
               </div>
             )}
           </>
         )}
       </main>
 
-      {/* Botón flotante (+) solo visible en Mobile */}
-      <Button onClick={() => user ? setIsCreateModalOpen(true) : setIsAuthModalOpen(true)} className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all hover:scale-105 md:hidden z-40" size="icon">
+      <Button onClick={() => user ? setIsCreateModalOpen(true) : setIsAuthModalOpen(true)} className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-lg shadow-primary/30 hover:shadow-xl hover:shadow-primary/40 transition-all hover:scale-105 md:hidden z-40" size="icon">
         <Plus className="w-6 h-6" />
       </Button>
 
