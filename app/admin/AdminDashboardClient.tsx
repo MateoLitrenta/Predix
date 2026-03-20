@@ -8,6 +8,7 @@ import type { ProfileResult } from "@/lib/actions";
 import { createClient } from "@/lib/supabase/client";
 import { NavHeader } from "@/components/nav-header";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -35,9 +36,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, CheckCircle2, XCircle, ArrowLeft, Pencil, Trash2, Plus, X, Image as ImageIcon, Trophy } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, ArrowLeft, Pencil, Trash2, Plus, X, Image as ImageIcon, Trophy, Clock, Search, Filter } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
-import { cn } from "@/lib/utils"; // <-- IMPORTANTE: Agregado para las clases dinámicas
+import { cn } from "@/lib/utils";
 
 interface MarketOption {
   id: string;
@@ -87,6 +88,11 @@ export default function AdminDashboardClient() {
   const [selectedWinningOption, setSelectedWinningOption] = useState<string>("");
   
   const [deletingMarket, setDeletingMarket] = useState<{ id: string, title: string } | null>(null);
+
+  // --- NUEVOS ESTADOS PARA LOS FILTROS ---
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("todos");
+  const [categoryFilter, setCategoryFilter] = useState("todas");
 
   useEffect(() => {
     const check = async () => {
@@ -256,6 +262,14 @@ export default function AdminDashboardClient() {
     setProcessingIds((p) => { const n = new Set(p); n.delete(id); return n; });
   };
 
+  const isOverdue = (endDateStr: string) => {
+    if (!endDateStr) return false;
+    const end = new Date(endDateStr);
+    end.setHours(23, 59, 59, 999); 
+    const now = new Date();
+    return now > end;
+  };
+
   const formatDate = (value: string | Date | null | undefined): string => {
     if (value == null) return "—";
     const d = value instanceof Date ? value : new Date(value as string);
@@ -278,226 +292,302 @@ export default function AdminDashboardClient() {
   };
 
   const sortedMarkets = useMemo(() => {
-    const statusOrder: Record<string, number> = { pending: 1, active: 2, resolved: 3, rejected: 4 };
-    return [...markets].sort((a, b) => {
-       const orderA = statusOrder[String(a.status)] || 99;
-       const orderB = statusOrder[String(b.status)] || 99;
-       if (orderA !== orderB) return orderA - orderB;
-       return new Date(a.end_date || 0).getTime() - new Date(b.end_date || 0).getTime();
+    let filtered = markets.filter(market => {
+      const matchesSearch = String(market.title || "").toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesStatus = statusFilter === "todos" || market.status === statusFilter;
+      const matchesCategory = categoryFilter === "todas" || market.category === categoryFilter;
+      return matchesSearch && matchesStatus && matchesCategory;
     });
-  }, [markets]);
+
+    return filtered.sort((a, b) => {
+      const aIsActive = a.status === 'active';
+      const bIsActive = b.status === 'active';
+      const aDate = new Date(a.end_date || 0);
+      const bDate = new Date(b.end_date || 0);
+      const aIsOverdue = isOverdue(a.end_date);
+      const bIsOverdue = isOverdue(b.end_date);
+
+      if (aIsActive && aIsOverdue && (!bIsActive || !bIsOverdue)) return -1;
+      if (bIsActive && bIsOverdue && (!aIsActive || !aIsOverdue)) return 1;
+
+      if (a.status === 'pending' && b.status !== 'pending') return -1;
+      if (b.status === 'pending' && a.status !== 'pending') return 1;
+
+      if (aIsActive && bIsActive) return aDate.getTime() - bDate.getTime();
+
+      if (a.status === 'resolved' && b.status === 'resolved') {
+        const aCreated = new Date(a.created_at || 0);
+        const bCreated = new Date(b.created_at || 0);
+        return bCreated.getTime() - aCreated.getTime(); 
+      }
+      return 0; 
+    });
+  }, [markets, searchQuery, statusFilter, categoryFilter]);
 
   if (isCheckingAuth) return <div className="min-h-screen flex justify-center items-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background flex flex-col">
       <NavHeader points={safeNumber(profile?.points ?? 10000)} isDarkMode={isDarkMode} onToggleDarkMode={() => setIsDarkMode(!isDarkMode)} onPointsUpdate={() => {}} userId={profile?.id ? String(profile.id) : null} userEmail={profile?.email != null ? String(profile.email) : null} onOpenAuthModal={() => {}} onSignOut={async () => { await createClient().auth.signOut(); router.replace("/"); }} isAdmin={true} username={profile?.username != null ? String(profile.username) : null} />
 
-      <div className="container mx-auto px-4 py-8">
-        <div className="mb-6"><Button variant="ghost" size="sm" asChild className="-ml-2"><Link href="/"><ArrowLeft className="w-4 h-4 mr-2" />Volver</Link></Button></div>
+      <main className="container mx-auto px-4 py-8 flex-1">
+        <div className="mb-6"><Button variant="ghost" size="sm" asChild className="-ml-2 text-muted-foreground hover:text-foreground"><Link href="/"><ArrowLeft className="w-4 h-4 mr-2" />Volver</Link></Button></div>
         
-        <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-6">
           <div>
-            <h1 className="text-3xl md:text-4xl font-bold mb-2">Panel de <span className="text-primary">Administración</span></h1>
-            <p className="text-muted-foreground text-base md:text-lg">Aprobá propuestas, editá fotos y resolvé mercados en vivo.</p>
+            <Badge className="mb-3 bg-primary/10 text-primary border-primary/20 font-bold uppercase tracking-widest text-[10px] px-3 py-1">ADMINISTRADOR</Badge>
+            <h1 className="text-3xl md:text-4xl font-black mb-2 tracking-tight text-foreground">Centro de <span className="text-primary">Control</span></h1>
+            <p className="text-muted-foreground text-base">Gestioná el ciclo de vida de los mercados de la plataforma.</p>
           </div>
-          <Button onClick={() => setIsCreateModalOpen(true)} className="shrink-0 bg-primary hover:bg-primary/90 h-12 w-full sm:w-auto font-bold text-base"><Plus className="w-5 h-5 mr-2" /> Crear Mercado Rápido</Button>
+          <Button onClick={() => setIsCreateModalOpen(true)} className="shrink-0 bg-primary hover:bg-primary/90 h-12 w-full md:w-auto font-bold text-base shadow-md hover:scale-[1.02] active:scale-[0.98] transition-all"><Plus className="w-5 h-5 mr-2" /> Crear Mercado Rápido</Button>
+        </div>
+
+        {/* --- BARRA DE FILTROS REDISEÑADA Y OPTIMIZADA --- */}
+        <div className="mb-8 flex flex-col lg:flex-row gap-4 p-2 bg-card/40 border border-border/50 rounded-2xl shadow-sm backdrop-blur-xl">
+          <div className="relative flex-1">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+            <Input 
+              placeholder="Buscar mercado por pregunta..." 
+              className="pl-12 h-12 bg-background/60 border-border/50 rounded-xl text-base w-full focus-visible:ring-primary font-medium" 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+          <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="h-12 bg-background/60 border-border/50 rounded-xl w-full sm:w-[200px] font-bold text-foreground">
+                <div className="flex items-center"><Filter className="w-4 h-4 mr-2 text-primary" /><SelectValue placeholder="Estado" /></div>
+              </SelectTrigger>
+              <SelectContent className="rounded-xl border-border/50">
+                <SelectItem value="todos" className="font-medium h-10">Todos los Estados</SelectItem>
+                <SelectItem value="active" className="font-medium h-10">🟢 Activos</SelectItem>
+                <SelectItem value="pending" className="font-medium h-10">🟠 Pendientes</SelectItem>
+                <SelectItem value="resolved" className="font-medium h-10">⚪ Resueltos</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <SelectTrigger className="h-12 bg-background/60 border-border/50 rounded-xl w-full sm:w-[200px] font-bold text-foreground">
+                <SelectValue placeholder="Categoría" />
+              </SelectTrigger>
+              <SelectContent className="rounded-xl border-border/50">
+                <SelectItem value="todas" className="font-medium h-10">Todas las Categorías</SelectItem>
+                <SelectItem value="política" className="font-medium h-10">Política</SelectItem>
+                <SelectItem value="deportes" className="font-medium h-10">Deportes</SelectItem>
+                <SelectItem value="finanzas" className="font-medium h-10">Finanzas</SelectItem>
+                <SelectItem value="cripto" className="font-medium h-10">Cripto</SelectItem>
+                <SelectItem value="entretenimiento" className="font-medium h-10">Entretenimiento</SelectItem>
+                <SelectItem value="música" className="font-medium h-10">Música</SelectItem>
+                <SelectItem value="tecnología" className="font-medium h-10">Tecnología</SelectItem>
+                <SelectItem value="ciencia" className="font-medium h-10">Ciencia</SelectItem>
+                <SelectItem value="clima" className="font-medium h-10">Clima</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         {isLoading ? (
           <div className="flex justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
         ) : (
           <>
-            {/* VISTA DESKTOP: TABLA (Oculta en móviles) */}
+            {/* VISTA DESKTOP: TABLA */}
             <div className="hidden md:block rounded-xl border border-border/50 bg-card shadow-sm overflow-hidden">
               <Table>
                 <TableHeader>
-                  <TableRow className="bg-muted/20">
-                    <TableHead>Pregunta</TableHead>
-                    <TableHead>Categoría</TableHead>
-                    <TableHead>Estado</TableHead>
-                    <TableHead>Cierre</TableHead>
-                    <TableHead>Volumen</TableHead>
-                    <TableHead className="text-right">Acciones</TableHead>
+                  <TableRow className="bg-muted/20 border-b-border/50">
+                    <TableHead className="font-bold text-foreground">Pregunta</TableHead>
+                    <TableHead className="font-bold text-foreground">Categoría</TableHead>
+                    <TableHead className="font-bold text-foreground">Estado</TableHead>
+                    <TableHead className="font-bold text-foreground">Cierre</TableHead>
+                    <TableHead className="font-bold text-foreground">Volumen</TableHead>
+                    <TableHead className="text-right font-bold text-foreground">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {sortedMarkets.length === 0 ? (
-                    <TableRow><TableCell colSpan={6} className="text-center py-12 text-muted-foreground">No hay mercados</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={6} className="text-center py-16 text-muted-foreground font-medium">No se encontraron mercados con esos filtros.</TableCell></TableRow>
                   ) : (
-                    sortedMarkets.map((market) => (
-                      <TableRow key={String(market.id)} className={market.status === 'resolved' ? 'opacity-70 bg-muted/10' : ''}>
-                        <TableCell>
-                          <div className="flex items-center gap-3">
-                            {market.image_url ? <img src={String(market.image_url)} alt="Miniatura" className="w-10 h-10 rounded-md object-cover border border-border/50 shrink-0" /> : <div className="w-10 h-10 rounded-md bg-muted/50 border border-border/50 flex items-center justify-center shrink-0"><ImageIcon className="w-4 h-4 text-muted-foreground/50" /></div>}
-                            <p className="font-medium text-foreground line-clamp-2 max-w-[300px]">{safeString(market.title)}</p>
-                          </div>
-                        </TableCell>
-                        <TableCell><Badge variant="secondary" className="font-normal capitalize">{safeString(market.category)}</Badge></TableCell>
-                        <TableCell>{getStatusBadge(market.status)}</TableCell>
-                        <TableCell className="text-muted-foreground font-medium">{formatDate(market.end_date)}</TableCell>
-                        <TableCell className="text-muted-foreground font-medium">{safeNumber(market.total_volume).toLocaleString()} pts</TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <Button size="icon" variant="outline" className="h-8 w-8 hover:text-primary hover:border-primary/50 transition-colors" onClick={() => setEditingMarket(market)}><Pencil className="w-4 h-4" /></Button>
+                    sortedMarkets.map((market) => {
+                      const overdue = isOverdue(market.end_date) && market.status === 'active';
+                      return (
+                        <TableRow key={String(market.id)} className={cn("transition-colors", market.status === 'resolved' ? 'opacity-60 bg-muted/10' : overdue ? 'bg-red-500/5' : '')}>
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              {market.image_url ? <img src={String(market.image_url)} alt="Miniatura" className="w-12 h-12 rounded-lg object-cover border border-border/50 shrink-0" /> : <div className="w-12 h-12 rounded-lg bg-muted/50 border border-border/50 flex items-center justify-center shrink-0"><ImageIcon className="w-5 h-5 text-muted-foreground/50" /></div>}
+                              <p className={cn("font-semibold text-foreground line-clamp-2 max-w-[350px] leading-snug", overdue && "text-red-500 dark:text-red-400")}>{safeString(market.title)}</p>
+                            </div>
+                          </TableCell>
+                          <TableCell><Badge variant="secondary" className="font-bold capitalize bg-muted text-muted-foreground border-border/50">{safeString(market.category)}</Badge></TableCell>
+                          <TableCell>{getStatusBadge(market.status)}</TableCell>
+                          <TableCell>
+                            <span className={cn("font-medium flex items-center gap-1.5", overdue ? "text-red-500 font-bold" : "text-muted-foreground")}>
+                              {overdue && <Clock className="w-3.5 h-3.5" />} {formatDate(market.end_date)}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-foreground font-black">{safeNumber(market.total_volume).toLocaleString()} pts</TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <Button size="icon" variant="outline" className="h-9 w-9 hover:text-primary transition-colors bg-background" onClick={() => setEditingMarket(market)}><Pencil className="w-4 h-4" /></Button>
 
-                            {market.status === "pending" && (
-                              <>
-                                <Button size="sm" onClick={() => handleApprove(market.id)} disabled={processingIds.has(market.id)}>{processingIds.has(market.id) ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}</Button>
-                                <Button size="sm" variant="destructive" onClick={() => handleReject(market.id)} disabled={processingIds.has(market.id)}>{processingIds.has(market.id) ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}</Button>
-                              </>
-                            )}
-                            
-                            {market.status === "active" && (
-                              <Button 
-                                size="sm" 
-                                variant="outline"
-                                className="border-primary text-primary hover:bg-primary hover:text-primary-foreground font-bold transition-all" 
-                                onClick={() => { setResolvingMarket(market); setSelectedWinningOption(""); }} 
-                                disabled={processingIds.has(market.id)}
-                              >
-                                <Trophy className="w-4 h-4 mr-1.5" /> Resolver
-                              </Button>
-                            )}
+                              {market.status === "pending" && (
+                                <>
+                                  <Button size="sm" onClick={() => handleApprove(market.id)} disabled={processingIds.has(market.id)} className="h-9 px-3 font-bold">{processingIds.has(market.id) ? <Loader2 className="w-4 h-4 animate-spin" /> : <><CheckCircle2 className="w-4 h-4 mr-1.5" /> Aprobar</>}</Button>
+                                  <Button size="icon" variant="destructive" onClick={() => handleReject(market.id)} disabled={processingIds.has(market.id)} className="h-9 w-9">{processingIds.has(market.id) ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}</Button>
+                                </>
+                              )}
+                              
+                              {market.status === "active" && (
+                                <Button 
+                                  size="sm" 
+                                  variant={overdue ? "default" : "outline"}
+                                  className={cn("font-bold h-9 transition-all", overdue ? "bg-red-500 hover:bg-red-600 text-white shadow-md shadow-red-500/20 animate-pulse" : "border-primary text-primary hover:bg-primary hover:text-primary-foreground")} 
+                                  onClick={() => { setResolvingMarket(market); setSelectedWinningOption(""); }} 
+                                  disabled={processingIds.has(market.id)}
+                                >
+                                  <Trophy className="w-4 h-4 mr-1.5" /> {overdue ? "Resolver YA" : "Resolver"}
+                                </Button>
+                              )}
 
-                            {market.status !== "pending" && (
-                              <Button size="icon" variant="destructive" className="h-8 w-8 hover:bg-red-600 transition-colors" onClick={() => setDeletingMarket({ id: market.id, title: String(market.title) })} disabled={processingIds.has(market.id)}>
-                                {processingIds.has(market.id) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                              </Button>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
+                              {market.status !== "pending" && (
+                                <Button size="icon" variant="destructive" className="h-9 w-9 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white border border-red-500/20" onClick={() => setDeletingMarket({ id: market.id, title: String(market.title) })} disabled={processingIds.has(market.id)}>
+                                  {processingIds.has(market.id) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                                </Button>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>
             </div>
 
-            {/* VISTA MOBILE: TARJETAS (Visible solo en celulares) */}
+            {/* VISTA MOBILE: TARJETAS */}
             <div className="grid grid-cols-1 gap-4 md:hidden">
               {sortedMarkets.length === 0 ? (
-                <div className="text-center py-12 text-muted-foreground bg-card rounded-xl border border-border/50">No hay mercados</div>
+                <div className="text-center py-16 text-muted-foreground bg-card rounded-xl border border-border/50 font-medium">No se encontraron mercados.</div>
               ) : (
-                sortedMarkets.map((market) => (
-                  <div key={String(market.id)} className={cn("p-4 rounded-xl border border-border/50 bg-card flex flex-col gap-4 shadow-sm", market.status === 'resolved' ? 'opacity-70 bg-muted/20' : '')}>
-                    
-                    {/* Tarjeta - Cabecera */}
-                    <div className="flex items-start gap-3">
-                      {market.image_url ? (
-                        <img src={String(market.image_url)} alt="Miniatura" className="w-14 h-14 rounded-lg object-cover border border-border/50 shrink-0" />
-                      ) : (
-                        <div className="w-14 h-14 rounded-lg bg-muted border border-border/50 flex items-center justify-center shrink-0">
-                          <ImageIcon className="w-6 h-6 text-muted-foreground/50" />
+                sortedMarkets.map((market) => {
+                  const overdue = isOverdue(market.end_date) && market.status === 'active';
+                  return (
+                    <div key={String(market.id)} className={cn("p-4 rounded-xl border bg-card flex flex-col gap-4 shadow-sm transition-colors", market.status === 'resolved' ? 'opacity-70 bg-muted/20 border-border/50' : overdue ? 'border-red-500/50 bg-red-500/5' : 'border-border/50')}>
+                      
+                      <div className="flex items-start gap-3">
+                        {market.image_url ? (
+                          <img src={String(market.image_url)} alt="Miniatura" className="w-14 h-14 rounded-lg object-cover border border-border/50 shrink-0" />
+                        ) : (
+                          <div className="w-14 h-14 rounded-lg bg-muted border border-border/50 flex items-center justify-center shrink-0">
+                            <ImageIcon className="w-6 h-6 text-muted-foreground/50" />
+                          </div>
+                        )}
+                        <h3 className={cn("font-bold text-foreground text-sm leading-snug line-clamp-3", overdue && "text-red-500 dark:text-red-400")}>{safeString(market.title)}</h3>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 text-sm bg-background/50 p-3 rounded-lg border border-border/50">
+                        <div className="flex flex-col gap-1">
+                          <span className="text-muted-foreground text-[10px] uppercase font-bold tracking-wider">Categoría</span>
+                          <Badge variant="secondary" className="w-fit font-bold capitalize text-xs bg-muted text-muted-foreground">{safeString(market.category)}</Badge>
                         </div>
-                      )}
-                      <h3 className="font-bold text-foreground text-sm leading-snug line-clamp-3">{safeString(market.title)}</h3>
-                    </div>
-
-                    {/* Tarjeta - Información en Grilla */}
-                    <div className="grid grid-cols-2 gap-3 text-sm bg-muted/30 p-3 rounded-lg border border-border/50">
-                      <div className="flex flex-col gap-1">
-                        <span className="text-muted-foreground text-[10px] uppercase font-bold tracking-wider">Categoría</span>
-                        <Badge variant="secondary" className="w-fit font-medium capitalize text-xs">{safeString(market.category)}</Badge>
+                        <div className="flex flex-col gap-1">
+                          <span className="text-muted-foreground text-[10px] uppercase font-bold tracking-wider">Estado</span>
+                          <div>{getStatusBadge(market.status)}</div>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <span className="text-muted-foreground text-[10px] uppercase font-bold tracking-wider">Cierre</span>
+                          <span className={cn("font-semibold flex items-center gap-1.5", overdue ? "text-red-500 font-bold" : "text-foreground")}>
+                            {overdue && <Clock className="w-3 h-3" />} {formatDate(market.end_date)}
+                          </span>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <span className="text-muted-foreground text-[10px] uppercase font-bold tracking-wider">Volumen</span>
+                          <span className="font-black text-foreground">{safeNumber(market.total_volume).toLocaleString()} pts</span>
+                        </div>
                       </div>
-                      <div className="flex flex-col gap-1">
-                        <span className="text-muted-foreground text-[10px] uppercase font-bold tracking-wider">Estado</span>
-                        <div>{getStatusBadge(market.status)}</div>
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <span className="text-muted-foreground text-[10px] uppercase font-bold tracking-wider">Cierre</span>
-                        <span className="font-semibold text-foreground">{formatDate(market.end_date)}</span>
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <span className="text-muted-foreground text-[10px] uppercase font-bold tracking-wider">Volumen</span>
-                        <span className="font-bold text-amber-500">{safeNumber(market.total_volume).toLocaleString()} pts</span>
-                      </div>
-                    </div>
 
-                    {/* Tarjeta - Botones de Acción Accesibles */}
-                    <div className="pt-2 flex items-center gap-2">
-                      <Button size="icon" variant="outline" className="h-10 w-10 shrink-0 hover:text-primary" onClick={() => setEditingMarket(market)}>
-                        <Pencil className="w-4 h-4" />
-                      </Button>
-
-                      {market.status === "pending" && (
-                        <>
-                          <Button size="sm" onClick={() => handleApprove(market.id)} disabled={processingIds.has(market.id)} className="flex-1 h-10 font-bold">
-                            {processingIds.has(market.id) ? <Loader2 className="w-4 h-4 animate-spin" /> : <><CheckCircle2 className="w-4 h-4 mr-1.5" /> Aprobar</>}
-                          </Button>
-                          <Button size="icon" variant="destructive" onClick={() => handleReject(market.id)} disabled={processingIds.has(market.id)} className="h-10 w-10 shrink-0">
-                            {processingIds.has(market.id) ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
-                          </Button>
-                        </>
-                      )}
-
-                      {market.status === "active" && (
-                        <Button 
-                          size="sm" 
-                          variant="outline"
-                          className="border-primary text-primary hover:bg-primary hover:text-primary-foreground font-bold flex-1 h-10" 
-                          onClick={() => { setResolvingMarket(market); setSelectedWinningOption(""); }} 
-                          disabled={processingIds.has(market.id)}
-                        >
-                          <Trophy className="w-4 h-4 mr-1.5" /> Resolver Mercado
+                      <div className="pt-2 flex items-center gap-2">
+                        <Button size="icon" variant="outline" className="h-11 w-11 shrink-0 hover:text-primary bg-background" onClick={() => setEditingMarket(market)}>
+                          <Pencil className="w-5 h-5" />
                         </Button>
-                      )}
 
-                      {market.status !== "pending" && (
-                        <Button size="icon" variant="destructive" className="h-10 w-10 shrink-0 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white border border-red-500/20" onClick={() => setDeletingMarket({ id: market.id, title: String(market.title) })} disabled={processingIds.has(market.id)}>
-                          {processingIds.has(market.id) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                        </Button>
-                      )}
+                        {market.status === "pending" && (
+                          <>
+                            <Button size="sm" onClick={() => handleApprove(market.id)} disabled={processingIds.has(market.id)} className="flex-1 h-11 font-bold text-base">
+                              {processingIds.has(market.id) ? <Loader2 className="w-5 h-5 animate-spin" /> : <><CheckCircle2 className="w-5 h-5 mr-1.5" /> Aprobar</>}
+                            </Button>
+                            <Button size="icon" variant="destructive" onClick={() => handleReject(market.id)} disabled={processingIds.has(market.id)} className="h-11 w-11 shrink-0">
+                              {processingIds.has(market.id) ? <Loader2 className="w-5 h-5 animate-spin" /> : <XCircle className="w-5 h-5" />}
+                            </Button>
+                          </>
+                        )}
+
+                        {market.status === "active" && (
+                          <Button 
+                            size="sm" 
+                            variant={overdue ? "default" : "outline"}
+                            className={cn("flex-1 h-11 font-bold text-base transition-all", overdue ? "bg-red-500 hover:bg-red-600 text-white shadow-md shadow-red-500/20 animate-pulse" : "border-primary text-primary hover:bg-primary hover:text-primary-foreground")} 
+                            onClick={() => { setResolvingMarket(market); setSelectedWinningOption(""); }} 
+                            disabled={processingIds.has(market.id)}
+                          >
+                            <Trophy className="w-5 h-5 mr-1.5" /> {overdue ? "Resolver YA" : "Resolver"}
+                          </Button>
+                        )}
+
+                        {market.status !== "pending" && (
+                          <Button size="icon" variant="destructive" className="h-11 w-11 shrink-0 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white border border-red-500/20" onClick={() => setDeletingMarket({ id: market.id, title: String(market.title) })} disabled={processingIds.has(market.id)}>
+                            {processingIds.has(market.id) ? <Loader2 className="w-5 h-5 animate-spin" /> : <Trash2 className="w-5 h-5" />}
+                          </Button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </>
         )}
 
-        {/* Modal Borrar */}
+        {/* MODALES MANTIENEN SU CÓDIGO ORIGINAL */}
         <Dialog open={!!deletingMarket} onOpenChange={(open) => !open && setDeletingMarket(null)}>
           <DialogContent className="w-[90vw] max-w-md rounded-2xl">
             <DialogHeader>
-              <DialogTitle className="text-red-500 text-xl">¿Eliminar y Reembolsar?</DialogTitle>
-              <DialogDescription className="text-base pt-2">Se borrará de forma permanente <strong>"{deletingMarket?.title}"</strong> y se devolverá la plata a los usuarios. Esta acción no se puede deshacer.</DialogDescription>
+              <DialogTitle className="text-red-500 text-xl font-black">¿Eliminar y Reembolsar?</DialogTitle>
+              <DialogDescription className="text-base pt-2 text-foreground">Se borrará de forma permanente <strong>"{deletingMarket?.title}"</strong> y se devolverá la plata a los usuarios. Esta acción no se puede deshacer.</DialogDescription>
             </DialogHeader>
             <DialogFooter className="gap-2 sm:gap-0 mt-4">
-              <Button variant="outline" onClick={() => setDeletingMarket(null)} className="h-12 w-full sm:w-auto">Cancelar</Button>
-              <Button variant="destructive" onClick={confirmDelete} className="h-12 w-full sm:w-auto font-bold">Sí, Eliminar</Button>
+              <Button variant="outline" onClick={() => setDeletingMarket(null)} className="h-12 w-full sm:w-auto font-bold text-base">Cancelar</Button>
+              <Button variant="destructive" onClick={confirmDelete} className="h-12 w-full sm:w-auto font-bold text-base">Sí, Eliminar</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
 
-        {/* Modal Resolver Mercado con Selector */}
         <Dialog open={!!resolvingMarket} onOpenChange={(open) => !open && setResolvingMarket(null)}>
           <DialogContent className="w-[90vw] max-w-md rounded-2xl">
             <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-xl"><Trophy className="w-5 h-5 text-primary" /> Declarar Ganador</DialogTitle>
-              <DialogDescription className="pt-2 text-base">
+              <DialogTitle className="flex items-center gap-2 text-xl font-black"><Trophy className="w-6 h-6 text-primary" /> Declarar Ganador</DialogTitle>
+              <DialogDescription className="pt-2 text-base text-foreground">
                 Elegí la opción ganadora para <strong>"{resolvingMarket?.title}"</strong>. Se repartirán los <strong className="text-amber-500">{(resolvingMarket?.total_volume || 0).toLocaleString()} pts</strong> apostados.
               </DialogDescription>
             </DialogHeader>
             <div className="py-4">
-              <Label className="mb-2 block font-semibold text-muted-foreground">Opción Ganadora</Label>
+              <Label className="mb-3 block font-bold text-muted-foreground uppercase tracking-wider text-xs">Opción Ganadora</Label>
               <Select value={selectedWinningOption} onValueChange={setSelectedWinningOption}>
-                <SelectTrigger className="h-12 text-base">
+                <SelectTrigger className="h-14 text-base font-bold">
                   <SelectValue placeholder="Seleccioná al ganador..." />
                 </SelectTrigger>
                 <SelectContent>
                   {resolvingMarket?.market_options?.map(opt => (
-                    <SelectItem key={opt.id} value={opt.id} className="h-12 text-base cursor-pointer">{opt.option_name}</SelectItem>
+                    <SelectItem key={opt.id} value={opt.id} className="h-12 text-base font-medium cursor-pointer">{opt.option_name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <DialogFooter className="gap-2 sm:gap-0 mt-2">
-              <Button variant="outline" onClick={() => setResolvingMarket(null)} className="h-12 w-full sm:w-auto">Cancelar</Button>
+              <Button variant="outline" onClick={() => setResolvingMarket(null)} className="h-12 w-full sm:w-auto font-bold text-base">Cancelar</Button>
               <Button 
                 onClick={confirmResolve} 
                 disabled={!selectedWinningOption} 
-                className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold h-12 w-full sm:w-auto text-base"
+                className="bg-primary hover:bg-primary/90 text-primary-foreground font-black h-12 w-full sm:w-auto text-base shadow-md"
               >
                 Confirmar Resolución
               </Button>
@@ -505,50 +595,49 @@ export default function AdminDashboardClient() {
           </DialogContent>
         </Dialog>
 
-        {/* Modal de Creación Rápida */}
         <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
            <DialogContent className="w-[95vw] max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl">
             <DialogHeader>
-              <DialogTitle className="text-2xl">Crear Mercado Inmediato</DialogTitle>
-              <DialogDescription>
+              <DialogTitle className="text-2xl font-black">Crear Mercado Inmediato</DialogTitle>
+              <DialogDescription className="text-base">
                 Los mercados creados por el Administrador pasan directamente a estado Activo para apostar.
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleCreateSubmit} className="space-y-5 pt-2">
               <div className="space-y-2">
-                <Label className="font-semibold">Pregunta</Label>
-                <Input placeholder="Ej: ¿Boca ganará la Libertadores?" value={createForm.title} onChange={(e) => setCreateForm((f) => ({ ...f, title: e.target.value }))} required className="h-12 text-base" />
+                <Label className="font-bold">Pregunta</Label>
+                <Input placeholder="Ej: ¿Boca ganará la Libertadores?" value={createForm.title} onChange={(e) => setCreateForm((f) => ({ ...f, title: e.target.value }))} required className="h-12 text-base bg-muted/50" />
               </div>
               <div className="space-y-2">
-                <Label className="font-semibold">Descripción (Opcional)</Label>
-                <Textarea placeholder="Contexto de la apuesta..." value={createForm.description} onChange={(e) => setCreateForm((f) => ({ ...f, description: e.target.value }))} className="resize-none h-24 text-base" />
+                <Label className="font-bold">Descripción (Opcional)</Label>
+                <Textarea placeholder="Contexto de la apuesta..." value={createForm.description} onChange={(e) => setCreateForm((f) => ({ ...f, description: e.target.value }))} className="resize-none h-24 text-base bg-muted/50" />
               </div>
               <div className="space-y-2">
-                <Label className="font-semibold">Link de la Imagen (Opcional)</Label>
-                <Input placeholder="https://ejemplo.com/foto.jpg" value={createForm.image_url} onChange={(e) => setCreateForm((f) => ({ ...f, image_url: e.target.value }))} className="h-12 text-base" />
+                <Label className="font-bold">Link de la Imagen (Opcional)</Label>
+                <Input placeholder="https://ejemplo.com/foto.jpg" value={createForm.image_url} onChange={(e) => setCreateForm((f) => ({ ...f, image_url: e.target.value }))} className="h-12 text-base bg-muted/50" />
               </div>
               
-              <div className="space-y-4 p-4 bg-muted/30 rounded-xl border border-border/50">
-                <Label className="font-semibold text-base">Tipo de Mercado</Label>
+              <div className="space-y-4 p-5 bg-muted/30 rounded-xl border border-border/50">
+                <Label className="font-black text-base uppercase tracking-wider">Tipo de Mercado</Label>
                 <div className="grid grid-cols-2 gap-3 mb-2">
-                  <Button type="button" className="h-12 font-bold" variant={createForm.marketType === "binary" ? "default" : "outline"} onClick={() => setCreateForm(f => ({ ...f, marketType: "binary" }))}>Sí / No</Button>
-                  <Button type="button" className="h-12 font-bold" variant={createForm.marketType === "multiple" ? "default" : "outline"} onClick={() => setCreateForm(f => ({ ...f, marketType: "multiple" }))}>Múltiples</Button>
+                  <Button type="button" className="h-12 font-bold shadow-sm" variant={createForm.marketType === "binary" ? "default" : "outline"} onClick={() => setCreateForm(f => ({ ...f, marketType: "binary" }))}>Sí / No</Button>
+                  <Button type="button" className="h-12 font-bold shadow-sm" variant={createForm.marketType === "multiple" ? "default" : "outline"} onClick={() => setCreateForm(f => ({ ...f, marketType: "multiple" }))}>Múltiples</Button>
                 </div>
 
                 {createForm.marketType === "multiple" && (
-                  <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-300 bg-background p-4 rounded-xl border border-border/50">
-                    <Label className="text-sm font-semibold text-muted-foreground block mb-2">Opciones posibles (mínimo 2):</Label>
+                  <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-300 bg-background p-4 rounded-xl border border-border/50 shadow-inner">
+                    <Label className="text-sm font-bold text-muted-foreground block mb-2 uppercase tracking-wider">Opciones posibles (mínimo 2):</Label>
                     {createForm.options.map((option, index) => (
                       <div key={index} className="flex gap-2 items-center">
                         <div className="w-6 text-center text-sm font-bold text-muted-foreground">{index + 1}.</div>
-                        <Input placeholder={index === 0 ? "Ej: Real Madrid" : index === 1 ? "Ej: Manchester City" : "Otra opción..."} value={option} onChange={(e) => handleOptionChange(index, e.target.value)} className="flex-1 h-12 text-base" />
+                        <Input placeholder={index === 0 ? "Ej: Real Madrid" : index === 1 ? "Ej: Manchester City" : "Otra opción..."} value={option} onChange={(e) => handleOptionChange(index, e.target.value)} className="flex-1 h-12 text-base font-medium" />
                         {createForm.options.length > 2 && (
                           <Button type="button" variant="ghost" size="icon" onClick={() => removeOption(index)} className="h-12 w-12 text-muted-foreground hover:bg-red-500/10 hover:text-red-500 shrink-0"><X className="w-5 h-5" /></Button>
                         )}
                       </div>
                     ))}
                     {createForm.options.length < 10 && (
-                      <Button type="button" variant="outline" size="sm" onClick={addOption} className="w-full mt-2 h-12 border-dashed font-semibold text-primary"><Plus className="w-5 h-5 mr-2" /> Agregar opción</Button>
+                      <Button type="button" variant="outline" size="sm" onClick={addOption} className="w-full mt-2 h-12 border-dashed font-bold text-primary hover:bg-primary/5"><Plus className="w-5 h-5 mr-2" /> Agregar opción</Button>
                     )}
                   </div>
                 )}
@@ -556,56 +645,55 @@ export default function AdminDashboardClient() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label className="font-semibold">Categoría</Label>
+                  <Label className="font-bold">Categoría</Label>
                   <Select value={createForm.category} onValueChange={(v) => setCreateForm((f) => ({ ...f, category: v }))}>
-                    <SelectTrigger className="h-12 text-base"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="h-12 text-base font-medium bg-muted/50"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="política" className="h-12">Política</SelectItem>
-                      <SelectItem value="deportes" className="h-12">Deportes</SelectItem>
-                      <SelectItem value="finanzas" className="h-12">Finanzas</SelectItem>
-                      <SelectItem value="cripto" className="h-12">Cripto</SelectItem>
-                      <SelectItem value="tecnología" className="h-12">Tecnología</SelectItem>
-                      <SelectItem value="ciencia" className="h-12">Ciencia</SelectItem>
-                      <SelectItem value="clima" className="h-12">Clima</SelectItem>
-                      <SelectItem value="entretenimiento" className="h-12">Entretenimiento</SelectItem>
-                      <SelectItem value="música" className="h-12">Música</SelectItem>
+                      <SelectItem value="política" className="h-12 font-medium">Política</SelectItem>
+                      <SelectItem value="deportes" className="h-12 font-medium">Deportes</SelectItem>
+                      <SelectItem value="finanzas" className="h-12 font-medium">Finanzas</SelectItem>
+                      <SelectItem value="cripto" className="h-12 font-medium">Cripto</SelectItem>
+                      <SelectItem value="tecnología" className="h-12 font-medium">Tecnología</SelectItem>
+                      <SelectItem value="ciencia" className="h-12 font-medium">Ciencia</SelectItem>
+                      <SelectItem value="clima" className="h-12 font-medium">Clima</SelectItem>
+                      <SelectItem value="entretenimiento" className="h-12 font-medium">Entretenimiento</SelectItem>
+                      <SelectItem value="música" className="h-12 font-medium">Música</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label className="font-semibold">Fecha de Cierre</Label>
-                  <Input type="date" value={createForm.end_date} onChange={(e) => setCreateForm((f) => ({ ...f, end_date: e.target.value }))} required className="h-12 text-base" />
+                  <Label className="font-bold">Fecha de Cierre</Label>
+                  <Input type="date" value={createForm.end_date} onChange={(e) => setCreateForm((f) => ({ ...f, end_date: e.target.value }))} required className="h-12 text-base font-medium bg-muted/50" />
                 </div>
               </div>
               <DialogFooter className="gap-2 sm:gap-0 mt-6 pt-4 border-t border-border/50">
                 <Button type="button" variant="outline" onClick={() => setIsCreateModalOpen(false)} className="h-12 w-full sm:w-auto font-bold text-base">Cancelar</Button>
-                <Button type="submit" disabled={isCreating} className="h-12 w-full sm:w-auto font-bold text-base">{isCreating ? <Loader2 className="w-5 h-5 animate-spin" /> : "Publicar Activo"}</Button>
+                <Button type="submit" disabled={isCreating} className="h-12 w-full sm:w-auto font-bold text-base shadow-md">{isCreating ? <Loader2 className="w-5 h-5 animate-spin" /> : "Publicar Activo"}</Button>
               </DialogFooter>
             </form>
           </DialogContent>
         </Dialog>
 
-        {/* Modal de Edición */}
         <Dialog open={!!editingMarket} onOpenChange={(open) => !open && setEditingMarket(null)}>
           <DialogContent className="w-[95vw] max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl">
             <DialogHeader>
-              <DialogTitle className="text-2xl">Editar mercado</DialogTitle>
-              <DialogDescription>Corregí errores de tipeo en las preguntas o en las opciones.</DialogDescription>
+              <DialogTitle className="text-2xl font-black">Editar mercado</DialogTitle>
+              <DialogDescription className="text-base text-foreground">Corregí errores de tipeo en las preguntas o en las opciones.</DialogDescription>
             </DialogHeader>
             <form onSubmit={handleEditSubmit} className="space-y-5 pt-2">
               <div className="space-y-2">
-                <Label className="font-semibold">Pregunta</Label>
-                <Input value={editForm.title} onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))} required className="h-12 text-base" />
+                <Label className="font-bold">Pregunta</Label>
+                <Input value={editForm.title} onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))} required className="h-12 text-base font-medium bg-muted/50" />
               </div>
               
-              <div className="space-y-3 p-4 bg-muted/30 rounded-xl border border-border/50">
-                <Label className="font-semibold text-base">Editar opciones</Label>
+              <div className="space-y-3 p-5 bg-muted/30 rounded-xl border border-border/50">
+                <Label className="font-black text-base uppercase tracking-wider mb-2 block">Editar opciones</Label>
                 {editForm.options.map((opt, index) => (
                   <div key={opt.id} className="flex items-center gap-3">
-                    <span className="w-6 text-sm font-bold text-muted-foreground">{index + 1}.</span>
+                    <span className="w-6 text-sm font-black text-muted-foreground">{index + 1}.</span>
                     <Input 
                       value={opt.option_name} 
-                      className="h-12 text-base flex-1"
+                      className="h-12 text-base font-medium flex-1 bg-background"
                       onChange={(e) => {
                         const newOpts = [...editForm.options];
                         newOpts[index].option_name = e.target.value;
@@ -617,35 +705,35 @@ export default function AdminDashboardClient() {
               </div>
 
               <div className="space-y-2">
-                <Label className="font-semibold">Link de la Imagen (Opcional)</Label>
-                <Input placeholder="https://ejemplo.com/foto.jpg" value={editForm.image_url} onChange={(e) => setEditForm((f) => ({ ...f, image_url: e.target.value }))} className="h-12 text-base" />
+                <Label className="font-bold">Link de la Imagen (Opcional)</Label>
+                <Input placeholder="https://ejemplo.com/foto.jpg" value={editForm.image_url} onChange={(e) => setEditForm((f) => ({ ...f, image_url: e.target.value }))} className="h-12 text-base font-medium bg-muted/50" />
               </div>
               <div className="space-y-2">
-                <Label className="font-semibold">Categoría</Label>
+                <Label className="font-bold">Categoría</Label>
                 <Select value={editForm.category} onValueChange={(v) => setEditForm((f) => ({ ...f, category: v }))}>
-                  <SelectTrigger className="h-12 text-base"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-12 text-base font-medium bg-muted/50"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="política" className="h-12">Política</SelectItem>
-                    <SelectItem value="deportes" className="h-12">Deportes</SelectItem>
-                    <SelectItem value="finanzas" className="h-12">Finanzas</SelectItem>
-                    <SelectItem value="cripto" className="h-12">Cripto</SelectItem>
-                    <SelectItem value="tecnología" className="h-12">Tecnología</SelectItem>
-                    <SelectItem value="ciencia" className="h-12">Ciencia</SelectItem>
-                    <SelectItem value="clima" className="h-12">Clima</SelectItem>
-                    <SelectItem value="entretenimiento" className="h-12">Entretenimiento</SelectItem>
-                    <SelectItem value="música" className="h-12">Música</SelectItem>
+                    <SelectItem value="política" className="h-12 font-medium">Política</SelectItem>
+                    <SelectItem value="deportes" className="h-12 font-medium">Deportes</SelectItem>
+                    <SelectItem value="finanzas" className="h-12 font-medium">Finanzas</SelectItem>
+                    <SelectItem value="cripto" className="h-12 font-medium">Cripto</SelectItem>
+                    <SelectItem value="tecnología" className="h-12 font-medium">Tecnología</SelectItem>
+                    <SelectItem value="ciencia" className="h-12 font-medium">Ciencia</SelectItem>
+                    <SelectItem value="clima" className="h-12 font-medium">Clima</SelectItem>
+                    <SelectItem value="entretenimiento" className="h-12 font-medium">Entretenimiento</SelectItem>
+                    <SelectItem value="música" className="h-12 font-medium">Música</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <DialogFooter className="gap-2 sm:gap-0 mt-6 pt-4 border-t border-border/50">
                 <Button type="button" variant="outline" onClick={() => setEditingMarket(null)} className="h-12 w-full sm:w-auto font-bold text-base">Cancelar</Button>
-                <Button type="submit" disabled={isSaving} className="h-12 w-full sm:w-auto font-bold text-base bg-primary hover:bg-primary/90 text-primary-foreground">{isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : "Guardar Cambios"}</Button>
+                <Button type="submit" disabled={isSaving} className="h-12 w-full sm:w-auto font-bold text-base bg-primary hover:bg-primary/90 text-primary-foreground shadow-md">{isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : "Guardar Cambios"}</Button>
               </DialogFooter>
             </form>
           </DialogContent>
         </Dialog>
 
-      </div>
+      </main>
     </div>
   );
 }
