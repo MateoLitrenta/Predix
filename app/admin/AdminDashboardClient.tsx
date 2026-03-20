@@ -710,27 +710,38 @@ export default function AdminDashboardClient() {
                 ))}
               </div>
 
-              <div className="space-y-2">
-                <Label className="font-bold">Link de la Imagen (Opcional)</Label>
-                <Input placeholder="https://ejemplo.com/foto.jpg" value={editForm.image_url} onChange={(e) => setEditForm((f) => ({ ...f, image_url: e.target.value }))} className="h-12 text-base font-medium bg-muted/50" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="font-bold">Categoría</Label>
+                  <Select value={editForm.category} onValueChange={(v) => setEditForm((f) => ({ ...f, category: v }))}>
+                    <SelectTrigger className="h-12 text-base font-medium bg-muted/50"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="política" className="h-12 font-medium">Política</SelectItem>
+                      <SelectItem value="deportes" className="h-12 font-medium">Deportes</SelectItem>
+                      <SelectItem value="finanzas" className="h-12 font-medium">Finanzas</SelectItem>
+                      <SelectItem value="cripto" className="h-12 font-medium">Cripto</SelectItem>
+                      <SelectItem value="tecnología" className="h-12 font-medium">Tecnología</SelectItem>
+                      <SelectItem value="ciencia" className="h-12 font-medium">Ciencia</SelectItem>
+                      <SelectItem value="clima" className="h-12 font-medium">Clima</SelectItem>
+                      <SelectItem value="entretenimiento" className="h-12 font-medium">Entretenimiento</SelectItem>
+                      <SelectItem value="música" className="h-12 font-medium">Música</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                {/* ACÁ AGREGAMOS EL INPUT DE LA FECHA DE CIERRE */}
+                <div className="space-y-2">
+                  <Label className="font-bold">Fecha de Cierre</Label>
+                  <Input 
+                    type="date" 
+                    value={editForm.end_date} 
+                    onChange={(e) => setEditForm((f) => ({ ...f, end_date: e.target.value }))} 
+                    required 
+                    className="h-12 text-base font-medium bg-muted/50" 
+                  />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label className="font-bold">Categoría</Label>
-                <Select value={editForm.category} onValueChange={(v) => setEditForm((f) => ({ ...f, category: v }))}>
-                  <SelectTrigger className="h-12 text-base font-medium bg-muted/50"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="política" className="h-12 font-medium">Política</SelectItem>
-                    <SelectItem value="deportes" className="h-12 font-medium">Deportes</SelectItem>
-                    <SelectItem value="finanzas" className="h-12 font-medium">Finanzas</SelectItem>
-                    <SelectItem value="cripto" className="h-12 font-medium">Cripto</SelectItem>
-                    <SelectItem value="tecnología" className="h-12 font-medium">Tecnología</SelectItem>
-                    <SelectItem value="ciencia" className="h-12 font-medium">Ciencia</SelectItem>
-                    <SelectItem value="clima" className="h-12 font-medium">Clima</SelectItem>
-                    <SelectItem value="entretenimiento" className="h-12 font-medium">Entretenimiento</SelectItem>
-                    <SelectItem value="música" className="h-12 font-medium">Música</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+
               <DialogFooter className="gap-2 sm:gap-0 mt-6 pt-4 border-t border-border/50">
                 <Button type="button" variant="outline" onClick={() => setEditingMarket(null)} className="h-12 w-full sm:w-auto font-bold text-base">Cancelar</Button>
                 <Button type="submit" disabled={isSaving} className="h-12 w-full sm:w-auto font-bold text-base bg-primary hover:bg-primary/90 text-primary-foreground shadow-md">{isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : "Guardar Cambios"}</Button>

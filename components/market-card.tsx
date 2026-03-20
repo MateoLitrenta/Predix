@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Coins, Clock, ChevronRight, TrendingUp, Activity } from "lucide-react";
+import { Coins, Clock, ChevronRight, TrendingUp, Activity, Check } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -49,6 +49,8 @@ export function MarketCard({
 }: MarketCardProps) {
   const router = useRouter();
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  
+  const [selectedAction, setSelectedAction] = useState<{ optionId: string; type: 'yes' | 'no' } | null>(null);
 
   const truncateTitle = (str: string, maxLength: number) => {
     if (str.length <= maxLength) return str;
@@ -59,18 +61,19 @@ export function MarketCard({
     router.push(`/market/${id}`);
   };
 
-  const totalVolNum = Number(totalVolume.replace(/,/g, '') || 0);
+  // ACÁ ESTÁ EL ARREGLO DEL BUG DEL 99%
+  // Sumamos los votos reales de forma matemática y precisa, ignorando el texto formateado
+  const realTotalVotes = options.reduce((acc, opt) => acc + Number(opt.total_votes || 0), 0);
   const totalOptsCount = options.length || 2;
 
   const getProbability = (votes: number) => {
-    let ammPrice = (Number(votes) + 100.0) / (totalVolNum + (totalOptsCount * 100.0));
+    let ammPrice = (Number(votes) + 100.0) / (realTotalVotes + (totalOptsCount * 100.0));
     ammPrice = Math.max(0.01, Math.min(0.99, ammPrice));
     return ammPrice * 100;
   };
 
   const sortedOptions = [...options].sort((a, b) => Number(b.total_votes) - Number(a.total_votes));
 
-  // Chequeamos si es un mercado Binario (Sí/No)
   const isBinaryYesNo = options.length === 2 && 
     options.some(o => ['sí', 'si', 'yes'].includes(o.option_name.toLowerCase())) && 
     options.some(o => o.option_name.toLowerCase() === 'no');
@@ -78,7 +81,10 @@ export function MarketCard({
   return (
     <>
       <Card 
-        onClick={() => setIsPreviewOpen(true)}
+        onClick={() => {
+          setSelectedAction(null); 
+          setIsPreviewOpen(true);
+        }}
         className="group bg-card hover:bg-muted/10 transition-all duration-300 border-border/50 hover:border-primary/50 shadow-sm hover:shadow-md cursor-pointer relative overflow-hidden flex flex-col h-full"
       >
         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-primary/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -132,10 +138,7 @@ export function MarketCard({
             )}
           </div>
 
-          {/* ACÁ ESTÁ EL ARREGLO: Agregamos flex-wrap y shrink-0 */}
           <div className="flex items-end justify-between mt-auto pt-4 border-t border-border/50 gap-2">
-            
-            {/* Contenedor Izquierdo (Textos y Etiquetas) - Ahora puede envolver líneas si es necesario */}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 flex-1 min-w-0">
               <Badge 
                 variant="secondary" 
@@ -156,7 +159,6 @@ export function MarketCard({
               </div>
             </div>
             
-            {/* Botón Derecho - shrink-0 lo hace intocable */}
             <Button 
               variant="default" 
               size="sm" 
@@ -173,7 +175,6 @@ export function MarketCard({
         </CardContent>
       </Card>
 
-      {/* POP-UP (PREVIEW DEL MERCADO) */}
       <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
         <DialogContent className="sm:max-w-lg p-0 overflow-hidden bg-background border-border/50">
           
@@ -211,25 +212,39 @@ export function MarketCard({
               {sortedOptions.map((opt) => {
                 const yesPrice = Math.round(getProbability(opt.total_votes));
                 const noPrice = 100 - yesPrice;
+                
+                const isYesSelected = selectedAction?.optionId === opt.id && selectedAction?.type === 'yes';
+                const isNoSelected = selectedAction?.optionId === opt.id && selectedAction?.type === 'no';
 
                 if (isBinaryYesNo) {
                   return (
                     <div 
                       key={opt.id} 
-                      onClick={() => { setIsPreviewOpen(false); handleNavigateToMarket(); }}
-                      className="flex items-center justify-between p-4 rounded-xl bg-card border border-border/50 shadow-sm hover:border-primary/50 cursor-pointer transition-colors"
+                      onClick={() => setSelectedAction({ optionId: opt.id, type: 'yes' })}
+                      className={cn(
+                        "flex items-center justify-between p-4 rounded-xl bg-card border shadow-sm cursor-pointer transition-all",
+                        isYesSelected ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border/50 hover:border-primary/50"
+                      )}
                     >
                       <div className="flex items-center gap-3">
-                        <div className="w-4 h-4 rounded-full shadow-inner" style={{ backgroundColor: opt.color }} />
-                        <span className="font-bold text-lg">{opt.option_name}</span>
+                        <div className="w-4 h-4 rounded-full shadow-inner relative flex items-center justify-center" style={{ backgroundColor: opt.color }}>
+                           {isYesSelected && <Check className="w-3 h-3 text-white absolute" />}
+                        </div>
+                        <span className={cn("font-bold text-lg", isYesSelected && "text-primary")}>{opt.option_name}</span>
                       </div>
-                      <span className="text-2xl font-black">{yesPrice}¢</span>
+                      <span className={cn("text-2xl font-black", isYesSelected ? "text-primary" : "text-foreground")}>{yesPrice}¢</span>
                     </div>
                   )
                 }
 
                 return (
-                  <div key={opt.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-xl bg-card border border-border/50 shadow-sm gap-3 transition-colors hover:bg-muted/30">
+                  <div 
+                    key={opt.id} 
+                    className={cn(
+                      "flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-xl bg-card border shadow-sm gap-3 transition-colors hover:bg-muted/30",
+                      (isYesSelected || isNoSelected) ? "border-border" : "border-border/50"
+                    )}
+                  >
                     <div className="flex items-center gap-3 min-w-0 flex-1">
                       <div className="w-3 h-3 rounded-full shrink-0 shadow-inner" style={{ backgroundColor: opt.color }} />
                       <span className="font-bold text-sm truncate">{opt.option_name}</span>
@@ -238,16 +253,32 @@ export function MarketCard({
                     
                     <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
                       <Button 
-                        variant="outline" 
-                        className="flex-1 sm:w-20 h-9 font-bold text-sm text-green-600 dark:text-green-500 border-border/50 hover:bg-green-500/10 hover:border-green-500/50" 
-                        onClick={(e) => { e.stopPropagation(); setIsPreviewOpen(false); handleNavigateToMarket(); }}
+                        variant={isYesSelected ? "default" : "outline"}
+                        className={cn(
+                          "flex-1 sm:w-20 h-9 font-bold text-sm border-border/50 transition-all",
+                          isYesSelected 
+                            ? "bg-green-600 hover:bg-green-700 text-white border-green-600 shadow-md shadow-green-500/20" 
+                            : "text-green-600 dark:text-green-500 hover:bg-green-500/10 hover:border-green-500/50"
+                        )}
+                        onClick={(e) => { 
+                          e.stopPropagation(); 
+                          setSelectedAction({ optionId: opt.id, type: 'yes' });
+                        }}
                       >
                         Sí {yesPrice}¢
                       </Button>
                       <Button 
-                        variant="outline" 
-                        className="flex-1 sm:w-20 h-9 font-bold text-sm text-red-600 dark:text-red-500 border-border/50 hover:bg-red-500/10 hover:border-red-500/50" 
-                        onClick={(e) => { e.stopPropagation(); setIsPreviewOpen(false); handleNavigateToMarket(); }}
+                        variant={isNoSelected ? "default" : "outline"}
+                        className={cn(
+                          "flex-1 sm:w-20 h-9 font-bold text-sm border-border/50 transition-all",
+                          isNoSelected 
+                            ? "bg-red-600 hover:bg-red-700 text-white border-red-600 shadow-md shadow-red-500/20" 
+                            : "text-red-600 dark:text-red-500 hover:bg-red-500/10 hover:border-red-500/50"
+                        )}
+                        onClick={(e) => { 
+                          e.stopPropagation(); 
+                          setSelectedAction({ optionId: opt.id, type: 'no' });
+                        }}
                       >
                         No {noPrice}¢
                       </Button>
@@ -261,7 +292,7 @@ export function MarketCard({
           <div className="p-6 pt-4 bg-background">
             <Button 
               size="lg" 
-              className="w-full font-bold text-base h-12 shadow-md hover:scale-[1.02] active:scale-[0.98] transition-all text-primary-foreground"
+              className="w-full font-bold text-base h-12 shadow-md hover:scale-[1.02] active:scale-[0.98] transition-all bg-primary text-primary-foreground"
               onClick={() => {
                 setIsPreviewOpen(false); 
                 handleNavigateToMarket(); 
