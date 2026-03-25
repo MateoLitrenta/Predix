@@ -69,10 +69,15 @@ export default function ProfilePage() {
     setIsLoadingBets(true);
     setIsLoadingTransactions(true);
     
-    // Obtenemos a quiénes referiste para mostrarlos en el panel
+    // Obtenemos a quiénes referiste (SIN pedir created_at que no existe en tu BD)
     let refUsers: any[] = [];
     if (profile?.id) {
-       const { data } = await supabase.from("profiles").select("username, created_at").eq("referred_by", profile.id).order("created_at", { ascending: false });
+       const { data, error } = await supabase
+          .from("profiles")
+          .select("username")
+          .eq("referred_by", profile.id);
+          
+       if (error) console.error("Error buscando referidos:", error);
        if (data) refUsers = data;
     }
 
@@ -362,11 +367,18 @@ export default function ProfilePage() {
               </div>
 
               {/* LISTA DE REFERIDOS OBTENIDOS */}
-              {referredUsers.length > 0 && (
-                <div className="mt-8 pt-6 border-t border-border/50 w-full">
-                  <h4 className="text-sm font-bold text-foreground mb-4 flex items-center gap-2">
-                    <Users className="w-4 h-4 text-primary" /> Tus Referidos ({referredUsers.length})
-                  </h4>
+              <div className="mt-8 pt-6 border-t border-border/50 w-full">
+                <h4 className="text-sm font-bold text-foreground mb-4 flex items-center gap-2">
+                  <Users className="w-4 h-4 text-primary" /> Tus Referidos ({referredUsers.length})
+                </h4>
+                
+                {referredUsers.length === 0 ? (
+                  <div className="bg-muted/10 border border-dashed border-border/50 rounded-xl p-6 text-center text-muted-foreground flex flex-col items-center justify-center">
+                    <Users className="w-8 h-8 opacity-30 mb-2" />
+                    <p className="text-sm font-medium">Aún no invitaste a nadie.</p>
+                    <p className="text-xs opacity-70">¡Compartí tu link de arriba y empezá a ganar puntos pasivos!</p>
+                  </div>
+                ) : (
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
                     {referredUsers.map((user, i) => (
                       <div key={i} className="flex items-center gap-3 bg-background/50 border border-border/50 rounded-lg p-3 hover:border-primary/30 transition-colors">
@@ -375,13 +387,13 @@ export default function ProfilePage() {
                         </div>
                         <div className="min-w-0">
                           <p className="font-bold text-sm text-foreground truncate">{user.username}</p>
-                          <p className="text-[10px] text-muted-foreground uppercase">{new Date(user.created_at).toLocaleDateString('es-AR')}</p>
+                          <p className="text-[10px] text-muted-foreground uppercase">Usuario Activo</p>
                         </div>
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </CardContent>
           </Card>
 
