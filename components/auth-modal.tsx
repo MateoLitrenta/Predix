@@ -147,20 +147,22 @@ export function AuthModal({
         date_of_birth: dob,
       }).eq("id", data.user.id);
 
-      // 2. DISPARADOR DE REFERIDOS MULTINIVEL
-      // Si este usuario se registró usando un link de referido, ejecutamos el pago
+      // 2. DISPARADOR DE REFERIDOS MULTINIVEL BLINDADO
       if (referralCode) {
         try {
-          const { error: rpcError } = await supabase.rpc('process_referral', {
-            referrer_username: referralCode
+          // Pausa de 1.5 segundos para asegurar que Supabase haya terminado de crear el perfil
+          await new Promise(resolve => setTimeout(resolve, 1500));
+          
+          const { error: rpcError, data: rpcData } = await supabase.rpc('process_referral', {
+            referrer_username: referralCode,
+            p_new_user_id: data.user.id // <--- LA CLAVE MÁGICA: Le mandamos el ID a la fuerza
           });
           
-          if (!rpcError) {
-             console.log("Sistema de referidos ejecutado con éxito para:", referralCode);
-             // Podrías mostrar un toast extra acá si querés:
-             // toast({ title: "¡Bono de Referido!", description: "Recibiste 1000 pts extra por usar el link de invitación." });
+          if (!rpcError && rpcData === true) {
+             console.log("¡Bono de referido pagado con éxito!");
+             toast({ title: "¡Bono de Invitación!", description: `Recibiste 1000 pts extra gracias a ${referralCode}.` });
           } else {
-             console.error("Error al procesar referido:", rpcError);
+             console.error("No se pudo procesar el referido:", rpcError || "Función devolvió FALSE");
           }
         } catch (err) {
           console.error("Error catcheado al procesar referido:", err);
