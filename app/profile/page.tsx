@@ -69,7 +69,7 @@ export default function ProfilePage() {
     setIsLoadingBets(true);
     setIsLoadingTransactions(true);
     
-    // Obtenemos a quiénes referiste (SIN pedir created_at que no existe en tu BD)
+    // Obtenemos a quiénes referiste
     let refUsers: any[] = [];
     if (profile?.id) {
        const { data, error } = await supabase
@@ -343,61 +343,8 @@ export default function ProfilePage() {
             </Card>
           </div>
 
-          {/* LA TRAMPA DE OSOS: BLOQUE DE REFERIDOS */}
-          <Card className="bg-gradient-to-br from-primary/10 via-background to-background border-primary/20 shadow-md rounded-2xl mb-8 overflow-hidden">
-            <CardContent className="p-6 md:p-8">
-              <div className="flex flex-col md:flex-row items-center gap-6">
-                <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
-                  <Gift className="w-8 h-8 text-primary" />
-                </div>
-                <div className="flex-1 text-center md:text-left">
-                  <h3 className="text-2xl font-bold text-foreground mb-2">¡Invitá amigos y ganá puntos!</h3>
-                  <p className="text-muted-foreground text-sm max-w-xl">
-                    Ganá <strong className="text-primary">2.000 pts</strong> por cada amigo que se registre con tu link. Además, ganás <strong className="text-primary">500 pts extras</strong> cada vez que ellos inviten a alguien más. Tu amigo recibe 1.000 pts de bienvenida.
-                  </p>
-                </div>
-                <div className="w-full md:w-auto mt-4 md:mt-0 flex flex-col gap-2">
-                  <div className="relative">
-                    <Input readOnly value={referralLink} className="pr-12 bg-background border-border/50 font-medium text-muted-foreground w-full md:w-80" />
-                    <Button size="icon" variant="ghost" className="absolute right-0 top-0 h-full w-12 hover:bg-transparent" onClick={handleCopyLink}>
-                      {isCopied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4 text-muted-foreground" />}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-
-              {/* LISTA DE REFERIDOS OBTENIDOS */}
-              <div className="mt-8 pt-6 border-t border-border/50 w-full">
-                <h4 className="text-sm font-bold text-foreground mb-4 flex items-center gap-2">
-                  <Users className="w-4 h-4 text-primary" /> Tus Referidos ({referredUsers.length})
-                </h4>
-                
-                {referredUsers.length === 0 ? (
-                  <div className="bg-muted/10 border border-dashed border-border/50 rounded-xl p-6 text-center text-muted-foreground flex flex-col items-center justify-center">
-                    <Users className="w-8 h-8 opacity-30 mb-2" />
-                    <p className="text-sm font-medium">Aún no invitaste a nadie.</p>
-                    <p className="text-xs opacity-70">¡Compartí tu link de arriba y empezá a ganar puntos pasivos!</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                    {referredUsers.map((user, i) => (
-                      <div key={i} className="flex items-center gap-3 bg-background/50 border border-border/50 rounded-lg p-3 hover:border-primary/30 transition-colors">
-                        <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold shrink-0">
-                          {user.username.charAt(0).toUpperCase()}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="font-bold text-sm text-foreground truncate">{user.username}</p>
-                          <p className="text-[10px] text-muted-foreground uppercase">Usuario Activo</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-card border-border/50 shadow-md rounded-2xl overflow-hidden">
+          {/* TABLA DE INVERSIONES (AHORA ARRIBA DE LOS REFERIDOS) */}
+          <Card className="bg-card border-border/50 shadow-md rounded-2xl overflow-hidden mb-8">
             <CardContent className="p-4 sm:p-6 md:p-8">
               <Tabs defaultValue="active" className="w-full">
                 <TabsList className="grid w-full grid-cols-3 h-12 mb-8 bg-muted/50 rounded-lg p-1 border border-border/50">
@@ -591,6 +538,61 @@ export default function ProfilePage() {
               </Tabs>
             </CardContent>
           </Card>
+
+          {/* LA TRAMPA DE OSOS: BLOQUE DE REFERIDOS (AHORA AL FINAL) */}
+          <Card className="bg-gradient-to-br from-primary/10 via-background to-background border-primary/20 shadow-md rounded-2xl mb-8 overflow-hidden">
+            <CardContent className="p-6 md:p-8">
+              <div className="flex flex-col md:flex-row items-center gap-6">
+                <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
+                  <Gift className="w-8 h-8 text-primary" />
+                </div>
+                <div className="flex-1 text-center md:text-left">
+                  <h3 className="text-2xl font-bold text-foreground mb-2">¡Invitá amigos y ganá puntos!</h3>
+                  <p className="text-muted-foreground text-sm max-w-xl">
+                    Ganá <strong className="text-primary">2.000 pts</strong> por cada amigo que se registre con tu link. Además, ganás <strong className="text-primary">500 pts extras</strong> cada vez que ellos inviten a alguien más. Tu amigo recibe 1.000 pts de bienvenida.
+                  </p>
+                </div>
+                <div className="w-full md:w-auto mt-4 md:mt-0 flex flex-col gap-2">
+                  <div className="relative">
+                    <Input readOnly value={referralLink} className="pr-12 bg-background border-border/50 font-medium text-muted-foreground w-full md:w-80" />
+                    <Button size="icon" variant="ghost" className="absolute right-0 top-0 h-full w-12 hover:bg-transparent" onClick={handleCopyLink}>
+                      {isCopied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4 text-muted-foreground" />}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {/* LISTA DE REFERIDOS OBTENIDOS */}
+              <div className="mt-8 pt-6 border-t border-border/50 w-full">
+                <h4 className="text-sm font-bold text-foreground mb-4 flex items-center gap-2">
+                  <Users className="w-4 h-4 text-primary" /> Tus Referidos ({referredUsers.length})
+                </h4>
+                
+                {referredUsers.length === 0 ? (
+                  <div className="bg-muted/10 border border-dashed border-border/50 rounded-xl p-6 text-center text-muted-foreground flex flex-col items-center justify-center">
+                    <Users className="w-8 h-8 opacity-30 mb-2" />
+                    <p className="text-sm font-medium">Aún no invitaste a nadie.</p>
+                    <p className="text-xs opacity-70">¡Compartí tu link de arriba y empezá a ganar puntos pasivos!</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                    {referredUsers.map((user, i) => (
+                      <div key={i} className="flex items-center gap-3 bg-background/50 border border-border/50 rounded-lg p-3 hover:border-primary/30 transition-colors">
+                        <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold shrink-0">
+                          {user.username.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-bold text-sm text-foreground truncate">{user.username}</p>
+                          <p className="text-[10px] text-muted-foreground uppercase">Usuario Activo</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
         </div>
       </main>
 

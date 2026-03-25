@@ -34,7 +34,7 @@ export function AuthModal({
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // NUEVO ESTADO: Guarda el código de referido si vino por link
+  // ESTADO: Guarda el código de referido si vino por link
   const [referralCode, setReferralCode] = useState<string | null>(null);
 
   // Estados del formulario
@@ -48,19 +48,16 @@ export function AuthModal({
   useEffect(() => {
     setMounted(true);
     
-    // TRAMPA DE REFERIDOS: Lee la URL apenas carga el componente
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const ref = params.get('ref');
       if (ref) {
         setReferralCode(ref);
-        // Si vino con link de referido, le abrimos la pestaña de registro de una
         setActiveTab("register");
       }
     }
   }, []);
 
-  // Limpiar el formulario cuando se abre/cierra
   useEffect(() => {
     if (isOpen) {
       setErrorMsg(null);
@@ -140,33 +137,45 @@ export function AuthModal({
     }
 
     if (data?.user) {
-      // 1. Forzamos la actualización del perfil básico
-      await supabase.from("profiles").update({
-        username: cleanUsername,
-        full_name: fullName.trim(),
-        date_of_birth: dob,
-      }).eq("id", data.user.id);
+      // BUCLE DE VIGILANCIA: Esperamos que el perfil exista en la Base de Datos antes de hacer algo
+      let profileExists = false;
+      for (let i = 0; i < 15; i++) { // Intentamos por hasta 7.5 segundos
+         const { data: p } = await supabase.from("profiles").select("id").eq("id", data.user.id).maybeSingle();
+         if (p) {
+             profileExists = true;
+             break;
+         }
+         await new Promise(resolve => setTimeout(resolve, 500)); // Esperamos medio segundo
+      }
 
-      // 2. DISPARADOR DE REFERIDOS MULTINIVEL BLINDADO
-      if (referralCode) {
-        try {
-          // Pausa de 1.5 segundos para asegurar que Supabase haya terminado de crear el perfil
-          await new Promise(resolve => setTimeout(resolve, 1500));
-          
-          const { error: rpcError, data: rpcData } = await supabase.rpc('process_referral', {
-            referrer_username: referralCode,
-            p_new_user_id: data.user.id // <--- LA CLAVE MÁGICA: Le mandamos el ID a la fuerza
-          });
-          
-          if (!rpcError && rpcData === true) {
-             console.log("¡Bono de referido pagado con éxito!");
-             toast({ title: "¡Bono de Invitación!", description: `Recibiste 1000 pts extra gracias a ${referralCode}.` });
-          } else {
-             console.error("No se pudo procesar el referido:", rpcError || "Función devolvió FALSE");
+      // Si el perfil ya existe de forma segura, disparamos las actualizaciones
+      if (profileExists) {
+          // 1. Actualizamos nombre y usuario
+          await supabase.from("profiles").update({
+            username: cleanUsername,
+            full_name: fullName.trim(),
+            date_of_birth: dob,
+          }).eq("id", data.user.id);
+
+          // 2. DISPARAMOS REFERIDOS
+          if (referralCode) {
+            try {
+              const { error: rpcError, data: rpcData } = await supabase.rpc('process_referral', {
+                referrer_username: referralCode,
+                p_new_user_id: data.user.id
+              });
+              
+              if (!rpcError && rpcData === true) {
+                 toast({ title: "¡Bono de Invitación!", description: `Recibiste 1000 pts extra gracias a ${referralCode}.` });
+              } else {
+                 console.error("No se pudo procesar el referido:", rpcError || "Función devolvió FALSE");
+              }
+            } catch (err) {
+              console.error("Error catcheado al procesar referido:", err);
+            }
           }
-        } catch (err) {
-          console.error("Error catcheado al procesar referido:", err);
-        }
+      } else {
+          console.error("El perfil fantasma: La cuenta se creó en Auth pero no apareció en la tabla Profiles a tiempo.");
       }
     }
 
@@ -190,7 +199,6 @@ export function AuthModal({
           </DialogDescription>
         </DialogHeader>
 
-        {/* CARTELITO DE REFERIDO: Para que el usuario sepa que le funcionó el link */}
         {referralCode && activeTab === "register" && (
            <div className="bg-primary/10 border border-primary/30 text-primary p-3 rounded-md flex items-center justify-center text-sm font-medium mt-1">
               ✨ ¡Fuiste invitado por {referralCode}! Registrate ahora y ganá 1000 pts de bono.
