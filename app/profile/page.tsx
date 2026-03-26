@@ -19,12 +19,24 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Coins, User, ArrowLeft, Loader2, TrendingUp, TrendingDown, History, Pencil, Landmark, Lock, Camera, LineChart, Trophy, CheckCircle2, Clock, XCircle, ArrowUpRight, ArrowDownRight, Gift, Copy, Check, Users } from "lucide-react";
+import { Coins, User, ArrowLeft, Loader2, TrendingUp, TrendingDown, History, Pencil, Landmark, Lock, Camera, LineChart, Trophy, CheckCircle2, Clock, XCircle, ArrowUpRight, ArrowDownRight, Gift, Copy, Check, Users, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
 const ACTIVE_STATUSES = ["active", "pending"];
 const FINISHED_STATUSES = ["resolved", "rejected"];
+
+// Tipos para los botones de tiempo
+type TimeframeType = '1D' | '1W' | '1M' | '6M' | '1Y' | 'ALL';
+
+const timeframeLabels: Record<TimeframeType, string> = {
+  '1D': 'últimas 24hs',
+  '1W': 'última semana',
+  '1M': 'último mes',
+  '6M': 'últimos 6 meses',
+  '1Y': 'último año',
+  'ALL': 'Histórico'
+};
 
 function getMarket(bet: BetWithMarket) {
   return bet.markets ?? bet.market ?? null;
@@ -58,7 +70,11 @@ export default function ProfilePage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isChangingPassword, setIsChangingPassword] = useState(false);
 
-  const [timeframe, setTimeframe] = useState<'1D' | 'ALL'>('ALL');
+  // ESTADO DEL SELECTOR DE TIEMPO
+  const [timeframe, setTimeframe] = useState<TimeframeType>('ALL');
+
+  // ESTADO PARA EXPANDIR MOVIMIENTOS
+  const [expandedTx, setExpandedTx] = useState<string | null>(null);
 
   // ESTADOS DE REFERIDOS
   const [referralLink, setReferralLink] = useState("");
@@ -191,6 +207,28 @@ export default function ProfilePage() {
     };
   }, [bets, profile?.points, calculateRealCashout]);
 
+  // CALCULAR SALDOS HISTÓRICOS (Ingeniería inversa desde el saldo actual)
+  const processedTransactions = useMemo(() => {
+    if (!transactions.length) return [];
+    
+    let currentTempBalance = profile?.points ?? 0;
+    
+    // Asumimos que transactions viene ordenado del más nuevo al más viejo
+    return transactions.map((tx) => {
+      const balanceAfter = currentTempBalance;
+      const balanceBefore = currentTempBalance - tx.amount;
+      
+      // El saldo "antes" de esta transacción será el saldo "después" de la transacción más vieja que le sigue
+      currentTempBalance = balanceBefore; 
+      
+      return {
+        ...tx,
+        balanceAfter,
+        balanceBefore
+      };
+    });
+  }, [transactions, profile?.points]);
+
   const confirmSell = async () => {
     if (!betToSell) return;
 
@@ -315,19 +353,17 @@ export default function ProfilePage() {
                     {portfolioStats.totalPnl >= 0 ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownRight className="w-5 h-5" />} Profit/Loss
                   </div>
                   
-                  <div className="flex gap-1 bg-background/50 backdrop-blur-md rounded-lg p-1 border border-border/50">
-                    <button 
-                      onClick={() => setTimeframe('1D')} 
-                      className={cn("px-2 py-1 text-xs font-bold rounded-md transition-all", timeframe === '1D' ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
-                    >
-                      1D
-                    </button>
-                    <button 
-                      onClick={() => setTimeframe('ALL')} 
-                      className={cn("px-2 py-1 text-xs font-bold rounded-md transition-all", timeframe === 'ALL' ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
-                    >
-                      ALL
-                    </button>
+                  {/* SELECTOR DE TIEMPO (KALSHI / POLYMARKET STYLE) */}
+                  <div className="flex gap-1 bg-background/50 backdrop-blur-md rounded-lg p-1 border border-border/50 overflow-x-auto scrollbar-hide">
+                    {(['1D', '1W', '1M', '6M', '1Y', 'ALL'] as TimeframeType[]).map((tf) => (
+                      <button 
+                        key={tf}
+                        onClick={() => setTimeframe(tf)} 
+                        className={cn("px-2 py-1 text-xs font-bold rounded-md transition-all whitespace-nowrap", timeframe === tf ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
+                      >
+                        {tf}
+                      </button>
+                    ))}
                   </div>
                 </div>
                 
@@ -336,14 +372,14 @@ export default function ProfilePage() {
                     {portfolioStats.totalPnl >= 0 ? '+' : ''}{portfolioStats.totalPnlPercentage.toFixed(2)}%
                   </p>
                   <p className="text-sm font-bold text-muted-foreground flex items-center gap-1.5">
-                    {timeframe === 'ALL' ? 'Rendimiento Histórico' : 'Rendimiento últimas 24hs'}
+                    Rendimiento {timeframeLabels[timeframe]}
                   </p>
                 </div>
               </CardContent>
             </Card>
           </div>
 
-          {/* TABLA DE INVERSIONES (AHORA ARRIBA DE LOS REFERIDOS) */}
+          {/* TABLA DE INVERSIONES */}
           <Card className="bg-card border-border/50 shadow-md rounded-2xl overflow-hidden mb-8">
             <CardContent className="p-4 sm:p-6 md:p-8">
               <Tabs defaultValue="active" className="w-full">
@@ -504,31 +540,62 @@ export default function ProfilePage() {
                 <TabsContent value="bank" className="space-y-3">
                   {isLoadingTransactions ? (
                     <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
-                  ) : transactions.length === 0 ? (
+                  ) : processedTransactions.length === 0 ? (
                     <div className="text-center py-12 border-2 border-dashed border-border/50 rounded-xl bg-muted/10">
                       <Landmark className="w-12 h-12 text-muted-foreground mx-auto mb-3 opacity-50" />
                       <h3 className="font-semibold text-foreground mb-1 text-lg">No hay movimientos</h3>
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      {transactions.map((tx) => {
+                      {processedTransactions.map((tx) => {
                         const isPositive = tx.amount > 0;
+                        const isExpanded = expandedTx === tx.id;
+
                         return (
-                          <div key={tx.id} className="flex items-center justify-between p-4 rounded-xl border border-border/50 bg-muted/10 hover:bg-muted/20 transition-colors">
-                            <div className="flex items-center gap-4">
-                              <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${isPositive ? 'bg-[#00FF00]/20 text-[#00FF00]' : 'bg-[#FF0000]/20 text-[#FF0000]'}`}>
-                                {isPositive ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
+                          <div 
+                            key={tx.id} 
+                            onClick={() => setExpandedTx(isExpanded ? null : tx.id)}
+                            className="flex flex-col p-4 rounded-xl border border-border/50 bg-muted/10 hover:bg-muted/20 transition-all cursor-pointer group"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-4">
+                                <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${isPositive ? 'bg-[#00FF00]/20 text-[#00FF00]' : 'bg-[#FF0000]/20 text-[#FF0000]'}`}>
+                                  {isPositive ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
+                                </div>
+                                <div>
+                                  <p className="text-base font-semibold text-foreground">{tx.description}</p>
+                                  <p className="text-xs text-muted-foreground uppercase font-medium mt-0.5 flex items-center gap-1">
+                                    {new Date(tx.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                  </p>
+                                </div>
                               </div>
-                              <div>
-                                <p className="text-base font-semibold text-foreground">{tx.description}</p>
-                                <p className="text-xs text-muted-foreground uppercase font-medium mt-0.5">
-                                  {new Date(tx.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                                </p>
+                              <div className="flex items-center gap-3">
+                                <div className={`text-xl font-black ${isPositive ? 'text-[#00FF00]' : 'text-[#FF0000]'}`}>
+                                  {isPositive ? '+' : ''}{tx.amount.toLocaleString()} pts
+                                </div>
+                                {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground opacity-50 group-hover:opacity-100 transition-opacity" />}
                               </div>
                             </div>
-                            <div className={`text-xl font-black ${isPositive ? 'text-[#00FF00]' : 'text-[#FF0000]'}`}>
-                              {isPositive ? '+' : ''}{tx.amount.toLocaleString()} pts
-                            </div>
+
+                            {/* ACORDEÓN DESPLEGABLE CON EL DETALLE DE SALDOS */}
+                            {isExpanded && (
+                              <div className="mt-4 pt-4 border-t border-border/50 grid grid-cols-3 gap-2 text-center animate-in fade-in slide-in-from-top-2">
+                                <div className="bg-background/50 p-2 rounded-lg">
+                                  <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1">Saldo Anterior</p>
+                                  <p className="font-semibold text-foreground">{tx.balanceBefore.toLocaleString()} pts</p>
+                                </div>
+                                <div className="bg-background/50 p-2 rounded-lg">
+                                  <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1">Monto</p>
+                                  <p className={`font-black ${isPositive ? 'text-[#00FF00]' : 'text-[#FF0000]'}`}>
+                                    {isPositive ? '+' : ''}{tx.amount.toLocaleString()} pts
+                                  </p>
+                                </div>
+                                <div className="bg-primary/10 border border-primary/20 p-2 rounded-lg">
+                                  <p className="text-[10px] text-primary font-bold uppercase tracking-wider mb-1">Saldo Actualizado</p>
+                                  <p className="font-black text-primary">{tx.balanceAfter.toLocaleString()} pts</p>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         );
                       })}
@@ -539,7 +606,7 @@ export default function ProfilePage() {
             </CardContent>
           </Card>
 
-          {/* LA TRAMPA DE OSOS: BLOQUE DE REFERIDOS (AHORA AL FINAL) */}
+          {/* LA TRAMPA DE OSOS: BLOQUE DE REFERIDOS */}
           <Card className="bg-gradient-to-br from-primary/10 via-background to-background border-primary/20 shadow-md rounded-2xl mb-8 overflow-hidden">
             <CardContent className="p-6 md:p-8">
               <div className="flex flex-col md:flex-row items-center gap-6">
