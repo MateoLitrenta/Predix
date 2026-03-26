@@ -23,10 +23,11 @@ import { Coins, User, ArrowLeft, Loader2, TrendingUp, TrendingDown, History, Pen
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
+import { ResponsiveContainer, AreaChart, Area, Tooltip as RechartsTooltip, XAxis, YAxis } from "recharts";
+
 const ACTIVE_STATUSES = ["active", "pending"];
 const FINISHED_STATUSES = ["resolved", "rejected"];
 
-// Tipos para los botones de tiempo
 type TimeframeType = '1D' | '1W' | '1M' | '6M' | '1Y' | 'ALL';
 
 const timeframeLabels: Record<TimeframeType, string> = {
@@ -70,13 +71,8 @@ export default function ProfilePage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isChangingPassword, setIsChangingPassword] = useState(false);
 
-  // ESTADO DEL SELECTOR DE TIEMPO
   const [timeframe, setTimeframe] = useState<TimeframeType>('ALL');
-
-  // ESTADO PARA EXPANDIR MOVIMIENTOS
   const [expandedTx, setExpandedTx] = useState<string | null>(null);
-
-  // ESTADOS DE REFERIDOS
   const [referralLink, setReferralLink] = useState("");
   const [isCopied, setIsCopied] = useState(false);
   const [referredUsers, setReferredUsers] = useState<any[]>([]);
@@ -85,16 +81,10 @@ export default function ProfilePage() {
     setIsLoadingBets(true);
     setIsLoadingTransactions(true);
     
-    // Obtenemos a quiénes referiste
     let refUsers: any[] = [];
     if (profile?.id) {
-       const { data, error } = await supabase
-          .from("profiles")
-          .select("username")
-          .eq("referred_by", profile.id);
-          
-       if (error) console.error("Error buscando referidos:", error);
-       if (data) refUsers = data;
+       const { data, error } = await supabase.from("profiles").select("username").eq("referred_by", profile.id);
+       if (!error && data) refUsers = data;
     }
 
     const [betsRes, txRes, optionsRes] = await Promise.all([
@@ -120,26 +110,17 @@ export default function ProfilePage() {
   useEffect(() => {
     const load = async () => {
       const p = await getProfile();
-      if (!p) {
-        router.replace("/");
-        return;
-      }
+      if (!p) { router.replace("/"); return; }
       setProfile(p);
       setNewUsername(p.username || "");
       setPreviewUrl((p as any).avatar_url || null);
-      
-      if (typeof window !== "undefined" && p.username) {
-        setReferralLink(`${window.location.origin}/?ref=${p.username}`);
-      }
-
+      if (typeof window !== "undefined" && p.username) { setReferralLink(`${window.location.origin}/?ref=${p.username}`); }
       setIsChecking(false);
     };
     load();
   }, [router]);
 
-  useEffect(() => {
-    if (profile?.id) fetchUserData();
-  }, [profile?.id, fetchUserData]);
+  useEffect(() => { if (profile?.id) fetchUserData(); }, [profile?.id, fetchUserData]);
 
   useEffect(() => {
     if (isDarkMode) document.documentElement.classList.add("dark");
@@ -156,28 +137,31 @@ export default function ProfilePage() {
   const calculateRealCashout = useCallback((bet: any, market: any, opt: any) => {
     const shares = Number(bet.shares || 0);
     if (shares <= 0) return Math.round(bet.amount * 0.95); 
-    
     const direction = bet.direction || 'yes';
     const optionVotes = Number(opt.total_votes || 0);
     const totalVol = Number(market.total_volume || 0);
     const totalOptions = marketOptions.filter(o => o.market_id === market.id).length || 2;
-
     const startPriceYes = (optionVotes + 100.0) / (totalVol + (totalOptions * 100.0));
     const estPayout = shares * (direction === 'yes' ? startPriceYes : (1 - startPriceYes));
-
     let endPriceYes = 0;
-    if (direction === 'yes') {
-      endPriceYes = Math.max(0.01, (optionVotes - estPayout + 100.0) / (Math.max(1, totalVol - estPayout) + (totalOptions * 100.0)));
-    } else {
-      endPriceYes = Math.max(0.01, (optionVotes + 100.0) / (Math.max(1, totalVol - estPayout) + (totalOptions * 100.0)));
-    }
-
+    if (direction === 'yes') { endPriceYes = Math.max(0.01, (optionVotes - estPayout + 100.0) / (Math.max(1, totalVol - estPayout) + (totalOptions * 100.0))); } 
+    else { endPriceYes = Math.max(0.01, (optionVotes + 100.0) / (Math.max(1, totalVol - estPayout) + (totalOptions * 100.0))); }
     let avgPriceYes = (startPriceYes + endPriceYes) / 2.0;
     avgPriceYes = Math.max(0.01, Math.min(0.99, avgPriceYes));
-
     const currentPrice = direction === 'yes' ? avgPriceYes : (1 - avgPriceYes);
     return Math.round(shares * currentPrice);
   }, [marketOptions]);
+
+  const startDate = useMemo(() => {
+    const d = new Date();
+    if (timeframe === '1D') d.setDate(d.getDate() - 1);
+    else if (timeframe === '1W') d.setDate(d.getDate() - 7);
+    else if (timeframe === '1M') d.setMonth(d.getMonth() - 1);
+    else if (timeframe === '6M') d.setMonth(d.getMonth() - 6);
+    else if (timeframe === '1Y') d.setFullYear(d.getFullYear() - 1);
+    else return new Date(0); 
+    return d;
+  }, [timeframe]);
 
   const portfolioStats = useMemo(() => {
     const availableCapital = profile?.points ?? 0;
@@ -186,6 +170,7 @@ export default function ProfilePage() {
 
     bets
       .filter((b) => getMarket(b) && ACTIVE_STATUSES.includes(String(getMarket(b)!.status).toLowerCase()))
+      .filter((b) => new Date(b.created_at) >= startDate)
       .forEach((bet) => {
         const market = getMarket(bet);
         const opt = bet.option_details;
@@ -199,89 +184,84 @@ export default function ProfilePage() {
     const totalPnl = totalCurrentValueActive - totalInvestedActive;
     const totalPnlPercentage = totalInvestedActive > 0 ? (totalPnl / totalInvestedActive) * 100 : 0;
 
-    return {
-      availableCapital,
-      totalPortfolioValue,
-      totalPnl,
-      totalPnlPercentage,
-    };
-  }, [bets, profile?.points, calculateRealCashout]);
+    return { availableCapital, totalPortfolioValue, totalPnl, totalPnlPercentage };
+  }, [bets, profile?.points, calculateRealCashout, startDate]);
 
-  // CALCULAR SALDOS HISTÓRICOS (Ingeniería inversa desde el saldo actual)
   const processedTransactions = useMemo(() => {
     if (!transactions.length) return [];
-    
     let currentTempBalance = profile?.points ?? 0;
-    
-    // Asumimos que transactions viene ordenado del más nuevo al más viejo
     return transactions.map((tx) => {
       const balanceAfter = currentTempBalance;
       const balanceBefore = currentTempBalance - tx.amount;
-      
-      // El saldo "antes" de esta transacción será el saldo "después" de la transacción más vieja que le sigue
       currentTempBalance = balanceBefore; 
-      
-      return {
-        ...tx,
-        balanceAfter,
-        balanceBefore
-      };
+      return { ...tx, balanceAfter, balanceBefore };
     });
   }, [transactions, profile?.points]);
 
-  const confirmSell = async () => {
-    if (!betToSell) return;
+  const chartData = useMemo(() => {
+    const filtered = processedTransactions.filter(tx => new Date(tx.created_at) >= startDate);
+    const chronological = [...filtered].reverse(); 
+    
+    if (chronological.length === 0) {
+      return [
+        { date: 'Inicio', value: profile?.points || 0 },
+        { date: 'Actual', value: profile?.points || 0 }
+      ];
+    }
 
+    const data = [{
+      date: 'Inicio del período',
+      value: chronological[0].balanceBefore
+    }];
+
+    chronological.forEach(tx => {
+      data.push({
+        date: new Date(tx.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }),
+        value: tx.balanceAfter
+      });
+    });
+
+    return data;
+  }, [processedTransactions, startDate, profile?.points]);
+
+  const isProfit = portfolioStats.totalPnl >= 0;
+
+  // COLOR DINÁMICO PARA EL GRÁFICO (Verde bancario en light mode, verde neón en dark mode)
+  const themeChartColor = isProfit 
+    ? (isDarkMode ? "#00FF00" : "#16a34a") 
+    : (isDarkMode ? "#FF0000" : "#dc2626");
+
+  const confirmSell = async () => { 
+    if (!betToSell) return;
     setSellingBetId(betToSell.id);
     const { ok, error, cashoutValue } = await sellBet(betToSell.id);
-    
-    if (!ok) {
-      toast({ title: "Error al vender", description: error || "Hubo un problema", variant: "destructive" });
-    } else {
-      toast({ title: "¡Venta exitosa!", description: `Tus ganancias de ${cashoutValue?.toLocaleString()} pts ya están en tu cuenta.` });
-      await fetchAuth();
-      await fetchUserData();
-    }
-    setSellingBetId(null);
-    setBetToSell(null); 
+    if (!ok) { toast({ title: "Error al vender", description: error || "Hubo un problema", variant: "destructive" }); } 
+    else { toast({ title: "¡Venta exitosa!", description: `Ganancias: ${cashoutValue?.toLocaleString()} pts.` }); await fetchAuth(); await fetchUserData(); }
+    setSellingBetId(null); setBetToSell(null); 
   };
 
-  const handleSaveProfile = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newUsername.trim()) return;
-    
-    setIsSaving(true);
+  const handleSaveProfile = async (e: React.FormEvent) => { 
+    e.preventDefault(); if (!newUsername.trim()) return; setIsSaving(true);
     let finalAvatarUrl = profile.avatar_url;
-
     if (selectedImage) {
-      const fileExt = selectedImage.name.split('.').pop();
-      const filePath = `${profile.id}-${Date.now()}.${fileExt}`;
+      const fileExt = selectedImage.name.split('.').pop(); const filePath = `${profile.id}-${Date.now()}.${fileExt}`;
       const { error: uploadError } = await supabase.storage.from("avatars").upload(filePath, selectedImage, { upsert: true });
-      if (uploadError) { toast({ title: "Error", description: "No se pudo subir la imagen.", variant: "destructive" }); setIsSaving(false); return; }
-      const { data } = supabase.storage.from("avatars").getPublicUrl(filePath);
-      finalAvatarUrl = data.publicUrl;
+      if (uploadError) { toast({ title: "Error", variant: "destructive" }); setIsSaving(false); return; }
+      const { data } = supabase.storage.from("avatars").getPublicUrl(filePath); finalAvatarUrl = data.publicUrl;
     }
-
     const { ok, error } = await updateProfileSettings(newUsername.trim(), finalAvatarUrl);
     setIsSaving(false);
-
     if (error) { toast({ title: "Error", description: error, variant: "destructive" }); } 
-    else {
-      toast({ title: "Perfil actualizado", description: "Tus datos se guardaron con éxito." });
-      setProfile({ ...profile, username: newUsername.trim(), avatar_url: finalAvatarUrl });
-      setIsEditModalOpen(false); setSelectedImage(null); router.refresh(); 
-    }
+    else { toast({ title: "Perfil actualizado" }); setProfile({ ...profile, username: newUsername.trim(), avatar_url: finalAvatarUrl }); setIsEditModalOpen(false); setSelectedImage(null); router.refresh(); }
   };
 
-  const handleChangePassword = async (e: React.FormEvent) => {
+  const handleChangePassword = async (e: React.FormEvent) => { 
     e.preventDefault();
-    if (newPassword !== confirmPassword) { toast({ title: "Error", description: "Las contraseñas no coinciden.", variant: "destructive" }); return; }
-    if (newPassword.length < 6) { toast({ title: "Error", description: "La contraseña debe tener al menos 6 caracteres.", variant: "destructive" }); return; }
+    if (newPassword !== confirmPassword || newPassword.length < 6) return;
     setIsChangingPassword(true);
     const { ok, error } = await updateUserPassword(newPassword);
     setIsChangingPassword(false);
-    if (error) { toast({ title: "Error", description: error, variant: "destructive" }); } 
-    else { toast({ title: "¡Contraseña actualizada!", description: "Tu contraseña se cambió correctamente." }); setIsPasswordModalOpen(false); setNewPassword(""); setConfirmPassword(""); }
+    if (!error) { toast({ title: "¡Contraseña actualizada!" }); setIsPasswordModalOpen(false); setNewPassword(""); setConfirmPassword(""); }
   };
 
   if (isChecking) return <div className="min-h-screen bg-background flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
@@ -299,7 +279,6 @@ export default function ProfilePage() {
           <Button variant="ghost" size="sm" asChild className="-ml-2 text-muted-foreground hover:text-foreground">
             <Link href="/" className="flex items-center gap-2"><ArrowLeft className="w-4 h-4" /> Volver</Link>
           </Button>
-
           <div className="flex items-center gap-4">
              <div className="flex items-center gap-3 mr-4">
                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary border-2 border-background shadow-sm overflow-hidden shrink-0">
@@ -307,7 +286,7 @@ export default function ProfilePage() {
                </div>
                <span className="font-bold text-foreground">{displayName}</span>
              </div>
-             <Button variant="outline" size="icon" onClick={() => setIsPasswordModalOpen(true)} title="Cambiar Contraseña"><Lock className="w-4 h-4" /></Button>
+             <Button variant="outline" size="icon" onClick={() => setIsPasswordModalOpen(true)}><Lock className="w-4 h-4" /></Button>
              <Button variant="outline" size="sm" onClick={() => { setNewUsername(profile.username || ""); setPreviewUrl(profile.avatar_url || null); setSelectedImage(null); setIsEditModalOpen(true); }}><Pencil className="w-4 h-4 mr-2" /> Editar</Button>
           </div>
         </div>
@@ -319,41 +298,47 @@ export default function ProfilePage() {
               <CardContent className="p-6 md:p-8 flex flex-col justify-between h-full">
                 <div className="flex justify-between items-start mb-6">
                   <div className="flex items-center gap-2 text-muted-foreground font-semibold">
-                    <LineChart className="w-5 h-5" /> Portfolio
+                    <LineChart className="w-5 h-5" /> Portfolio Total
                   </div>
                   <div className="text-right">
                     <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-1">Capital Disponible</p>
                     <p className="font-bold text-foreground">{portfolioStats.availableCapital.toLocaleString()} pts</p>
                   </div>
                 </div>
-                
                 <div>
                   <p className="text-5xl font-black text-foreground mb-2 flex items-baseline gap-2 tracking-tight">
                     {portfolioStats.totalPortfolioValue.toLocaleString()} <span className="text-xl text-muted-foreground font-bold">pts</span>
                   </p>
-                  
-                  <p className={cn("text-sm font-bold flex items-center gap-1", portfolioStats.totalPnl >= 0 ? "text-[#00FF00]" : "text-[#FF0000]")}>
-                    {portfolioStats.totalPnl >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
-                    {portfolioStats.totalPnl >= 0 ? '+' : ''}{portfolioStats.totalPnl.toLocaleString()} pts ({portfolioStats.totalPnl >= 0 ? '+' : ''}{portfolioStats.totalPnlPercentage.toFixed(2)}%)
+                  <p className={cn("text-sm font-bold flex items-center gap-1", isProfit ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
+                    {isProfit ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                    {isProfit ? '+' : ''}{portfolioStats.totalPnl.toLocaleString()} pts ({isProfit ? '+' : ''}{portfolioStats.totalPnlPercentage.toFixed(2)}%)
                   </p>
                 </div>
               </CardContent>
             </Card>
 
-            <Card className="bg-card/50 backdrop-blur-sm border border-border/50 shadow-sm rounded-2xl overflow-hidden relative">
-              <div className="absolute bottom-0 left-0 w-full h-1/2 bg-gradient-to-t from-primary/10 to-transparent pointer-events-none" />
-              <svg className="absolute bottom-0 left-0 w-full h-24 text-primary/20 pointer-events-none" preserveAspectRatio="none" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M0 100V80C10 80 20 90 30 70C40 50 50 60 60 40C70 20 80 30 90 10C95 0 100 20 100 20V100H0Z" fill="currentColor" />
-                <path d="M0 80C10 80 20 90 30 70C40 50 50 60 60 40C70 20 80 30 90 10C95 0 100 20 100 20" stroke="currentColor" strokeWidth="2" vectorEffect="non-scaling-stroke" />
-              </svg>
+            <Card className="bg-card/50 backdrop-blur-sm border border-border/50 shadow-sm rounded-2xl overflow-hidden relative group">
+              
+              <div className="absolute bottom-0 left-0 w-full h-2/3 pointer-events-none opacity-40 group-hover:opacity-70 transition-opacity duration-500">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={chartData}>
+                    <defs>
+                      <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={themeChartColor} stopOpacity={0.4}/>
+                        <stop offset="95%" stopColor={themeChartColor} stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <Area type="monotone" dataKey="value" stroke={themeChartColor} strokeWidth={3} fillOpacity={1} fill="url(#colorValue)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
 
               <CardContent className="p-6 md:p-8 flex flex-col justify-between h-full relative z-10">
                 <div className="flex justify-between items-start mb-6">
-                  <div className={cn("flex items-center gap-2 font-bold", portfolioStats.totalPnl >= 0 ? "text-[#00FF00]" : "text-[#FF0000]")}>
-                    {portfolioStats.totalPnl >= 0 ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownRight className="w-5 h-5" />} Profit/Loss
+                  <div className={cn("flex items-center gap-2 font-bold", isProfit ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
+                    {isProfit ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownRight className="w-5 h-5" />} PnL Activo
                   </div>
                   
-                  {/* SELECTOR DE TIEMPO (KALSHI / POLYMARKET STYLE) */}
                   <div className="flex gap-1 bg-background/50 backdrop-blur-md rounded-lg p-1 border border-border/50 overflow-x-auto scrollbar-hide">
                     {(['1D', '1W', '1M', '6M', '1Y', 'ALL'] as TimeframeType[]).map((tf) => (
                       <button 
@@ -367,19 +352,18 @@ export default function ProfilePage() {
                   </div>
                 </div>
                 
-                <div>
-                  <p className={cn("text-5xl font-black mb-2 flex items-baseline gap-2 tracking-tight", portfolioStats.totalPnl >= 0 ? "text-[#00FF00]" : "text-[#FF0000]")}>
-                    {portfolioStats.totalPnl >= 0 ? '+' : ''}{portfolioStats.totalPnlPercentage.toFixed(2)}%
+                <div className="mt-8">
+                  <p className={cn("text-5xl font-black mb-2 flex items-baseline gap-2 tracking-tight drop-shadow-sm", isProfit ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
+                    {isProfit ? '+' : ''}{portfolioStats.totalPnlPercentage.toFixed(2)}%
                   </p>
-                  <p className="text-sm font-bold text-muted-foreground flex items-center gap-1.5">
-                    Rendimiento {timeframeLabels[timeframe]}
+                  <p className="text-sm font-bold text-muted-foreground flex items-center gap-1.5 drop-shadow-sm">
+                    Inversiones de {timeframeLabels[timeframe]}
                   </p>
                 </div>
               </CardContent>
             </Card>
           </div>
 
-          {/* TABLA DE INVERSIONES */}
           <Card className="bg-card border-border/50 shadow-md rounded-2xl overflow-hidden mb-8">
             <CardContent className="p-4 sm:p-6 md:p-8">
               <Tabs defaultValue="active" className="w-full">
@@ -391,86 +375,43 @@ export default function ProfilePage() {
 
                 <TabsContent value="active" className="space-y-4">
                   {isLoadingBets ? (
-                    <div className="flex items-center justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-primary opacity-60" /></div>
+                     <div className="flex items-center justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-primary opacity-60" /></div>
                   ) : bets.filter((b) => getMarket(b) && ACTIVE_STATUSES.includes(String(getMarket(b)!.status).toLowerCase())).length === 0 ? (
                     <div className="p-16 text-center text-muted-foreground bg-muted/10 border-2 border-dashed border-border/50 rounded-2xl">
                       <LineChart className="w-16 h-16 mx-auto mb-5 opacity-20" />
                       <p className="text-xl font-bold mb-2 text-foreground">Tu portfolio activo está vacío</p>
-                      <p className="max-w-md mx-auto mb-6 text-sm">Explorá los mercados disponibles y empezá a predecir el futuro para hacer crecer tu capital.</p>
-                      <Button size="lg" asChild className="mt-4 font-black rounded-full shadow-md"><Link href="/">Ir al Mercado</Link></Button>
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {bets
-                        .filter((b) => getMarket(b) && ACTIVE_STATUSES.includes(String(getMarket(b)!.status).toLowerCase()))
-                        .map((bet) => {
-                          const market = getMarket(bet);
-                          const opt = bet.option_details;
+                      {bets.filter((b) => getMarket(b) && ACTIVE_STATUSES.includes(String(getMarket(b)!.status).toLowerCase())).map((bet) => {
+                          const market = getMarket(bet); const opt = bet.option_details;
                           const isOldBinary = bet.outcome === "yes" || bet.outcome === "no";
                           const displayOutcome = opt ? opt.option_name : (isOldBinary ? (bet.outcome === "yes" ? "SÍ" : "NO") : "Opción");
                           const direction = (bet as any).direction || 'yes';
-
                           const isOptBinary = ['sí', 'si', 'yes', 'no'].includes(displayOutcome.toLowerCase());
-                          let predictionText = "";
-                          if (isOptBinary) {
-                            predictionText = direction === 'no' ? (displayOutcome.toLowerCase().includes('s') ? 'No' : 'Sí') : displayOutcome;
-                          } else {
-                            predictionText = `${direction === 'no' ? 'No' : 'Sí'} a ${displayOutcome}`;
-                          }
+                          let predictionText = isOptBinary ? (direction === 'no' ? (displayOutcome.toLowerCase().includes('s') ? 'No' : 'Sí') : displayOutcome) : `${direction === 'no' ? 'No' : 'Sí'} a ${displayOutcome}`;
                           const isEffectivelyNo = direction === 'no' || (isOptBinary && displayOutcome.toLowerCase() === 'no' && direction === 'yes');
-
-                          let cashoutValue = 0;
-                          let pnl = 0;
-                          let pnlPercentage = 0;
                           
+                          let cashoutValue = 0, pnl = 0, pnlPercentage = 0;
                           if (market) {
                             const shares = Number((bet as any).shares || 0);
-                            if (shares > 0 && opt) { cashoutValue = calculateRealCashout(bet, market, opt); } 
-                            else { cashoutValue = Math.round(bet.amount * 0.95); }
-                            pnl = cashoutValue - bet.amount;
-                            pnlPercentage = (pnl / bet.amount) * 100;
+                            cashoutValue = shares > 0 && opt ? calculateRealCashout(bet, market, opt) : Math.round(bet.amount * 0.95);
+                            pnl = cashoutValue - bet.amount; pnlPercentage = (pnl / bet.amount) * 100;
                           }
 
                           return (
                             <div key={bet.id} className="rounded-2xl border border-border/50 bg-card hover:border-primary/50 transition-all p-5 md:p-7 shadow-sm relative overflow-hidden group">
-                              <div className="absolute top-0 left-0 w-full h-1 bg-primary scale-x-0 group-hover:scale-x-100 transition-transform origin-left pointer-events-none" />
-                              <Link href={`/market/${bet.market_id}`} className="block">
-                                <p className="font-bold text-lg md:text-xl text-foreground line-clamp-2 mb-5 leading-tight group-hover:text-primary transition-colors pr-12">
-                                  {market?.title ?? "Mercado"}
-                                </p>
-                              </Link>
-
+                              <Link href={`/market/${bet.market_id}`} className="block"><p className="font-bold text-lg md:text-xl text-foreground line-clamp-2 mb-5 leading-tight group-hover:text-primary transition-colors pr-12">{market?.title ?? "Mercado"}</p></Link>
                               <div className="flex flex-col md:flex-row md:items-center justify-between gap-5 md:gap-8 bg-muted/10 md:bg-transparent p-5 md:p-0 rounded-xl border md:border-none border-border/50">
                                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-5 md:gap-10">
-                                   <div className="flex flex-col">
-                                     <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1.5">Inversión</p>
-                                     <p className="font-black text-foreground text-xl md:text-2xl leading-none">
-                                       {bet.amount.toLocaleString()} <span className="text-xs font-bold text-muted-foreground">pts</span>
-                                     </p>
-                                   </div>
-                                   <div className="flex flex-col">
-                                     <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1.5">Posición</p>
-                                     <Badge variant="outline" className={cn("text-xs md:text-sm font-bold border h-8 justify-center w-fit", isEffectivelyNo ? "bg-[#FF0000]/10 text-[#FF0000] border-[#FF0000]/30" : "bg-[#00FF00]/10 text-[#00FF00] border-[#00FF00]/30")}>
-                                       {predictionText}
-                                     </Badge>
-                                   </div>
-                                   <div className="flex flex-col min-w-[90px] col-span-2 sm:col-span-1">
-                                     <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1.5 hidden md:block">Retorno</p>
-                                     <div className="flex items-center gap-2">
-                                        <span className={cn("font-black text-xl md:text-2xl leading-none", pnl >= 0 ? "text-[#00FF00]" : "text-[#FF0000]")}>
-                                          {pnl >= 0 ? "+" : ""}{pnlPercentage.toFixed(1)}%
-                                        </span>
-                                        <span className={`text-[11px] font-bold mt-1 px-1.5 py-0.5 rounded ${pnl >= 0 ? 'bg-[#00FF00]/10 text-[#00FF00]' : 'bg-[#FF0000]/10 text-[#FF0000]'}`}>
-                                          {pnl >= 0 ? '+' : ''}{pnl.toLocaleString()} pts
-                                        </span>
-                                     </div>
+                                   <div className="flex flex-col"><p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1.5">Inversión</p><p className="font-black text-foreground text-xl md:text-2xl leading-none">{bet.amount.toLocaleString()} <span className="text-xs font-bold text-muted-foreground">pts</span></p></div>
+                                   <div className="flex flex-col"><p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1.5">Posición</p><Badge variant="outline" className={cn("text-xs md:text-sm font-bold border h-8 justify-center w-fit", isEffectivelyNo ? "bg-red-500/10 text-red-600 dark:text-red-500 border-red-500/30 dark:border-[#FF0000]/30" : "bg-green-500/10 text-green-600 dark:text-[#00FF00] border-green-500/30 dark:border-[#00FF00]/30")}>{predictionText}</Badge></div>
+                                   <div className="flex flex-col min-w-[90px] col-span-2 sm:col-span-1"><p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1.5 hidden md:block">Retorno</p>
+                                     <div className="flex items-center gap-2"><span className={cn("font-black text-xl md:text-2xl leading-none", pnl >= 0 ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>{pnl >= 0 ? "+" : ""}{pnlPercentage.toFixed(1)}%</span></div>
                                    </div>
                                 </div>
-
                                 <div className="w-full md:w-auto mt-2 md:mt-0 pt-4 md:pt-0 border-t md:border-t-0 border-border/50">
-                                  <Button onClick={(e) => { e.preventDefault(); e.stopPropagation(); setBetToSell({ id: bet.id, title: market?.title ?? "Mercado", outcomeName: predictionText, direction: direction, cashoutValue: cashoutValue, pnl: pnl, pnlPercentage: pnlPercentage }); }} className="bg-primary hover:bg-primary/90 text-primary-foreground font-black h-11 px-7 w-full md:w-auto shadow-md hover:scale-[1.02] active:scale-[0.98] transition-all rounded-full" >
-                                    <Coins className="w-4 h-4 mr-2" /> Vender por {cashoutValue.toLocaleString()} pts
-                                  </Button>
+                                  <Button onClick={(e) => { e.preventDefault(); e.stopPropagation(); setBetToSell({ id: bet.id, title: market?.title ?? "Mercado", outcomeName: predictionText, direction: direction, cashoutValue: cashoutValue, pnl: pnl, pnlPercentage: pnlPercentage }); }} className="bg-primary hover:bg-primary/90 text-primary-foreground font-black h-11 px-7 w-full md:w-auto shadow-md hover:scale-[1.02] active:scale-[0.98] transition-all rounded-full" ><Coins className="w-4 h-4 mr-2" /> Vender por {cashoutValue.toLocaleString()} pts</Button>
                                 </div>
                               </div>
                             </div>
@@ -482,52 +423,27 @@ export default function ProfilePage() {
 
                 <TabsContent value="finished" className="space-y-4">
                    {bets.filter((b) => getMarket(b) && FINISHED_STATUSES.includes(String(getMarket(b)!.status).toLowerCase())).length === 0 ? (
-                    <div className="p-12 text-center text-muted-foreground">
-                      <History className="w-12 h-12 mx-auto mb-4 opacity-20" />
-                      <p>Aún no hay resultados de tus apuestas.</p>
-                    </div>
+                    <div className="p-12 text-center text-muted-foreground"><History className="w-12 h-12 mx-auto mb-4 opacity-20" /><p>Aún no hay resultados de tus apuestas.</p></div>
                   ) : (
                     <div className="space-y-4">
                       {bets.filter((b) => getMarket(b) && FINISHED_STATUSES.includes(String(getMarket(b)!.status).toLowerCase())).map((bet) => {
-                          const market = getMarket(bet);
-                          const opt = bet.option_details;
-                          const direction = (bet as any).direction || 'yes';
+                          const market = getMarket(bet); const opt = bet.option_details; const direction = (bet as any).direction || 'yes';
                           const displayOutcome = opt ? opt.option_name : 'Opción';
-                          
                           const isOptBinary = ['sí', 'si', 'yes', 'no'].includes(displayOutcome.toLowerCase());
-                          let predictionText = "";
-                          if (isOptBinary) { predictionText = direction === 'no' ? (displayOutcome.toLowerCase().includes('s') ? 'No' : 'Sí') : displayOutcome; } 
-                          else { predictionText = `${direction === 'no' ? 'No' : 'Sí'} a ${displayOutcome}`; }
+                          let predictionText = isOptBinary ? (direction === 'no' ? (displayOutcome.toLowerCase().includes('s') ? 'No' : 'Sí') : displayOutcome) : `${direction === 'no' ? 'No' : 'Sí'} a ${displayOutcome}`;
                           const isEffectivelyNo = direction === 'no' || (isOptBinary && displayOutcome.toLowerCase() === 'no' && direction === 'yes');
-
-                          let won = false;
-                          const wonYes = direction === 'yes' && market?.winning_outcome === bet.outcome;
-                          const wonNo = direction === 'no' && market?.winning_outcome !== bet.outcome && market?.winning_outcome !== null;
-                          won = wonYes || wonNo;
+                          const won = (direction === 'yes' && market?.winning_outcome === bet.outcome) || (direction === 'no' && market?.winning_outcome !== bet.outcome && market?.winning_outcome !== null);
 
                           return (
                             <div key={bet.id} className="rounded-xl border border-border/50 bg-muted/10 p-4 md:p-6 opacity-90">
                               <p className="font-bold text-foreground line-clamp-2 mb-4">{market?.title ?? "Mercado"}</p>
-                              
                               <div className="flex flex-col md:flex-row md:items-center justify-between bg-background p-4 rounded-lg border border-border/50 gap-4">
                                  <div className="flex items-center gap-6 md:gap-10">
-                                   <div className="flex flex-col">
-                                     <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1">Inversión</p>
-                                     <p className="font-bold text-foreground text-base md:text-lg">{bet.amount.toLocaleString()} pts</p>
-                                   </div>
-                                   <div className="flex flex-col">
-                                     <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1">Predicción</p>
-                                     <Badge variant="outline" className={cn("text-xs font-bold border h-7", isEffectivelyNo ? "bg-red-500/10 text-red-600 dark:text-red-500 border-red-500/30" : "bg-green-500/10 text-green-600 dark:text-green-500 border-green-500/30")}>
-                                       {predictionText}
-                                     </Badge>
-                                   </div>
+                                   <div className="flex flex-col"><p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1">Inversión</p><p className="font-bold text-foreground text-base md:text-lg">{bet.amount.toLocaleString()} pts</p></div>
+                                   <div className="flex flex-col"><p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1">Predicción</p><Badge variant="outline" className={cn("text-xs font-bold border h-7", isEffectivelyNo ? "bg-red-500/10 text-red-600 dark:text-red-500 border-red-500/30" : "bg-green-500/10 text-green-600 dark:text-green-500 border-green-500/30")}>{predictionText}</Badge></div>
                                  </div>
                                  <div className="pt-2 md:pt-0 border-t md:border-t-0 border-border/50 w-full md:w-auto text-right">
-                                   {won ? (
-                                      <span className="font-black text-lg text-[#00FF00] flex items-center justify-end gap-1.5"><CheckCircle2 className="w-5 h-5" /> Acertó</span>
-                                   ) : (
-                                      <span className="font-black text-lg text-[#FF0000] flex items-center justify-end gap-1.5 opacity-90"><XCircle className="w-5 h-5" /> Perdió</span>
-                                   )}
+                                   {won ? <span className="font-black text-lg text-green-600 dark:text-[#00FF00] flex items-center justify-end gap-1.5"><CheckCircle2 className="w-5 h-5" /> Acertó</span> : <span className="font-black text-lg text-red-600 dark:text-[#FF0000] flex items-center justify-end gap-1.5 opacity-90"><XCircle className="w-5 h-5" /> Perdió</span>}
                                  </div>
                               </div>
                             </div>
@@ -541,59 +457,34 @@ export default function ProfilePage() {
                   {isLoadingTransactions ? (
                     <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
                   ) : processedTransactions.length === 0 ? (
-                    <div className="text-center py-12 border-2 border-dashed border-border/50 rounded-xl bg-muted/10">
-                      <Landmark className="w-12 h-12 text-muted-foreground mx-auto mb-3 opacity-50" />
-                      <h3 className="font-semibold text-foreground mb-1 text-lg">No hay movimientos</h3>
-                    </div>
+                    <div className="text-center py-12 border-2 border-dashed border-border/50 rounded-xl bg-muted/10"><Landmark className="w-12 h-12 text-muted-foreground mx-auto mb-3 opacity-50" /><h3 className="font-semibold text-foreground mb-1 text-lg">No hay movimientos</h3></div>
                   ) : (
                     <div className="space-y-3">
                       {processedTransactions.map((tx) => {
                         const isPositive = tx.amount > 0;
                         const isExpanded = expandedTx === tx.id;
-
                         return (
-                          <div 
-                            key={tx.id} 
-                            onClick={() => setExpandedTx(isExpanded ? null : tx.id)}
-                            className="flex flex-col p-4 rounded-xl border border-border/50 bg-muted/10 hover:bg-muted/20 transition-all cursor-pointer group"
-                          >
+                          <div key={tx.id} onClick={() => setExpandedTx(isExpanded ? null : tx.id)} className="flex flex-col p-4 rounded-xl border border-border/50 bg-muted/10 hover:bg-muted/20 transition-all cursor-pointer group">
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-4">
-                                <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${isPositive ? 'bg-[#00FF00]/20 text-[#00FF00]' : 'bg-[#FF0000]/20 text-[#FF0000]'}`}>
+                                <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${isPositive ? 'bg-green-500/20 text-green-600 dark:text-[#00FF00]' : 'bg-red-500/20 text-red-600 dark:text-[#FF0000]'}`}>
                                   {isPositive ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
                                 </div>
                                 <div>
                                   <p className="text-base font-semibold text-foreground">{tx.description}</p>
-                                  <p className="text-xs text-muted-foreground uppercase font-medium mt-0.5 flex items-center gap-1">
-                                    {new Date(tx.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                                  </p>
+                                  <p className="text-xs text-muted-foreground uppercase font-medium mt-0.5 flex items-center gap-1">{new Date(tx.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
                                 </div>
                               </div>
                               <div className="flex items-center gap-3">
-                                <div className={`text-xl font-black ${isPositive ? 'text-[#00FF00]' : 'text-[#FF0000]'}`}>
-                                  {isPositive ? '+' : ''}{tx.amount.toLocaleString()} pts
-                                </div>
+                                <div className={`text-xl font-black ${isPositive ? 'text-green-600 dark:text-[#00FF00]' : 'text-red-600 dark:text-[#FF0000]'}`}>{isPositive ? '+' : ''}{tx.amount.toLocaleString()} pts</div>
                                 {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground opacity-50 group-hover:opacity-100 transition-opacity" />}
                               </div>
                             </div>
-
-                            {/* ACORDEÓN DESPLEGABLE CON EL DETALLE DE SALDOS */}
                             {isExpanded && (
                               <div className="mt-4 pt-4 border-t border-border/50 grid grid-cols-3 gap-2 text-center animate-in fade-in slide-in-from-top-2">
-                                <div className="bg-background/50 p-2 rounded-lg">
-                                  <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1">Saldo Anterior</p>
-                                  <p className="font-semibold text-foreground">{tx.balanceBefore.toLocaleString()} pts</p>
-                                </div>
-                                <div className="bg-background/50 p-2 rounded-lg">
-                                  <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1">Monto</p>
-                                  <p className={`font-black ${isPositive ? 'text-[#00FF00]' : 'text-[#FF0000]'}`}>
-                                    {isPositive ? '+' : ''}{tx.amount.toLocaleString()} pts
-                                  </p>
-                                </div>
-                                <div className="bg-primary/10 border border-primary/20 p-2 rounded-lg">
-                                  <p className="text-[10px] text-primary font-bold uppercase tracking-wider mb-1">Saldo Actualizado</p>
-                                  <p className="font-black text-primary">{tx.balanceAfter.toLocaleString()} pts</p>
-                                </div>
+                                <div className="bg-background/50 p-2 rounded-lg"><p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1">Saldo Anterior</p><p className="font-semibold text-foreground">{tx.balanceBefore.toLocaleString()} pts</p></div>
+                                <div className="bg-background/50 p-2 rounded-lg"><p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1">Monto</p><p className={`font-black ${isPositive ? 'text-green-600 dark:text-[#00FF00]' : 'text-red-600 dark:text-[#FF0000]'}`}>{isPositive ? '+' : ''}{tx.amount.toLocaleString()} pts</p></div>
+                                <div className="bg-primary/10 border border-primary/20 p-2 rounded-lg"><p className="text-[10px] text-primary font-bold uppercase tracking-wider mb-1">Saldo Actualizado</p><p className="font-black text-primary">{tx.balanceAfter.toLocaleString()} pts</p></div>
                               </div>
                             )}
                           </div>
@@ -610,160 +501,57 @@ export default function ProfilePage() {
           <Card className="bg-gradient-to-br from-primary/10 via-background to-background border-primary/20 shadow-md rounded-2xl mb-8 overflow-hidden">
             <CardContent className="p-6 md:p-8">
               <div className="flex flex-col md:flex-row items-center gap-6">
-                <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
-                  <Gift className="w-8 h-8 text-primary" />
-                </div>
+                <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center shrink-0"><Gift className="w-8 h-8 text-primary" /></div>
                 <div className="flex-1 text-center md:text-left">
                   <h3 className="text-2xl font-bold text-foreground mb-2">¡Invitá amigos y ganá puntos!</h3>
-                  <p className="text-muted-foreground text-sm max-w-xl">
-                    Ganá <strong className="text-primary">2.000 pts</strong> por cada amigo que se registre con tu link. Además, ganás <strong className="text-primary">500 pts extras</strong> cada vez que ellos inviten a alguien más. Tu amigo recibe 1.000 pts de bienvenida.
-                  </p>
+                  <p className="text-muted-foreground text-sm max-w-xl">Ganá <strong className="text-primary">2.000 pts</strong> por cada amigo que se registre con tu link. Además, ganás <strong className="text-primary">500 pts extras</strong> cada vez que ellos inviten a alguien más. Tu amigo recibe 1.000 pts de bienvenida.</p>
                 </div>
                 <div className="w-full md:w-auto mt-4 md:mt-0 flex flex-col gap-2">
                   <div className="relative">
                     <Input readOnly value={referralLink} className="pr-12 bg-background border-border/50 font-medium text-muted-foreground w-full md:w-80" />
-                    <Button size="icon" variant="ghost" className="absolute right-0 top-0 h-full w-12 hover:bg-transparent" onClick={handleCopyLink}>
-                      {isCopied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4 text-muted-foreground" />}
-                    </Button>
+                    <Button size="icon" variant="ghost" className="absolute right-0 top-0 h-full w-12 hover:bg-transparent" onClick={handleCopyLink}>{isCopied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4 text-muted-foreground" />}</Button>
                   </div>
                 </div>
               </div>
-
-              {/* LISTA DE REFERIDOS OBTENIDOS */}
-              <div className="mt-8 pt-6 border-t border-border/50 w-full">
-                <h4 className="text-sm font-bold text-foreground mb-4 flex items-center gap-2">
-                  <Users className="w-4 h-4 text-primary" /> Tus Referidos ({referredUsers.length})
-                </h4>
-                
-                {referredUsers.length === 0 ? (
-                  <div className="bg-muted/10 border border-dashed border-border/50 rounded-xl p-6 text-center text-muted-foreground flex flex-col items-center justify-center">
-                    <Users className="w-8 h-8 opacity-30 mb-2" />
-                    <p className="text-sm font-medium">Aún no invitaste a nadie.</p>
-                    <p className="text-xs opacity-70">¡Compartí tu link de arriba y empezá a ganar puntos pasivos!</p>
-                  </div>
-                ) : (
+              {referredUsers.length > 0 && (
+                <div className="mt-8 pt-6 border-t border-border/50 w-full">
+                  <h4 className="text-sm font-bold text-foreground mb-4 flex items-center gap-2"><Users className="w-4 h-4 text-primary" /> Tus Referidos ({referredUsers.length})</h4>
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
                     {referredUsers.map((user, i) => (
                       <div key={i} className="flex items-center gap-3 bg-background/50 border border-border/50 rounded-lg p-3 hover:border-primary/30 transition-colors">
-                        <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold shrink-0">
-                          {user.username.charAt(0).toUpperCase()}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="font-bold text-sm text-foreground truncate">{user.username}</p>
-                          <p className="text-[10px] text-muted-foreground uppercase">Usuario Activo</p>
-                        </div>
+                        <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold shrink-0">{user.username.charAt(0).toUpperCase()}</div>
+                        <div className="min-w-0"><p className="font-bold text-sm text-foreground truncate">{user.username}</p><p className="text-[10px] text-muted-foreground uppercase">Usuario Activo</p></div>
                       </div>
                     ))}
                   </div>
-                )}
-              </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 
         </div>
       </main>
 
-      {/* MODAL DE VENTA */}
+      {/* MODALES DE ACCIÓN */}
       <Dialog open={!!betToSell} onOpenChange={(open) => !open && setBetToSell(null)}>
         <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-xl text-foreground">
-              <LineChart className="w-5 h-5 text-primary" /> Confirmar Venta
-            </DialogTitle>
-          </DialogHeader>
-          
+          <DialogHeader><DialogTitle className="flex items-center gap-2 text-xl text-foreground"><LineChart className="w-5 h-5 text-primary" /> Confirmar Venta</DialogTitle></DialogHeader>
           <div className="py-2 space-y-4">
-            <div className="p-4 bg-muted/30 rounded-xl border border-border/50">
-              <p className="text-xs text-muted-foreground font-bold uppercase tracking-wider mb-1">Mercado:</p>
-              <p className="font-bold text-base text-foreground line-clamp-2">{betToSell?.title}</p>
-            </div>
-            
-            <div className="flex justify-between items-center p-4 bg-muted/30 rounded-xl border border-border/50">
-              <span className="text-sm font-bold text-muted-foreground uppercase tracking-wider">Tu posición:</span>
-              <Badge variant="outline" className={cn("font-bold border text-sm h-8", betToSell?.direction === 'no' ? "bg-[#FF0000]/10 text-[#FF0000] border-[#FF0000]/30" : "bg-[#00FF00]/10 text-[#00FF00] border-[#00FF00]/30")}>
-                {betToSell?.outcomeName}
-              </Badge>
-            </div>
-            
-            <div className={`flex justify-between items-center p-5 border rounded-xl ${
-              (betToSell?.pnl ?? 0) >= 0 
-                ? 'bg-[#00FF00]/10 border-[#00FF00]/30' 
-                : 'bg-[#FF0000]/10 border-[#FF0000]/30'
-            }`}>
-              <span className="font-bold text-foreground uppercase tracking-wider text-xs">Rentabilidad (PnL):</span>
-              <span className={`text-3xl font-black ${(betToSell?.pnl ?? 0) >= 0 ? 'text-[#00FF00]' : 'text-[#FF0000]'}`}>
-                {(betToSell?.pnl ?? 0) >= 0 ? '+' : ''}{betToSell?.pnlPercentage.toFixed(1)}%
-              </span>
-            </div>
-
-            <div className="flex justify-between items-center px-2 pt-2">
-              <span className="font-bold text-foreground uppercase tracking-wider text-sm">Retiro Total:</span>
-              <span className="text-2xl font-black text-primary">
-                {betToSell?.cashoutValue.toLocaleString()} pts
-              </span>
-            </div>
+            <div className="p-4 bg-muted/30 rounded-xl border border-border/50"><p className="text-xs text-muted-foreground font-bold uppercase tracking-wider mb-1">Mercado:</p><p className="font-bold text-base text-foreground line-clamp-2">{betToSell?.title}</p></div>
+            <div className="flex justify-between items-center p-4 bg-muted/30 rounded-xl border border-border/50"><span className="text-sm font-bold text-muted-foreground uppercase tracking-wider">Tu posición:</span><Badge variant="outline" className={cn("font-bold border text-sm h-8", betToSell?.direction === 'no' ? "bg-red-500/10 text-red-600 border-red-500/30" : "bg-green-500/10 text-green-600 border-green-500/30")}>{betToSell?.outcomeName}</Badge></div>
+            <div className={`flex justify-between items-center p-5 border rounded-xl ${(betToSell?.pnl ?? 0) >= 0 ? 'bg-green-500/10 border-green-500/30' : 'bg-red-500/10 border-red-500/30'}`}><span className="font-bold text-foreground uppercase tracking-wider text-xs">Rentabilidad (PnL):</span><span className={`text-3xl font-black ${(betToSell?.pnl ?? 0) >= 0 ? 'text-green-600 dark:text-[#00FF00]' : 'text-red-600 dark:text-[#FF0000]'}`}>{(betToSell?.pnl ?? 0) >= 0 ? '+' : ''}{betToSell?.pnlPercentage.toFixed(1)}%</span></div>
+            <div className="flex justify-between items-center px-2 pt-2"><span className="font-bold text-foreground uppercase tracking-wider text-sm">Retiro Total:</span><span className="text-2xl font-black text-primary">{betToSell?.cashoutValue.toLocaleString()} pts</span></div>
           </div>
-
-          <DialogFooter className="mt-4">
-            <Button variant="outline" onClick={() => setBetToSell(null)} className="font-bold rounded-lg">Cancelar</Button>
-            <Button onClick={confirmSell} disabled={sellingBetId === betToSell?.id} className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold rounded-lg px-6 shadow-md">
-              {sellingBetId === betToSell?.id ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <Coins className="w-5 h-5 mr-2" />}
-              Vender Ahora
-            </Button>
-          </DialogFooter>
+          <DialogFooter className="mt-4"><Button variant="outline" onClick={() => setBetToSell(null)} className="font-bold rounded-lg">Cancelar</Button><Button onClick={confirmSell} disabled={sellingBetId === betToSell?.id} className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold rounded-lg px-6 shadow-md">{sellingBetId === betToSell?.id ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <Coins className="w-5 h-5 mr-2" />} Vender Ahora</Button></DialogFooter>
         </DialogContent>
       </Dialog>
       
-      {/* MODAL DE EDITAR PERFIL */}
       <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Editar Perfil</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleSaveProfile} className="space-y-4 pt-4">
-            <div className="flex flex-col items-center gap-4 mb-6">
-              <div className="relative w-24 h-24 rounded-full bg-primary/10 flex items-center justify-center border-2 border-border overflow-hidden">
-                {previewUrl ? <img src={previewUrl} alt="Avatar" className="w-full h-full object-cover" /> : <User className="w-10 h-10 text-primary opacity-50" />}
-                <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity cursor-pointer" onClick={() => fileInputRef.current?.click()}>
-                  <Camera className="w-6 h-6 text-white" />
-                </div>
-              </div>
-              <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={(e) => { if (e.target.files && e.target.files[0]) { setSelectedImage(e.target.files[0]); setPreviewUrl(URL.createObjectURL(e.target.files[0])); } }} />
-              <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>Cambiar foto</Button>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="username">Nombre de usuario</Label>
-              <Input id="username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} required />
-            </div>
-            <Button type="submit" className="w-full mt-4" disabled={isSaving}>
-              {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-              Guardar Cambios
-            </Button>
-          </form>
-        </DialogContent>
+        <DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Editar Perfil</DialogTitle></DialogHeader><form onSubmit={handleSaveProfile} className="space-y-4 pt-4"><div className="flex flex-col items-center gap-4 mb-6"><div className="relative w-24 h-24 rounded-full bg-primary/10 flex items-center justify-center border-2 border-border overflow-hidden">{previewUrl ? <img src={previewUrl} alt="Avatar" className="w-full h-full object-cover" /> : <User className="w-10 h-10 text-primary opacity-50" />}<div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity cursor-pointer" onClick={() => fileInputRef.current?.click()}><Camera className="w-6 h-6 text-white" /></div></div><input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={(e) => { if (e.target.files && e.target.files[0]) { setSelectedImage(e.target.files[0]); setPreviewUrl(URL.createObjectURL(e.target.files[0])); } }} /><Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>Cambiar foto</Button></div><div className="space-y-2"><Label htmlFor="username">Nombre de usuario</Label><Input id="username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} required /></div><Button type="submit" className="w-full mt-4" disabled={isSaving}>{isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null} Guardar Cambios</Button></form></DialogContent>
       </Dialog>
 
-      {/* MODAL DE CAMBIAR CONTRASEÑA */}
       <Dialog open={isPasswordModalOpen} onOpenChange={setIsPasswordModalOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Cambiar Contraseña</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleChangePassword} className="space-y-4 pt-4">
-            <div className="space-y-2">
-              <Label htmlFor="new-password">Nueva Contraseña</Label>
-              <Input id="new-password" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required minLength={6} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="confirm-password">Confirmar Contraseña</Label>
-              <Input id="confirm-password" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required minLength={6} />
-            </div>
-            <Button type="submit" className="w-full mt-4" disabled={isChangingPassword}>
-              {isChangingPassword ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-              Actualizar Contraseña
-            </Button>
-          </form>
-        </DialogContent>
+        <DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Cambiar Contraseña</DialogTitle></DialogHeader><form onSubmit={handleChangePassword} className="space-y-4 pt-4"><div className="space-y-2"><Label htmlFor="new-password">Nueva Contraseña</Label><Input id="new-password" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required minLength={6} /></div><div className="space-y-2"><Label htmlFor="confirm-password">Confirmar Contraseña</Label><Input id="confirm-password" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required minLength={6} /></div><Button type="submit" className="w-full mt-4" disabled={isChangingPassword}>{isChangingPassword ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null} Actualizar Contraseña</Button></form></DialogContent>
       </Dialog>
 
     </div>
