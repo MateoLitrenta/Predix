@@ -20,12 +20,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { 
-  Coins, User as UserIcon, ArrowLeft, Loader2, TrendingUp, TrendingDown, 
-  History, Pencil, Landmark, Lock, Camera, LineChart, CheckCircle2, 
-  Clock, XCircle, ArrowUpRight, ArrowDownRight, Gift, Copy, Check, 
-  Users, ChevronDown, ChevronUp, Wallet, CalendarDays 
-} from "lucide-react";
+import { Coins, User as UserIcon, ArrowLeft, Loader2, TrendingUp, TrendingDown, History, Pencil, Landmark, Lock, Camera, LineChart, CheckCircle2, Clock, XCircle, ArrowUpRight, ArrowDownRight, Gift, Copy, Check, Users, ChevronDown, ChevronUp, Wallet, Trophy, CalendarDays } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -158,18 +153,6 @@ export default function ProfilePage() {
     return Math.round(shares * currentPrice);
   }, [marketOptions]);
 
-  const startDate = useMemo(() => {
-    const d = new Date();
-    if (timeframe === '1D') d.setDate(d.getDate() - 1);
-    else if (timeframe === '1W') d.setDate(d.getDate() - 7);
-    else if (timeframe === '1M') d.setMonth(d.getMonth() - 1);
-    else if (timeframe === '6M') d.setMonth(d.getMonth() - 6);
-    else if (timeframe === '1Y') d.setFullYear(d.getFullYear() - 1);
-    else return new Date(0); 
-    return d;
-  }, [timeframe]);
-
-  // PORTFOLIO GLOBAL ESTATICO
   const portfolioStats = useMemo(() => {
     const availableCapital = profile?.points ?? 0;
     let totalCurrentValueActive = 0;
@@ -365,12 +348,12 @@ export default function ProfilePage() {
         </div>
 
         {/* CABECERA UNIFICADA DE MI PERFIL */}
-        <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 mb-12">
+        <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 mb-10">
             <Avatar className="w-24 h-24 sm:w-28 sm:h-28 border-4 border-background bg-primary/10 shadow-lg shrink-0">
                 {profile.avatar_url ? <AvatarImage src={profile.avatar_url} className="object-cover" /> : <AvatarFallback><UserIcon className="w-12 h-12 text-primary opacity-50" /></AvatarFallback>}
             </Avatar>
-            <div className="text-center sm:text-left flex-1 w-full">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+            <div className="flex-1 w-full text-center sm:text-left">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-1">
                     <div>
                         <h1 className="text-3xl sm:text-4xl font-black text-foreground truncate tracking-tighter mb-1 flex items-center justify-center sm:justify-start gap-3">
                             {displayName}
@@ -385,18 +368,50 @@ export default function ProfilePage() {
                       <Button variant="outline" size="sm" onClick={() => { setNewUsername(profile.username || ""); setPreviewUrl(profile.avatar_url || null); setSelectedImage(null); setIsEditModalOpen(true); }}><Pencil className="w-4 h-4 mr-2" /> Editar</Button>
                     </div>
                 </div>
-
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 bg-background p-4 rounded-xl border border-border/50">
-                    <div className="flex flex-col col-span-2 md:col-span-1 md:border-r md:border-border/50 pr-4">
-                        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1"><Wallet className="w-3 h-3" /> Portfolio Total</span>
-                        <span className="font-black text-2xl text-foreground">{portfolioStats.totalPortfolioValue.toLocaleString()} <span className="text-xs text-muted-foreground">pts</span></span>
-                    </div>
-                    <div className="flex flex-col"><span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">Puntos Líquidos</span><span className="font-bold text-lg text-foreground">{profile.points?.toLocaleString() ?? 0}</span></div>
-                    <div className="flex flex-col"><span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">Inversiones</span><span className="font-bold text-lg text-foreground">{bets.length}</span></div>
-                    <div className="flex flex-col"><span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">Referidos</span><span className="font-bold text-lg text-foreground">{referredUsers.length}</span></div>
-                    <div className="flex flex-col"><span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">Membresía</span><span className="font-bold text-lg text-primary">{profile.role === 'admin' ? 'Fundador' : 'Usuario'}</span></div>
-                </div>
             </div>
+        </div>
+
+        {/* NUEVA SECCIÓN DE ESTADÍSTICAS OPTIMIZADA CON TARJETAS GIGANTES */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-5 mb-12">
+            {/* PORTFOLIO TOTAL */}
+            <Card className="bg-primary/5 border border-primary/20 rounded-2xl p-6 flex flex-col items-center text-center shadow-sm">
+                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-4"><Wallet className="w-5 h-5" /></div>
+                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Portfolio Total</p>
+                <p className="text-3xl font-black text-primary leading-none">{portfolioStats.totalPortfolioValue.toLocaleString()}</p>
+                <p className="text-xs text-muted-foreground font-bold">pts</p>
+            </Card>
+
+            {/* PUNTOS LÍQUIDOS */}
+            <Card className="bg-card border border-border/50 rounded-2xl p-6 flex flex-col items-center text-center shadow-sm">
+                <div className="w-10 h-10 rounded-full bg-green-500/10 flex items-center justify-center text-green-600 dark:text-[#00FF00] mb-4"><Coins className="w-5 h-5" /></div>
+                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Puntos Líquidos</p>
+                <p className="text-3xl font-bold text-foreground leading-none">{profile.points?.toLocaleString() ?? 0}</p>
+                <p className="text-xs text-muted-foreground font-bold">pts</p>
+            </Card>
+
+            {/* INVERSIONES */}
+            <Card className="bg-card border border-border/50 rounded-2xl p-6 flex flex-col items-center text-center shadow-sm">
+                <div className="w-10 h-10 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-600 mb-4"><LineChart className="w-5 h-5" /></div>
+                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Inversiones</p>
+                <p className="text-3xl font-bold text-foreground leading-none">{bets.length}</p>
+                <p className="text-xs text-muted-foreground font-bold">operaciones</p>
+            </Card>
+
+            {/* REFERIDOS */}
+            <Card className="bg-card border border-border/50 rounded-2xl p-6 flex flex-col items-center text-center shadow-sm">
+                <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-600 mb-4"><Users className="w-5 h-5" /></div>
+                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Referidos</p>
+                <p className="text-3xl font-bold text-foreground leading-none">{referredUsers.length}</p>
+                <p className="text-xs text-muted-foreground font-bold">usuarios</p>
+            </Card>
+
+            {/* MEMBRESÍA */}
+            <Card className={cn("border rounded-2xl p-6 flex flex-col items-center text-center shadow-sm", profile.role === 'admin' ? "bg-green-500/10 border-green-500/30" : "bg-card border-border/50")}>
+                <div className={cn("w-10 h-10 rounded-full flex items-center justify-center mb-4", profile.role === 'admin' ? "bg-green-500/20 text-green-600 dark:text-[#00FF00]" : "bg-muted/30 text-muted-foreground")}><Trophy className="w-5 h-5" /></div>
+                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Membresía</p>
+                <p className={cn("text-3xl font-bold leading-none", profile.role === 'admin' ? "text-green-600 dark:text-[#00FF00]" : "text-foreground")}>{profile.role === 'admin' ? 'Fundador' : 'Usuario'}</p>
+                <p className="text-xs text-muted-foreground font-bold">rol Predix</p>
+            </Card>
         </div>
 
         {/* EL GRÁFICO FULL-WIDTH POLYMARKET STYLE */}
@@ -702,7 +717,7 @@ export default function ProfilePage() {
       </Dialog>
       
       <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
-        <DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Editar Perfil</DialogTitle></DialogHeader><form onSubmit={handleSaveProfile} className="space-y-4 pt-4"><div className="flex flex-col items-center gap-4 mb-6"><div className="relative w-24 h-24 rounded-full bg-primary/10 flex items-center justify-center border-2 border-border overflow-hidden">{previewUrl ? <img src={previewUrl} alt="Avatar" className="w-full h-full object-cover" /> : <UserIcon className="w-10 h-10 text-primary opacity-50" />}<div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity cursor-pointer" onClick={() => fileInputRef.current?.click()}><Camera className="w-6 h-6 text-white" /></div></div><input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={(e) => { if (e.target.files && e.target.files[0]) { setSelectedImage(e.target.files[0]); setPreviewUrl(URL.createObjectURL(e.target.files[0])); } }} /><Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>Cambiar foto</Button></div><div className="space-y-2"><Label htmlFor="username">Nombre de usuario</Label><Input id="username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} required /></div><Button type="submit" className="w-full mt-4" disabled={isSaving}>{isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null} Guardar Cambios</Button></form></DialogContent>
+        <DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Editar Perfil</DialogTitle></DialogHeader><form onSubmit={handleSaveProfile} className="space-y-4 pt-4"><div className="flex flex-col items-center gap-4 mb-6"><div className="relative w-24 h-24 rounded-full bg-primary/10 flex items-center justify-center border-2 border-border overflow-hidden">{previewUrl ? <img src={previewUrl} alt="Avatar" className="w-full h-full object-cover" /> : <AvatarFallback><UserIcon className="w-10 h-10 text-primary opacity-50" /></AvatarFallback>}</div><input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={(e) => { if (e.target.files && e.target.files[0]) { setSelectedImage(e.target.files[0]); setPreviewUrl(URL.createObjectURL(e.target.files[0])); } }} /><Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>Cambiar foto</Button></div><div className="space-y-2"><Label htmlFor="username">Nombre de usuario</Label><Input id="username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} required /></div><Button type="submit" className="w-full mt-4" disabled={isSaving}>{isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null} Guardar Cambios</Button></form></DialogContent>
       </Dialog>
 
       <Dialog open={isPasswordModalOpen} onOpenChange={setIsPasswordModalOpen}>
