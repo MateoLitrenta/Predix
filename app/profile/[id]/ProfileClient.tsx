@@ -12,7 +12,7 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { createClient } from "@/lib/supabase/client";
 import { 
   Loader2, ArrowLeft, User as UserIcon, History, CheckCircle2, 
-  Clock, XCircle, TrendingUp, Users, Wallet
+  Clock, XCircle, TrendingUp, CalendarDays
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
@@ -49,7 +49,6 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
   const [viewedProfile, setViewedProfile] = useState<any>(null);
   const [userBets, setUserBets] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
-  const [referredUsers, setReferredUsers] = useState<any[]>([]);
   const [marketOptions, setMarketOptions] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
@@ -78,16 +77,15 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
     }
     setViewedProfile(profileData);
 
-    const { data: refUsers } = await supabase.from("profiles").select("username").eq("referred_by", profileId);
-    if (refUsers) setReferredUsers(refUsers);
-
     const { data: betsData } = await supabase
       .from("bets")
       .select("*, markets(*)") 
       .eq("user_id", profileId)
       .order("created_at", { ascending: false });
 
+    // RESTAURAMOS TU RPC PARA EVITAR PROBLEMAS DE PERMISOS
     const { data: txData } = await supabase.rpc('get_public_transactions', { p_user_id: profileId });
+
     const { data: optionsData } = await supabase.from("market_options").select("*");
 
     setUserBets(betsData || []);
@@ -158,16 +156,16 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
     const offset = portfolioStats.lockedValueOffset; 
     const now = Date.now();
     
-    let startTimeForAll = now;
-    if (viewedProfile?.created_at) {
-        startTimeForAll = new Date(viewedProfile.created_at).getTime();
-    } else if (chronological.length > 0) {
-        startTimeForAll = new Date(chronological[0].created_at).getTime();
-    } else {
-        const d = new Date(now);
-        d.setMonth(d.getMonth() - 1);
-        startTimeForAll = d.getTime();
+    // REGLA DE FECHA A PRUEBA DE BALAS: Compara perfil creado vs primer movimiento
+    let accountCreatedAt = viewedProfile?.created_at ? new Date(viewedProfile.created_at).getTime() : now;
+    if (chronological.length > 0) {
+        const firstTxTime = new Date(chronological[0].created_at).getTime();
+        if (firstTxTime < accountCreatedAt) {
+            accountCreatedAt = firstTxTime; // Si el movimiento es más viejo, usamos esa fecha
+        }
     }
+    
+    let startTimeForAll = accountCreatedAt;
     
     let timestamps: number[] = [];
 
@@ -204,9 +202,17 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
         if (txTime >= startTime && txTime <= now) timestamps.push(txTime);
     });
 
+    if (accountCreatedAt >= startTime && accountCreatedAt <= now) {
+        timestamps.push(accountCreatedAt);
+    }
+
     timestamps = Array.from(new Set(timestamps)).sort((a, b) => a - b);
 
     const data = timestamps.map(ts => {
+        if (ts < accountCreatedAt - 3600000) {
+            return { timestamp: ts, value: 0 };
+        }
+
         const pastTxs = chronological.filter(tx => new Date(tx.created_at).getTime() <= ts);
         let baseBalance = 0;
         
@@ -218,7 +224,10 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
             baseBalance = viewedProfile?.points || 0;
         }
         
-        return { timestamp: ts, value: baseBalance + offset };
+        let val = baseBalance + offset;
+        val = Math.max(0, val); 
+        
+        return { timestamp: ts, value: val };
     });
 
     if (data.length === 0 || data[data.length - 1].timestamp !== now) {
@@ -228,30 +237,21 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
     return data;
   }, [processedTransactions, timeframe, portfolioStats, viewedProfile]);
 
-  // MOTOR PNL ABSOLUTO (CORREGIDO PARA MOSTRAR GANANCIAS CORRECTAS DESDE CERO)
   const dynamicPnl = useMemo(() => {
     if (chartData.length < 2) return { value: 0, percentage: 0 };
     
-    // El startValue es el saldo REAL al inicio del gráfico (que Mateo confirmá es 0)
-    const startValue = chartData[0].value; 
-    const endValue = chartData[chartData.length - 1].value; // 14,000 pts.
+    let startValue = chartData[0].value; 
+    const endValue = chartData[chartData.length - 1].value;
     
-    // Eliminé la lógica errónea de 'firstReal' de la versión anterior que aniquilaba la ganancia
-    
-    // Ganancia absoluta: 14,000 - 0 = +14,000 pts. ¡Verás este número en grande y en verde!
-    const val = endValue - startValue;
-    
-    // Decide qué divisor usar para el porcentaje de cambio desde 0.
-    // Mateo confirmá que Gain: "+14,000 pts" debe coincidir con Turn 1 result image image_5d2de4.png: "**+140.00%**". 
-    // Esto implica un capital base de 10,000 pts. Nosotros haremos cumplir eso.
-    let divisor = startValue;
-    if (divisor === 0) {
-        divisor = 10000; // El capital base inicial por defecto para el cálculo del porcentaje
+    if (timeframe === 'ALL' || startValue === 0) {
+       startValue = 10000;
     }
-    const pct = (val / Math.abs(divisor)) * 100; // (14000 / 10000) * 100 = 140%. Correcto.
+
+    const val = endValue - startValue;
+    const pct = (val / Math.abs(startValue)) * 100;
     
     return { value: val, percentage: pct };
-  }, [chartData]);
+  }, [chartData, timeframe]);
 
   const customTooltipFormatter = (value: number) => [`${value.toLocaleString()} pts`];
   
@@ -275,6 +275,11 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
 
   const isProfit = dynamicPnl.value >= 0;
   const themeChartColor = isProfit ? (isDarkMode ? "#00FF00" : "#16a34a") : (isDarkMode ? "#FF0000" : "#dc2626");
+
+  const axisTextColor = isDarkMode ? '#a1a1aa' : '#64748b'; 
+  const axisLineColor = isDarkMode ? '#334155' : '#e2e8f0'; 
+  const tooltipBgColor = isDarkMode ? '#0f172a' : '#ffffff'; 
+  const tooltipTextColor = isDarkMode ? '#f8fafc' : '#0f172a';
 
   if (isLoading) return <div className="min-h-screen bg-background flex justify-center items-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
   if (!viewedProfile) return null;
@@ -306,7 +311,7 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
                             {isMe && <Badge className="bg-primary text-primary-foreground text-xs uppercase tracking-wider">VOS</Badge>}
                         </h1>
                         <p className="text-sm text-muted-foreground font-medium flex items-center justify-center sm:justify-start gap-1.5 opacity-80">
-                            Unido en {new Date(viewedProfile.created_at || new Date()).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })}
+                            <CalendarDays className="w-3.5 h-3.5" /> Unido en {new Date(viewedProfile.created_at || new Date()).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })}
                         </p>
                     </div>
                 </div>
@@ -318,7 +323,7 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
             <div className="p-6 md:p-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-6 border-b border-border/20">
               <div>
                 <div className="flex items-center gap-2 font-bold text-muted-foreground mb-2">
-                  <TrendingUp className="w-4 h-4" /> Profit / Loss
+                  <TrendingUp className="w-4 h-4" /> Crecimiento de Cuenta
                 </div>
                 
                 <div className="flex items-baseline gap-3 flex-wrap">
@@ -338,7 +343,7 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
                 </div>
 
                 <p className="text-sm font-medium text-muted-foreground mt-2">
-                  {dynamicPnl.value >= 0 ? 'Ganancia' : 'Pérdida'} en {timeframeLabels[timeframe]} • Total: {portfolioStats.totalPortfolioValue.toLocaleString()} pts
+                  Rendimiento en {timeframeLabels[timeframe]} • Total: {portfolioStats.totalPortfolioValue.toLocaleString()} pts
                 </p>
               </div>
 
@@ -360,7 +365,7 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
 
             <div className="w-full h-[350px] md:h-[450px] p-4 md:p-6 pt-8">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
                   <defs>
                     <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor={themeChartColor} stopOpacity={0.2}/>
@@ -373,38 +378,39 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
                     type="number" 
                     domain={['dataMin', 'dataMax']} 
                     tickFormatter={xAxisFormatter}
-                    tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11, fontWeight: 500 }}
+                    tick={{ fill: axisTextColor, fontSize: 12, fontWeight: 500 }}
                     tickLine={false}
-                    axisLine={false}
+                    axisLine={{ stroke: axisLineColor, strokeWidth: 1.5 }}
                     minTickGap={60}
-                    dy={10}
+                    dy={15}
                   />
                   
                   <YAxis 
                     domain={['auto', 'auto']} 
                     tickFormatter={yAxisFormatter}
-                    tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11, fontWeight: 500 }}
+                    tick={{ fill: axisTextColor, fontSize: 12, fontWeight: 500 }}
                     tickLine={false}
-                    axisLine={false}
-                    width={60}
-                    orientation="right"
+                    axisLine={{ stroke: axisLineColor, strokeWidth: 1.5 }}
+                    width={55}
+                    orientation="left"
+                    dx={-10}
                   />
 
                   <Tooltip 
                     formatter={customTooltipFormatter}
                     labelFormatter={customTooltipLabelFormatter}
                     contentStyle={{ 
-                        backgroundColor: 'hsl(var(--card))', 
+                        backgroundColor: tooltipBgColor, 
                         borderRadius: '12px', 
-                        border: '1px solid hsl(var(--border))', 
+                        border: `1px solid ${axisLineColor}`, 
                         boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
-                        color: 'hsl(var(--foreground))',
+                        color: tooltipTextColor,
                         fontWeight: 'bold',
                         padding: '12px'
                     }}
                     itemStyle={{ color: themeChartColor, fontSize: '16px' }}
-                    labelStyle={{ color: 'hsl(var(--muted-foreground))', marginBottom: '4px', fontSize: '12px' }}
-                    cursor={{ stroke: 'hsl(var(--muted-foreground))', strokeWidth: 1, strokeDasharray: '4 4' }}
+                    labelStyle={{ color: axisTextColor, marginBottom: '4px', fontSize: '12px' }}
+                    cursor={{ stroke: axisTextColor, strokeWidth: 1, strokeDasharray: '4 4' }}
                   />
                   
                   <Area 
@@ -424,7 +430,7 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
           </CardContent>
         </Card>
 
-        {/* HISTORIAL DE PREDICCIONES */}
+        {/* ACTIVIDAD RECIENTE DEL USUARIO PÚBLICO */}
         <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
           <History className="w-6 h-6 text-primary" /> Actividad Reciente
         </h2>
