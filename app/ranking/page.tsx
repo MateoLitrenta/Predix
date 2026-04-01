@@ -8,7 +8,9 @@ import { NavHeader } from "@/components/nav-header";
 import { AuthModal } from "@/components/auth-modal";
 import { getProfile } from "@/lib/actions";
 import { Button } from "@/components/ui/button";
-import { Trophy, Medal, User, Loader2, ArrowLeft, BarChart3, Target, Wallet } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Trophy, Medal, User, Loader2, ArrowLeft, BarChart3, Wallet, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface LeaderboardUser {
@@ -19,7 +21,10 @@ interface LeaderboardUser {
   portfolio_value: number;
   total_volume: number;
   total_predictions: number;
+  roi: number; // Ahora Supabase nos manda el ROI servido en bandeja
 }
+
+type TimeframeType = '1W' | '1M' | '1Y' | 'ALL';
 
 export default function RankingPage() {
   const router = useRouter();
@@ -29,19 +34,21 @@ export default function RankingPage() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [timeframe, setTimeframe] = useState<TimeframeType>('ALL');
 
   useEffect(() => {
     if (isDarkMode) document.documentElement.classList.add("dark");
     else document.documentElement.classList.remove("dark");
   }, [isDarkMode]);
 
-  const loadData = async () => {
+  // Ahora le pasamos a Supabase qué botón tocamos
+  const loadData = async (selectedTimeframe: TimeframeType) => {
     setIsLoading(true);
     const userProfile = await getProfile();
     setCurrentUser(userProfile);
 
-    // Traemos el ranking con la función SQL
-    const { data, error } = await supabase.rpc('get_leaderboard_stats');
+    // Llamamos al nuevo RPC y le pasamos el timeframe por parámetro
+    const { data, error } = await supabase.rpc('get_leaderboard_by_timeframe', { p_timeframe: selectedTimeframe });
     
     if (!error && data) {
       setUsers(data as LeaderboardUser[]);
@@ -51,24 +58,22 @@ export default function RankingPage() {
     setIsLoading(false);
   };
 
+  // Cada vez que el usuario toque un botón distinto, recargamos los datos exactos de esa fecha
   useEffect(() => {
-    loadData();
-  }, []);
+    loadData(timeframe);
+  }, [timeframe]); 
 
-  // Pre-ordenamos las 3 listas usando el nuevo PORTFOLIO VALUE como principal
-  const topPortfolio = useMemo(() => [...users].sort((a, b) => b.portfolio_value - a.portfolio_value).slice(0, 50), [users]);
-  const topVolume = useMemo(() => [...users].sort((a, b) => b.total_volume - a.total_volume).slice(0, 50), [users]);
-  const topPredictions = useMemo(() => [...users].sort((a, b) => b.total_predictions - a.total_predictions).slice(0, 50), [users]);
+  // ORDENAMIENTOS
+  const topROI = useMemo(() => [...users].sort((a, b) => b.roi - a.roi).slice(0, 100), [users]);
+  const topPortfolio = useMemo(() => [...users].sort((a, b) => b.portfolio_value - a.portfolio_value).slice(0, 10), [users]);
+  const topVolume = useMemo(() => [...users].sort((a, b) => b.total_volume - a.total_volume).slice(0, 10), [users]);
 
-  // Función para renderizar medallas Top 3 adaptadas a modo claro/oscuro
   const renderRankBadge = (index: number) => {
-    if (index === 0) return <div className="w-6 h-6 rounded-full bg-amber-500/20 dark:bg-yellow-500/20 text-amber-600 dark:text-yellow-500 flex items-center justify-center font-bold text-xs shrink-0"><Medal className="w-3 h-3" /></div>;
-    if (index === 1) return <div className="w-6 h-6 rounded-full bg-slate-400/20 dark:bg-gray-400/20 text-slate-600 dark:text-gray-400 flex items-center justify-center font-bold text-xs shrink-0"><Medal className="w-3 h-3" /></div>;
-    if (index === 2) return <div className="w-6 h-6 rounded-full bg-orange-600/20 dark:bg-amber-600/20 text-orange-700 dark:text-amber-600 flex items-center justify-center font-bold text-xs shrink-0"><Medal className="w-3 h-3" /></div>;
-    return <div className="w-6 h-6 rounded-full bg-muted text-muted-foreground flex items-center justify-center font-bold text-[10px] shrink-0">{index + 1}</div>;
+    if (index === 0) return <div className="w-8 h-8 rounded-full bg-amber-500/20 text-amber-500 flex items-center justify-center font-bold text-sm shrink-0 shadow-[0_0_10px_rgba(245,158,11,0.2)]"><Medal className="w-4 h-4" /></div>;
+    if (index === 1) return <div className="w-8 h-8 rounded-full bg-slate-400/20 text-slate-400 flex items-center justify-center font-bold text-sm shrink-0 shadow-[0_0_10px_rgba(148,163,184,0.2)]"><Medal className="w-4 h-4" /></div>;
+    if (index === 2) return <div className="w-8 h-8 rounded-full bg-orange-600/20 text-orange-500 flex items-center justify-center font-bold text-sm shrink-0 shadow-[0_0_10px_rgba(234,88,12,0.2)]"><Medal className="w-4 h-4" /></div>;
+    return <div className="w-8 h-8 rounded-full bg-muted/50 text-muted-foreground flex items-center justify-center font-bold text-xs shrink-0">{index + 1}</div>;
   };
-
-  if (isLoading) return <div className="min-h-screen bg-background flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -76,7 +81,7 @@ export default function RankingPage() {
         points={currentUser?.points ?? 0} 
         isDarkMode={isDarkMode} 
         onToggleDarkMode={() => setIsDarkMode(!isDarkMode)} 
-        onPointsUpdate={() => loadData()} 
+        onPointsUpdate={() => loadData(timeframe)} 
         userId={currentUser?.id ?? null} 
         userEmail={currentUser?.email ?? null} 
         onOpenAuthModal={() => setIsAuthModalOpen(true)} 
@@ -85,123 +90,175 @@ export default function RankingPage() {
         username={currentUser?.username} 
       />
 
-      <main className="container mx-auto px-4 py-8 flex-1 max-w-7xl">
+      <main className="container mx-auto px-4 py-8 flex-1 max-w-6xl">
         <Button variant="ghost" size="sm" asChild className="mb-6 -ml-2 text-muted-foreground hover:text-foreground">
           <Link href="/"><ArrowLeft className="w-4 h-4 mr-2" /> Volver a Mercados</Link>
         </Button>
 
-        <div className="mb-8 md:mb-12">
-          <h1 className="text-3xl md:text-4xl font-black text-foreground flex items-center gap-3">
-            <Trophy className="w-8 h-8 text-amber-500 dark:text-[#FFD700]" /> Leaderboard
-          </h1>
-          <p className="text-muted-foreground mt-2 text-sm md:text-base">
-            Descubrí quiénes son los mejores traders de PREDIX rankeados por su Poder de Fuego (Portfolio Total), volumen y actividad.
-          </p>
+        <div className="mb-8 md:mb-10 text-center md:text-left flex flex-col md:flex-row items-center justify-between gap-6">
+          <div>
+            <h1 className="text-3xl md:text-5xl font-black text-foreground flex items-center justify-center md:justify-start gap-3 tracking-tight">
+              <Trophy className="w-8 h-8 md:w-10 md:h-10 text-primary" /> Leaderboard
+            </h1>
+            <p className="text-muted-foreground mt-2 text-sm md:text-base font-medium max-w-xl">
+              El Salón de la Fama de PREDIX. Los mejores traders clasificados por su porcentaje de rentabilidad (ROI).
+            </p>
+          </div>
         </div>
 
-        {users.length === 0 ? (
+        {isLoading ? (
+            <div className="flex items-center justify-center py-32"><Loader2 className="w-10 h-10 animate-spin text-primary opacity-50" /></div>
+        ) : users.length === 0 ? (
           <div className="text-center py-20 bg-card rounded-3xl border border-border/50">
             <BarChart3 className="w-12 h-12 text-muted-foreground opacity-20 mx-auto mb-4" />
             <p className="text-lg font-medium text-foreground">Aún no hay traders para mostrar.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8">
+          <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
             
-            {/* COLUMNA 1: PORTFOLIO TOTAL (PODER DE FUEGO) */}
-            <div className="bg-card/50 border border-border/50 rounded-2xl p-4 md:p-6 shadow-sm flex flex-col h-[70vh] min-h-[500px]">
-              <div className="flex items-center gap-3 mb-4 border-b border-border/50 pb-4 sticky top-0 bg-card/90 backdrop-blur z-10">
-                <div className="w-8 h-8 rounded-lg bg-amber-500/10 dark:bg-[#FFD700]/20 flex items-center justify-center text-amber-600 dark:text-[#FFD700] shrink-0">
-                  <Wallet className="w-4 h-4" />
-                </div>
-                <h2 className="text-lg font-bold text-foreground">Portfolio Total</h2>
-              </div>
-              <div className="flex-1 overflow-y-auto pr-2 space-y-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
-                {topPortfolio.map((user, i) => (
-                  <Link href={`/profile/${user.user_id}`} key={`pts-${user.user_id}`}>
-                    <div className={cn("flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer", currentUser?.id === user.user_id && "bg-amber-500/10 border border-amber-500/20 dark:bg-[#FFD700]/10 dark:border-[#FFD700]/20 hover:bg-amber-500/20 dark:hover:bg-[#FFD700]/20")}>
-                      <div className="flex items-center gap-3 overflow-hidden">
-                        {renderRankBadge(i)}
-                        <div className="w-7 h-7 rounded-full bg-primary/10 dark:bg-primary/20 flex items-center justify-center overflow-hidden shrink-0 border border-border/50">
-                          {user.avatar_url ? <img src={user.avatar_url} alt="av" className="w-full h-full object-cover" /> : <User className="w-3 h-3 text-primary" />}
-                        </div>
-                        <span className={cn("font-medium text-sm truncate", currentUser?.id === user.user_id ? "text-amber-600 dark:text-[#FFD700] font-bold" : "text-foreground")}>
-                          {user.username}
-                        </span>
+            {/* EL PROTAGONISTA: RANKING PRINCIPAL DE RENDIMIENTO */}
+            <div className="lg:w-2/3 flex flex-col">
+              <Card className="bg-card border-border/50 shadow-lg rounded-2xl overflow-hidden flex-1 flex flex-col relative">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -z-10 pointer-events-none" />
+                
+                <CardContent className="p-0 flex flex-col h-full">
+                  <div className="p-6 md:p-8 border-b border-border/20 flex flex-col md:flex-row items-center justify-between gap-6">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary shrink-0">
+                        <TrendingUp className="w-6 h-6" />
                       </div>
-                      <span className="font-bold text-sm text-foreground shrink-0 pl-2">
-                        {user.portfolio_value.toLocaleString()} pts
-                      </span>
+                      <div>
+                        <h2 className="text-2xl font-black text-foreground leading-none mb-1">Top Rendimiento</h2>
+                        <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">% ROI de los usuarios</p>
+                      </div>
                     </div>
-                  </Link>
-                ))}
-              </div>
+
+                    <div className="flex bg-muted/50 p-1 rounded-xl border border-border/30 w-full md:w-auto overflow-x-auto">
+                      {(['1W', '1M', '1Y', 'ALL'] as TimeframeType[]).map((tf) => (
+                        <button 
+                          key={tf} 
+                          onClick={() => setTimeframe(tf)} 
+                          className={cn(
+                            "px-4 py-2 text-xs font-bold rounded-lg transition-all whitespace-nowrap flex-1 md:flex-none", 
+                            timeframe === tf ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                          )}
+                        >
+                          {tf === '1W' ? 'Semana' : tf === '1M' ? 'Mes' : tf === '1Y' ? 'Año' : 'Histórico'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-2 max-h-[800px] scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
+                    {topROI.map((user, i) => {
+                      const isMe = currentUser?.id === user.user_id;
+                      const isProfit = user.roi >= 0;
+
+                      return (
+                        <Link href={`/profile/${user.user_id}`} key={`roi-${user.user_id}`}>
+                          <div className={cn(
+                            "flex items-center justify-between p-3 sm:p-4 rounded-xl transition-all cursor-pointer border",
+                            isMe 
+                              ? "bg-primary/10 border-primary/30 hover:bg-primary/20 shadow-sm" 
+                              : "bg-muted/10 border-transparent hover:bg-muted/40 hover:border-border/50"
+                          )}>
+                            <div className="flex items-center gap-4 overflow-hidden">
+                              {renderRankBadge(i)}
+                              
+                              <div className="w-10 h-10 rounded-full bg-background flex items-center justify-center overflow-hidden shrink-0 border-2 border-muted">
+                                {user.avatar_url ? <img src={user.avatar_url} alt="av" className="w-full h-full object-cover" /> : <User className="w-4 h-4 text-muted-foreground" />}
+                              </div>
+                              
+                              <div className="flex flex-col min-w-0">
+                                <span className={cn("font-bold text-base truncate flex items-center gap-2", isMe ? "text-primary" : "text-foreground")}>
+                                  {user.username}
+                                  {isMe && <Badge className="bg-primary text-primary-foreground text-[9px] px-1.5 py-0 uppercase h-4">Vos</Badge>}
+                                </span>
+                                <span className="text-xs font-medium text-muted-foreground">
+                                  {user.portfolio_value.toLocaleString()} pts totales
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center shrink-0 pl-4">
+                              <Badge 
+                                variant="outline" 
+                                className={cn(
+                                  "text-sm md:text-base px-3 py-1 font-black border-2", 
+                                  isProfit ? "bg-green-500/10 text-green-600 dark:text-[#00FF00] border-green-500/30" : "bg-red-500/10 text-red-600 dark:text-[#FF0000] border-red-500/30"
+                                )}
+                              >
+                                {isProfit ? '+' : ''}{user.roi.toFixed(2)}%
+                              </Badge>
+                            </div>
+                          </div>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
             </div>
 
-            {/* COLUMNA 2: VOLUMEN */}
-            <div className="bg-card/50 border border-border/50 rounded-2xl p-4 md:p-6 shadow-sm flex flex-col h-[70vh] min-h-[500px]">
-              <div className="flex items-center gap-3 mb-4 border-b border-border/50 pb-4 sticky top-0 bg-card/90 backdrop-blur z-10">
-                <div className="w-8 h-8 rounded-lg bg-blue-600/10 dark:bg-blue-500/20 flex items-center justify-center text-blue-600 dark:text-blue-500 shrink-0">
-                  <BarChart3 className="w-4 h-4" />
+            {/* COLUMNAS SECUNDARIAS (BALLENAS Y VOLUMEN) */}
+            <div className="lg:w-1/3 flex flex-col gap-6">
+              
+              <Card className="bg-card/50 border-border/50 shadow-sm rounded-2xl flex-1 flex flex-col">
+                <div className="p-5 border-b border-border/20 flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-500 shrink-0">
+                    <Wallet className="w-4 h-4" />
+                  </div>
+                  <h3 className="font-bold text-foreground">Top Ballenas</h3>
                 </div>
-                <h2 className="text-lg font-bold text-foreground">Volumen Tradeado</h2>
-              </div>
-              <div className="flex-1 overflow-y-auto pr-2 space-y-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
-                {topVolume.map((user, i) => (
-                  <Link href={`/profile/${user.user_id}`} key={`vol-${user.user_id}`}>
-                    <div className={cn("flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer", currentUser?.id === user.user_id && "bg-blue-600/10 border border-blue-600/20 dark:bg-blue-500/10 dark:border-blue-500/20 hover:bg-blue-600/20 dark:hover:bg-blue-500/20")}>
-                      <div className="flex items-center gap-3 overflow-hidden">
-                        {renderRankBadge(i)}
-                        <div className="w-7 h-7 rounded-full bg-primary/10 dark:bg-primary/20 flex items-center justify-center overflow-hidden shrink-0 border border-border/50">
-                          {user.avatar_url ? <img src={user.avatar_url} alt="av" className="w-full h-full object-cover" /> : <User className="w-3 h-3 text-primary" />}
+                <div className="p-3 space-y-1 overflow-y-auto max-h-[350px] scrollbar-thin scrollbar-thumb-border">
+                  {topPortfolio.map((user, i) => (
+                    <Link href={`/profile/${user.user_id}`} key={`pts-${user.user_id}`}>
+                      <div className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 transition-colors">
+                        <div className="flex items-center gap-3 overflow-hidden">
+                          <span className="text-xs font-bold text-muted-foreground w-4 text-center">{i + 1}</span>
+                          <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center overflow-hidden shrink-0">
+                            {user.avatar_url ? <img src={user.avatar_url} alt="av" className="w-full h-full object-cover" /> : <User className="w-3 h-3 opacity-50" />}
+                          </div>
+                          <span className="font-semibold text-sm text-foreground truncate">{user.username}</span>
                         </div>
-                        <span className={cn("font-medium text-sm truncate", currentUser?.id === user.user_id ? "text-blue-600 dark:text-blue-500 font-bold" : "text-foreground")}>
-                          {user.username}
-                        </span>
+                        <span className="font-bold text-xs text-amber-600 dark:text-amber-500">{user.portfolio_value.toLocaleString()} pts</span>
                       </div>
-                      <span className="font-bold text-sm text-blue-600 dark:text-blue-500 shrink-0 pl-2">
-                        {user.total_volume.toLocaleString()}
-                      </span>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </div>
-
-            {/* COLUMNA 3: PREDICCIONES */}
-            <div className="bg-card/50 border border-border/50 rounded-2xl p-4 md:p-6 shadow-sm flex flex-col h-[70vh] min-h-[500px]">
-              <div className="flex items-center gap-3 mb-4 border-b border-border/50 pb-4 sticky top-0 bg-card/90 backdrop-blur z-10">
-                <div className="w-8 h-8 rounded-lg bg-purple-600/10 dark:bg-purple-500/20 flex items-center justify-center text-purple-600 dark:text-purple-500 shrink-0">
-                  <Target className="w-4 h-4" />
+                    </Link>
+                  ))}
                 </div>
-                <h2 className="text-lg font-bold text-foreground">Predicciones</h2>
-              </div>
-              <div className="flex-1 overflow-y-auto pr-2 space-y-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
-                {topPredictions.map((user, i) => (
-                  <Link href={`/profile/${user.user_id}`} key={`pred-${user.user_id}`}>
-                    <div className={cn("flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer", currentUser?.id === user.user_id && "bg-purple-600/10 border border-purple-600/20 dark:bg-purple-500/10 dark:border-purple-500/20 hover:bg-purple-600/20 dark:hover:bg-purple-500/20")}>
-                      <div className="flex items-center gap-3 overflow-hidden">
-                        {renderRankBadge(i)}
-                        <div className="w-7 h-7 rounded-full bg-primary/10 dark:bg-primary/20 flex items-center justify-center overflow-hidden shrink-0 border border-border/50">
-                          {user.avatar_url ? <img src={user.avatar_url} alt="av" className="w-full h-full object-cover" /> : <User className="w-3 h-3 text-primary" />}
-                        </div>
-                        <span className={cn("font-medium text-sm truncate", currentUser?.id === user.user_id ? "text-purple-600 dark:text-purple-500 font-bold" : "text-foreground")}>
-                          {user.username}
-                        </span>
-                      </div>
-                      <span className="font-bold text-sm text-purple-600 dark:text-purple-500 shrink-0 pl-2">
-                        {user.total_predictions.toLocaleString()}
-                      </span>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </div>
+              </Card>
 
+              <Card className="bg-card/50 border-border/50 shadow-sm rounded-2xl flex-1 flex flex-col">
+                <div className="p-5 border-b border-border/20 flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-500 shrink-0">
+                    <BarChart3 className="w-4 h-4" />
+                  </div>
+                  <h3 className="font-bold text-foreground">Top Volumen</h3>
+                </div>
+                <div className="p-3 space-y-1 overflow-y-auto max-h-[350px] scrollbar-thin scrollbar-thumb-border">
+                  {topVolume.map((user, i) => (
+                    <Link href={`/profile/${user.user_id}`} key={`vol-${user.user_id}`}>
+                      <div className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 transition-colors">
+                        <div className="flex items-center gap-3 overflow-hidden">
+                          <span className="text-xs font-bold text-muted-foreground w-4 text-center">{i + 1}</span>
+                          <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center overflow-hidden shrink-0">
+                            {user.avatar_url ? <img src={user.avatar_url} alt="av" className="w-full h-full object-cover" /> : <User className="w-3 h-3 opacity-50" />}
+                          </div>
+                          <span className="font-semibold text-sm text-foreground truncate">{user.username}</span>
+                        </div>
+                        <span className="font-bold text-xs text-blue-600 dark:text-blue-400">{user.total_volume.toLocaleString()} pts</span>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              </Card>
+
+            </div>
           </div>
         )}
       </main>
 
-      <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} onAuthSuccess={() => { setIsAuthModalOpen(false); loadData(); }} isDarkMode={isDarkMode} />
+      <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} onAuthSuccess={() => { setIsAuthModalOpen(false); loadData(timeframe); }} isDarkMode={isDarkMode} />
     </div>
   );
 }
