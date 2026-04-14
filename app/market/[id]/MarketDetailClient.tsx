@@ -119,13 +119,11 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
 
     let formattedHistory: any[] = [];
     
+    // USAMOS MILISEGUNDOS EXACTOS SIN AGRUPAR
     if (newHistoryData && newHistoryData.length > 0) {
       const historyMap = new Map();
       newHistoryData.forEach(h => {
-        const d = new Date(h.created_at);
-        d.setSeconds(0, 0); 
-        const ts = d.getTime();
-        
+        const ts = new Date(h.created_at).getTime(); 
         if (!historyMap.has(ts)) {
             historyMap.set(ts, { timestamp: ts });
         }
@@ -137,18 +135,12 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       const yesOpt = optionsData.find(o => o.option_name.toLowerCase().includes('s'));
       const noOpt = optionsData.find(o => o.option_name.toLowerCase().includes('n'));
       formattedHistory = oldHistoryData.map(h => {
-        const d = new Date(h.created_at);
-        d.setSeconds(0, 0);
         return {
-          timestamp: d.getTime(),
+          timestamp: new Date(h.created_at).getTime(),
           [yesOpt?.id || 'yes']: h.yes_percentage,
           [noOpt?.id || 'no']: 100 - h.yes_percentage,
         };
       }).sort((a, b) => a.timestamp - b.timestamp);
-    }
-
-    if (formattedHistory.length > 0 && mData.status !== 'resolved') {
-        formattedHistory.push({ ...formattedHistory[formattedHistory.length - 1], timestamp: Date.now() });
     }
 
     setHistory(formattedHistory);
@@ -334,7 +326,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
   
   const toggleThread = (commentId: string) => { setExpandedThreads(prev => ({ ...prev, [commentId]: !prev[commentId] })); };
 
-  // --- MOTOR DE FILTRADO Y DOWN-SAMPLING (MAGIA DE POLYMARKET) ---
+  // --- MOTOR DE FILTRADO (LIMPIO, SIN AGRUPAR PUNTOS ARTIFICIALMENTE) ---
   const filteredHistory = useMemo(() => {
     if (!history || history.length === 0) return [];
 
@@ -353,6 +345,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       }
     }
 
+    // Buscamos el precio justo antes de que empiece el filtro para que la línea nazca desde la izquierda
     let baselineValue = history[0];
     for (let i = history.length - 1; i >= 0; i--) {
         if (history[i].timestamp <= startTime) {
@@ -364,32 +357,16 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     const rawPoints = history.filter(h => h.timestamp > startTime);
     const dataInTimeframe = [{ ...baselineValue, timestamp: startTime }, ...rawPoints];
 
-    const TARGET_POINTS = 100;
-    if (dataInTimeframe.length <= TARGET_POINTS) return dataInTimeframe;
-
-    const result = [];
-    const timeSpan = dataInTimeframe[dataInTimeframe.length - 1].timestamp - dataInTimeframe[0].timestamp;
-    const interval = timeSpan / TARGET_POINTS;
-
-    let currentBucketEnd = dataInTimeframe[0].timestamp + interval;
-    let lastPointInBucket = dataInTimeframe[0];
-
-    for (let i = 1; i < dataInTimeframe.length; i++) {
-        if (dataInTimeframe[i].timestamp > currentBucketEnd) {
-            result.push(lastPointInBucket); 
-            while(dataInTimeframe[i].timestamp > currentBucketEnd) {
-                currentBucketEnd += interval;
-            }
-        }
-        lastPointInBucket = dataInTimeframe[i];
+    // Para que la línea llegue hasta el extremo derecho (hasta el momento actual) si el mercado sigue activo
+    if (market && market.status !== 'resolved' && dataInTimeframe.length > 0) {
+        dataInTimeframe.push({ ...dataInTimeframe[dataInTimeframe.length - 1], timestamp: now });
     }
-    result.push(dataInTimeframe[dataInTimeframe.length - 1]); 
 
-    return result;
-  }, [history, chartTimeframe]);
+    return dataInTimeframe;
+  }, [history, chartTimeframe, market]);
 
-  // CONFIGURACIÓN DINÁMICA DEL GROSOR DE LÍNEA
-  const dynamicStrokeWidth = (chartTimeframe === 'ALL' || chartTimeframe === '1Y' || chartTimeframe === '6M') ? 1.5 : 2.5;
+  // CONFIGURACIÓN DINÁMICA DEL GROSOR DE LÍNEA: Más fino para que las verticales no parezcan bloques
+  const dynamicStrokeWidth = (chartTimeframe === 'ALL' || chartTimeframe === '1Y' || chartTimeframe === '6M') ? 1.2 : 2;
 
   const axisTextColor = isDarkMode ? '#a1a1aa' : '#64748b';
   const axisLineColor = isDarkMode ? '#334155' : '#e2e8f0';
@@ -409,7 +386,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
 
   const customTooltipLabelFormatter = (label: number) => {
       const date = new Date(label);
-      return date.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+      return date.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
   };
 
   if (isLoading) return <div className="min-h-screen bg-background flex justify-center items-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
@@ -603,7 +580,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
 
             {market.description && <div className="p-5 rounded-xl bg-muted/30 border border-border/50 text-muted-foreground leading-relaxed">{market.description}</div>}
 
-            {/* GRÁFICO ESTILO POLYMARKET */}
+            {/* GRÁFICO ESTILO POLYMARKET: ESCALÓN PURO Y AFILADO */}
             <div className="p-6 rounded-xl border border-border/50 bg-card shadow-sm">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
                 <h3 className="font-semibold flex items-center gap-2">
@@ -658,24 +635,22 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                         labelStyle={{ color: axisTextColor, marginBottom: '4px', fontSize: '11px', textTransform: 'uppercase' }}
                         cursor={{ stroke: axisTextColor, strokeWidth: 1, strokeDasharray: '4 4' }}
                       />
-                      {/* ACÁ APLICAMOS EL ESTILO MONOTONE Y LOS EFECTOS VISUALES */}
+                      {/* VUELVE EL STEP AFTER PURO: Sin animaciones, sin opacidad y con bordes rectos (miter) */}
                       {options.map((opt) => (
                         <Line 
                           key={opt.id} 
-                          type="monotone" 
+                          type="stepAfter" 
                           connectNulls={true}
                           dataKey={opt.id} 
                           stroke={opt.color} 
                           strokeWidth={dynamicStrokeWidth} 
-                          strokeOpacity={0.9} 
-                          strokeLinecap="round" 
-                          strokeLinejoin="round" 
+                          strokeOpacity={1} /* 100% de solidez para que no se forme mancha oscura */
+                          strokeLinecap="butt" /* Cortes rectos, no redondeados */
+                          strokeLinejoin="miter" /* Ángulos de 90 grados afilados */
                           dot={false} 
-                          activeDot={{ r: 6, strokeWidth: 0, fill: opt.color }}
+                          activeDot={{ r: 4, strokeWidth: 0, fill: opt.color }}
                           name={opt.option_name} 
-                          isAnimationActive={true}
-                          animationDuration={500}
-                          animationEasing="ease-out"
+                          isAnimationActive={false} /* La animación rompe el escalón en Recharts */
                         />
                       ))}
                     </LineChart>
