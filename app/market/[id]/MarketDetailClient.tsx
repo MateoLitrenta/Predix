@@ -119,7 +119,6 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
 
     let formattedHistory: any[] = [];
     
-    // USAMOS MILISEGUNDOS EXACTOS SIN AGRUPAR
     if (newHistoryData && newHistoryData.length > 0) {
       const historyMap = new Map();
       newHistoryData.forEach(h => {
@@ -203,12 +202,12 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
   };
 
   const handleTwitterShare = () => {
-    const text = encodeURIComponent(`¡Mirá este mercado en PREDIX! ${market.title} ¿Qué opinás?\n\n`);
+    const text = encodeURIComponent(`¡Mirá este mercado en PREDIX! ${market?.title} ¿Qué opinás?\n\n`);
     window.open(`https://twitter.com/intent/tweet?text=${text}&url=${encodeURIComponent(marketUrl)}`, '_blank');
   };
 
   const handleWhatsAppShare = () => {
-    const text = encodeURIComponent(`¡Mirá este mercado en PREDIX!\n*${market.title}*\n\nEntrá y hacé tu predicción acá: ${marketUrl}`);
+    const text = encodeURIComponent(`¡Mirá este mercado en PREDIX!\n*${market?.title}*\n\nEntrá y hacé tu predicción acá: ${marketUrl}`);
     window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
   };
 
@@ -326,7 +325,6 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
   
   const toggleThread = (commentId: string) => { setExpandedThreads(prev => ({ ...prev, [commentId]: !prev[commentId] })); };
 
-  // --- MOTOR DE FILTRADO (LIMPIO, SIN AGRUPAR PUNTOS ARTIFICIALMENTE) ---
   const filteredHistory = useMemo(() => {
     if (!history || history.length === 0) return [];
 
@@ -345,7 +343,6 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       }
     }
 
-    // Buscamos el precio justo antes de que empiece el filtro para que la línea nazca desde la izquierda
     let baselineValue = history[0];
     for (let i = history.length - 1; i >= 0; i--) {
         if (history[i].timestamp <= startTime) {
@@ -357,7 +354,6 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     const rawPoints = history.filter(h => h.timestamp > startTime);
     const dataInTimeframe = [{ ...baselineValue, timestamp: startTime }, ...rawPoints];
 
-    // Para que la línea llegue hasta el extremo derecho (hasta el momento actual) si el mercado sigue activo
     if (market && market.status !== 'resolved' && dataInTimeframe.length > 0) {
         dataInTimeframe.push({ ...dataInTimeframe[dataInTimeframe.length - 1], timestamp: now });
     }
@@ -365,7 +361,6 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     return dataInTimeframe;
   }, [history, chartTimeframe, market]);
 
-  // CONFIGURACIÓN DINÁMICA DEL GROSOR DE LÍNEA: Más fino para que las verticales no parezcan bloques
   const dynamicStrokeWidth = (chartTimeframe === 'ALL' || chartTimeframe === '1Y' || chartTimeframe === '6M') ? 1.2 : 2;
 
   const axisTextColor = isDarkMode ? '#a1a1aa' : '#64748b';
@@ -389,7 +384,55 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       return date.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
   };
 
-  if (isLoading) return <div className="min-h-screen bg-background flex justify-center items-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
+  // --- ACÁ ESTÁ EL SKELETON LOADER PARA EL MERCADO ---
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col">
+        <NavHeader points={profile?.points ?? 10000} isDarkMode={isDarkMode} onToggleDarkMode={() => setIsDarkMode(!isDarkMode)} onPointsUpdate={() => {}} userId={null} userEmail={null} onOpenAuthModal={() => {}} onSignOut={async () => {}} isAdmin={false} />
+        
+        <main className="container mx-auto px-4 py-8 flex-1 max-w-6xl">
+          <div className="h-8 w-32 bg-muted/60 rounded animate-pulse mb-6" />
+
+          <div className="flex flex-col lg:grid lg:grid-cols-3 gap-8 items-start">
+            {/* Columna Principal (Gráfico y Detalles) */}
+            <div className="lg:col-span-2 space-y-6 w-full order-1">
+              <div className="flex gap-4 sm:gap-6 items-start">
+                <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl bg-muted/60 animate-pulse shrink-0" />
+                <div className="w-full space-y-3">
+                  <div className="flex gap-2">
+                    <div className="h-6 w-20 bg-muted/60 rounded-full animate-pulse" />
+                    <div className="h-6 w-24 bg-muted/60 rounded-full animate-pulse" />
+                  </div>
+                  <div className="h-8 w-3/4 bg-muted/60 rounded animate-pulse" />
+                  <div className="h-8 w-1/2 bg-muted/60 rounded animate-pulse" />
+                  <div className="flex gap-4 mt-2">
+                    <div className="h-4 w-24 bg-muted/60 rounded animate-pulse" />
+                    <div className="h-4 w-32 bg-muted/60 rounded animate-pulse" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Skeleton Gráfico */}
+              <div className="h-[400px] w-full bg-muted/30 rounded-xl border border-border/50 animate-pulse" />
+
+              {/* Skeleton Opciones */}
+              <div className="space-y-3">
+                <div className="h-14 w-full bg-muted/30 rounded-xl border border-border/50 animate-pulse" />
+                <div className="h-14 w-full bg-muted/30 rounded-xl border border-border/50 animate-pulse" />
+                <div className="h-14 w-full bg-muted/30 rounded-xl border border-border/50 animate-pulse" />
+              </div>
+            </div>
+
+            {/* Columna Lateral (Panel de Trading) */}
+            <div className="lg:col-span-1 lg:sticky lg:top-24 w-full order-2">
+              <div className="h-[350px] w-full bg-muted/30 rounded-2xl border border-border/50 animate-pulse" />
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   if (!market) return null;
 
   const isMarketResolved = market.status === 'resolved';
@@ -580,7 +623,6 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
 
             {market.description && <div className="p-5 rounded-xl bg-muted/30 border border-border/50 text-muted-foreground leading-relaxed">{market.description}</div>}
 
-            {/* GRÁFICO ESTILO POLYMARKET: ESCALÓN PURO Y AFILADO */}
             <div className="p-6 rounded-xl border border-border/50 bg-card shadow-sm">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
                 <h3 className="font-semibold flex items-center gap-2">
@@ -635,7 +677,6 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                         labelStyle={{ color: axisTextColor, marginBottom: '4px', fontSize: '11px', textTransform: 'uppercase' }}
                         cursor={{ stroke: axisTextColor, strokeWidth: 1, strokeDasharray: '4 4' }}
                       />
-                      {/* VUELVE EL STEP AFTER PURO: Sin animaciones, sin opacidad y con bordes rectos (miter) */}
                       {options.map((opt) => (
                         <Line 
                           key={opt.id} 
@@ -644,13 +685,13 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                           dataKey={opt.id} 
                           stroke={opt.color} 
                           strokeWidth={dynamicStrokeWidth} 
-                          strokeOpacity={1} /* 100% de solidez para que no se forme mancha oscura */
-                          strokeLinecap="butt" /* Cortes rectos, no redondeados */
-                          strokeLinejoin="miter" /* Ángulos de 90 grados afilados */
+                          strokeOpacity={1} 
+                          strokeLinecap="butt" 
+                          strokeLinejoin="miter" 
                           dot={false} 
                           activeDot={{ r: 4, strokeWidth: 0, fill: opt.color }}
                           name={opt.option_name} 
-                          isAnimationActive={false} /* La animación rompe el escalón en Recharts */
+                          isAnimationActive={false} 
                         />
                       ))}
                     </LineChart>

@@ -21,7 +21,7 @@ interface LeaderboardUser {
   portfolio_value: number;
   total_volume: number;
   total_predictions: number;
-  roi: number; // Ahora Supabase nos manda el ROI servido en bandeja
+  roi: number; 
 }
 
 type TimeframeType = '1W' | '1M' | '1Y' | 'ALL';
@@ -41,13 +41,11 @@ export default function RankingPage() {
     else document.documentElement.classList.remove("dark");
   }, [isDarkMode]);
 
-  // Ahora le pasamos a Supabase qué botón tocamos
   const loadData = async (selectedTimeframe: TimeframeType) => {
     setIsLoading(true);
     const userProfile = await getProfile();
     setCurrentUser(userProfile);
 
-    // Llamamos al nuevo RPC y le pasamos el timeframe por parámetro
     const { data, error } = await supabase.rpc('get_leaderboard_by_timeframe', { p_timeframe: selectedTimeframe });
     
     if (!error && data) {
@@ -58,12 +56,10 @@ export default function RankingPage() {
     setIsLoading(false);
   };
 
-  // Cada vez que el usuario toque un botón distinto, recargamos los datos exactos de esa fecha
   useEffect(() => {
     loadData(timeframe);
   }, [timeframe]); 
 
-  // ORDENAMIENTOS
   const topROI = useMemo(() => [...users].sort((a, b) => b.roi - a.roi).slice(0, 100), [users]);
   const topPortfolio = useMemo(() => [...users].sort((a, b) => b.portfolio_value - a.portfolio_value).slice(0, 10), [users]);
   const topVolume = useMemo(() => [...users].sort((a, b) => b.total_volume - a.total_volume).slice(0, 10), [users]);
@@ -75,6 +71,82 @@ export default function RankingPage() {
     return <div className="w-8 h-8 rounded-full bg-muted/50 text-muted-foreground flex items-center justify-center font-bold text-xs shrink-0">{index + 1}</div>;
   };
 
+  // --- ACÁ ESTÁ EL SKELETON LOADER PARA EL RANKING ---
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col">
+        <NavHeader points={currentUser?.points ?? 0} isDarkMode={isDarkMode} onToggleDarkMode={() => setIsDarkMode(!isDarkMode)} onPointsUpdate={() => {}} userId={null} userEmail={null} onOpenAuthModal={() => {}} onSignOut={async () => {}} isAdmin={false} />
+        
+        <main className="container mx-auto px-4 py-8 flex-1 max-w-6xl">
+          <div className="h-8 w-32 bg-muted/60 rounded animate-pulse mb-6" />
+          
+          <div className="mb-8 md:mb-10">
+            <div className="h-10 w-64 bg-muted/60 rounded animate-pulse mb-4" />
+            <div className="h-4 w-96 bg-muted/60 rounded animate-pulse" />
+          </div>
+
+          <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
+            {/* Esqueleto Columna Izquierda (Top Rendimiento) */}
+            <div className="lg:w-2/3 flex flex-col">
+              <div className="bg-card border-border/50 shadow-lg rounded-2xl overflow-hidden flex-1 flex flex-col h-[600px] border">
+                <div className="p-6 md:p-8 border-b border-border/20 flex flex-col md:flex-row items-center justify-between gap-6">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-xl bg-muted/60 animate-pulse shrink-0" />
+                    <div className="space-y-2">
+                      <div className="h-6 w-32 bg-muted/60 animate-pulse rounded" />
+                      <div className="h-3 w-24 bg-muted/60 animate-pulse rounded" />
+                    </div>
+                  </div>
+                  <div className="h-10 w-64 bg-muted/60 animate-pulse rounded-xl" />
+                </div>
+                <div className="p-4 md:p-6 space-y-4">
+                  {[...Array(6)].map((_, i) => (
+                    <div key={i} className="flex items-center justify-between p-4 rounded-xl border border-border/50 bg-muted/10 animate-pulse">
+                      <div className="flex items-center gap-4">
+                        <div className="w-8 h-8 rounded-full bg-muted/60 shrink-0" />
+                        <div className="w-10 h-10 rounded-full bg-muted/60 shrink-0" />
+                        <div className="space-y-2">
+                          <div className="h-4 w-24 bg-muted/60 rounded" />
+                          <div className="h-3 w-16 bg-muted/60 rounded" />
+                        </div>
+                      </div>
+                      <div className="h-8 w-16 bg-muted/60 rounded-full" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Esqueleto Columna Derecha (Ballenas y Volumen) */}
+            <div className="lg:w-1/3 flex flex-col gap-6">
+              {[...Array(2)].map((_, index) => (
+                <div key={index} className="bg-card/50 border border-border/50 shadow-sm rounded-2xl flex-1 flex flex-col h-[288px]">
+                  <div className="p-5 border-b border-border/20 flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-muted/60 animate-pulse shrink-0" />
+                    <div className="h-5 w-24 bg-muted/60 animate-pulse rounded" />
+                  </div>
+                  <div className="p-3 space-y-3">
+                    {[...Array(5)].map((_, i) => (
+                      <div key={i} className="flex items-center justify-between p-2 rounded-lg animate-pulse">
+                        <div className="flex items-center gap-3">
+                          <div className="w-4 h-4 bg-muted/60 rounded" />
+                          <div className="w-6 h-6 rounded-full bg-muted/60 shrink-0" />
+                          <div className="h-3 w-20 bg-muted/60 rounded" />
+                        </div>
+                        <div className="h-3 w-16 bg-muted/60 rounded" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  // --- RENDER NORMAL ---
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <NavHeader 
@@ -106,9 +178,7 @@ export default function RankingPage() {
           </div>
         </div>
 
-        {isLoading ? (
-            <div className="flex items-center justify-center py-32"><Loader2 className="w-10 h-10 animate-spin text-primary opacity-50" /></div>
-        ) : users.length === 0 ? (
+        {users.length === 0 ? (
           <div className="text-center py-20 bg-card rounded-3xl border border-border/50">
             <BarChart3 className="w-12 h-12 text-muted-foreground opacity-20 mx-auto mb-4" />
             <p className="text-lg font-medium text-foreground">Aún no hay traders para mostrar.</p>

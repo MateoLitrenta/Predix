@@ -336,7 +336,60 @@ export default function ProfilePage() {
   const tooltipBgColor = isDarkMode ? '#0f172a' : '#ffffff'; 
   const tooltipTextColor = isDarkMode ? '#f8fafc' : '#0f172a';
 
-  if (isChecking) return <div className="min-h-screen bg-background flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
+  // --- ACÁ METEMOS EL SKELETON LOADER DEL PERFIL ---
+  if (isChecking) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col">
+        <NavHeader points={10000} isDarkMode={isDarkMode} onToggleDarkMode={() => setIsDarkMode(!isDarkMode)} onPointsUpdate={() => {}} userId={null} userEmail={null} onOpenAuthModal={() => {}} onSignOut={async () => {}} isAdmin={false} username={null} />
+        
+        <main className="container mx-auto px-4 py-8 flex-1 max-w-4xl">
+          {/* Botón Volver y Badge Area Personal */}
+          <div className="flex items-center justify-between mb-8">
+            <div className="h-8 w-32 bg-muted/60 rounded animate-pulse" />
+            <div className="h-6 w-24 bg-muted/60 rounded-full animate-pulse" />
+          </div>
+
+          {/* Perfil Info */}
+          <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 mb-10">
+            <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-muted/60 animate-pulse shrink-0 border-4 border-background" />
+            <div className="flex-1 w-full space-y-4 mt-2">
+              <div className="h-10 w-48 bg-muted/60 rounded animate-pulse mx-auto sm:mx-0" />
+              <div className="h-4 w-64 bg-muted/60 rounded animate-pulse mx-auto sm:mx-0" />
+            </div>
+            <div className="hidden sm:flex gap-3">
+               <div className="h-9 w-9 bg-muted/60 rounded-md animate-pulse" />
+               <div className="h-9 w-24 bg-muted/60 rounded-md animate-pulse" />
+            </div>
+          </div>
+
+          {/* Grilla de Métricas */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-5 mb-12">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="h-[140px] bg-muted/30 rounded-2xl border border-border/50 animate-pulse flex flex-col items-center justify-center p-6">
+                <div className="w-10 h-10 rounded-full bg-muted/60 mb-4" />
+                <div className="h-2 w-16 bg-muted/60 rounded mb-2" />
+                <div className="h-6 w-20 bg-muted/60 rounded" />
+              </div>
+            ))}
+          </div>
+
+          {/* Gráfico Gigante */}
+          <div className="h-[450px] w-full bg-muted/30 rounded-2xl border border-border/50 animate-pulse mb-12" />
+
+          {/* Tabs y Contenido de Historial */}
+          <div className="h-8 w-40 bg-muted/60 rounded animate-pulse mb-6" />
+          <div className="h-[300px] w-full bg-muted/30 rounded-2xl border border-border/50 animate-pulse p-6">
+             <div className="h-12 w-full bg-muted/50 rounded-lg mb-8" />
+             <div className="space-y-4">
+                <div className="h-24 w-full bg-muted/60 rounded-xl" />
+                <div className="h-24 w-full bg-muted/60 rounded-xl" />
+             </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   if (!profile) return null;
 
   const displayName = profile.username || profile.email?.split("@")[0] || "Usuario";

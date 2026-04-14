@@ -253,14 +253,32 @@ export default function PredictionMarketDashboard() {
           <p>Explorando <span className="font-bold text-foreground">{sortedMarkets.length}</span> mercados {selectedCategory !== "all" && <span>en <span className="text-primary capitalize">{selectedCategory}</span></span>}</p>
         </div>
 
+        {/* ACÁ ESTÁ LA MAGIA DEL SKELETON LOADER */}
         {isLoadingMarkets ? (
-          <div className="flex flex-col items-center justify-center py-24 gap-4">
-            <Loader2 className="w-8 h-8 animate-spin text-primary" />
-            <p className="text-muted-foreground text-sm font-medium">Cargando mercados...</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-5">
+            {[...Array(8)].map((_, i) => (
+              <div key={i} className="flex flex-col rounded-2xl border border-border/40 bg-card p-4 sm:p-5 h-[260px] animate-in fade-in duration-500" style={{ animationDelay: `${i * 50}ms` }}>
+                <div className="flex gap-3 items-start">
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg bg-muted/60 animate-pulse shrink-0" />
+                  <div className="flex-1 space-y-2 py-1">
+                    <div className="h-3 bg-muted/60 animate-pulse rounded w-1/3 mb-2" />
+                    <div className="h-4 bg-muted/60 animate-pulse rounded w-full" />
+                    <div className="h-4 bg-muted/60 animate-pulse rounded w-4/5" />
+                  </div>
+                </div>
+                <div className="space-y-2 mt-auto">
+                  <div className="h-8 bg-muted/60 animate-pulse rounded w-full" />
+                  <div className="h-8 bg-muted/60 animate-pulse rounded w-full" />
+                </div>
+                <div className="flex justify-between pt-4 mt-4 border-t border-border/40">
+                  <div className="h-3 bg-muted/60 animate-pulse rounded w-1/4" />
+                  <div className="h-3 bg-muted/60 animate-pulse rounded w-1/4" />
+                </div>
+              </div>
+            ))}
           </div>
         ) : (
           <>
-            {/* ACÁ ESTÁ EL CAMBIO DE GRILLA A 4 COLUMNAS (xl:grid-cols-4) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-5">
               {sortedMarkets.map((market) => (
                 <MarketCard
