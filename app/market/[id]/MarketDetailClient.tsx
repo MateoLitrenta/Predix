@@ -19,7 +19,8 @@ import {
 } from "@/components/ui/dialog";
 import { createClient } from "@/lib/supabase/client";
 import { sellBet } from "@/lib/actions";
-import { Loader2, ArrowLeft, Clock, Coins, X, User as UserIcon, MessageSquare, Reply, ChevronDown, ChevronUp, Trash2, ArrowDownRight, ArrowUpRight, TrendingUp, LineChart as LineChartIcon, Share2, Twitter, MessageCircle, Copy, Check, Lock, CheckCircle2, Trophy } from "lucide-react";
+// ACÁ ESTÁ LA CORRECCIÓN: Agregué Wallet al final de esta lista 👇
+import { Loader2, ArrowLeft, Clock, Coins, X, User as UserIcon, MessageSquare, Reply, ChevronDown, ChevronUp, Trash2, ArrowDownRight, ArrowUpRight, TrendingUp, LineChart as LineChartIcon, Share2, Twitter, MessageCircle, Copy, Check, Lock, CheckCircle2, Trophy, Scale, AlertCircle, Wallet } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
@@ -384,7 +385,26 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       return date.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
   };
 
-  // --- ACÁ ESTÁ EL SKELETON LOADER PARA EL MERCADO ---
+  // CÁLCULO DE MINI-PORTFOLIO PARA ESTE MERCADO
+  const marketPositionSummary = useMemo(() => {
+    if (!userBets || userBets.length === 0) return null;
+    let totalInvested = 0;
+    let totalCurrentValue = 0;
+    
+    userBets.forEach(bet => {
+      const opt = options.find(o => o.id === bet.outcome);
+      if (opt) {
+        totalInvested += bet.amount;
+        totalCurrentValue += calculateRealCashout(bet, opt);
+      }
+    });
+
+    if (totalInvested === 0) return null;
+    const pnl = totalCurrentValue - totalInvested;
+    const pnlPct = (pnl / totalInvested) * 100;
+    return { totalInvested, totalCurrentValue, pnl, pnlPct };
+  }, [userBets, options, calculateRealCashout]);
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex flex-col">
@@ -394,7 +414,6 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
           <div className="h-8 w-32 bg-muted/60 rounded animate-pulse mb-6" />
 
           <div className="flex flex-col lg:grid lg:grid-cols-3 gap-8 items-start">
-            {/* Columna Principal (Gráfico y Detalles) */}
             <div className="lg:col-span-2 space-y-6 w-full order-1">
               <div className="flex gap-4 sm:gap-6 items-start">
                 <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl bg-muted/60 animate-pulse shrink-0" />
@@ -412,10 +431,8 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                 </div>
               </div>
 
-              {/* Skeleton Gráfico */}
               <div className="h-[400px] w-full bg-muted/30 rounded-xl border border-border/50 animate-pulse" />
 
-              {/* Skeleton Opciones */}
               <div className="space-y-3">
                 <div className="h-14 w-full bg-muted/30 rounded-xl border border-border/50 animate-pulse" />
                 <div className="h-14 w-full bg-muted/30 rounded-xl border border-border/50 animate-pulse" />
@@ -423,7 +440,6 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
               </div>
             </div>
 
-            {/* Columna Lateral (Panel de Trading) */}
             <div className="lg:col-span-1 lg:sticky lg:top-24 w-full order-2">
               <div className="h-[350px] w-full bg-muted/30 rounded-2xl border border-border/50 animate-pulse" />
             </div>
@@ -486,6 +502,32 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       </div>
     );
   };
+
+  const ReglasBlock = (
+    <div className="pt-8 mt-8 border-t border-border/50">
+      <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+        <Scale className="w-6 h-6 text-primary" /> Reglas de Resolución
+      </h3>
+      <div className="bg-muted/10 border border-border/50 rounded-xl p-5 space-y-5 shadow-sm">
+        <div>
+          <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1.5">Fuente Oficial de Resolución</p>
+          <p className="text-sm font-medium text-foreground leading-relaxed">
+            El mercado se resolverá utilizando la información oficial emitida por la entidad organizadora del evento, comunicados gubernamentales o consenso de los tres principales medios de comunicación (en caso de eventos públicos generales).
+          </p>
+        </div>
+        <div>
+          <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1.5">Criterio de Cierre</p>
+          <p className="text-sm font-medium text-foreground leading-relaxed text-pretty">
+            El mercado se suspenderá automáticamente el día <span className="font-bold text-primary">{new Date(market.end_date).toLocaleDateString()}</span>. Las posiciones quedarán bloqueadas hasta que el administrador del mercado cargue el resultado oficial. Si el evento se pospone indefinidamente o resulta en un escenario imposible de dirimir, PREDIX se reserva el derecho de anular el mercado, devolviendo los puntos intactos a los inversores.
+          </p>
+        </div>
+        <div className="flex items-start gap-3 text-xs font-medium text-amber-600 dark:text-amber-500 bg-amber-500/10 p-3 rounded-lg border border-amber-500/20 mt-2">
+           <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+           <span className="leading-relaxed">Al comprar acciones en este mercado, aceptás someterte a estas reglas de resolución y a la decisión final e inapelable del comité de PREDIX.</span>
+        </div>
+      </div>
+    </div>
+  );
 
   const UltimasApuestasBlock = (
     <div className="pt-8 border-t border-border/50 lg:pt-0 lg:border-t-0">
@@ -553,7 +595,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
   );
 
   const DebateBlock = (
-    <div className="pt-8 border-t border-border/50">
+    <div className="pt-8 mt-8 border-t border-border/50">
       <h3 className="text-xl font-bold mb-6 flex items-center gap-2"><MessageSquare className="w-6 h-6 text-primary" /> Debate del Mercado</h3>
       <div className="mb-8 p-4 rounded-xl border border-border/50 bg-card shadow-sm sticky top-20 z-10">
         {replyingTo && (
@@ -788,8 +830,10 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
               )}
             </div>
             
-            <div className="hidden lg:block mt-8 pt-8 border-t border-border/50">{DebateBlock}</div>
-            <div className="hidden lg:block mt-8 pt-8 border-t border-border/50">{UltimasApuestasBlock}</div>
+            {/* AGREGAMOS EL BLOQUE DE REGLAS ACÁ */}
+            <div className="hidden lg:block">{ReglasBlock}</div>
+            <div className="hidden lg:block">{DebateBlock}</div>
+            
           </div>
 
           <div className="lg:col-span-1 lg:sticky lg:top-24 w-full order-2">
@@ -891,6 +935,27 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                           >
                             {isMarketClosed ? <><Lock className="w-5 h-5 mr-2" /> Mercado Cerrado</> : isPlacingBet ? <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Procesando...</> : !user ? "Ingresar para Operar" : `Confirmar Orden`}
                           </Button>
+
+                          {/* AGREGAMOS EL MINI PORTFOLIO ACÁ ABAJO DEL BOTÓN COMPRAR */}
+                          {marketPositionSummary && (
+                            <div className="mt-4 p-4 bg-background border border-border/50 rounded-xl space-y-2 animate-in fade-in">
+                              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2 flex items-center gap-1.5"><Wallet className="w-3 h-3" /> Resumen de tus posiciones</p>
+                              <div className="flex justify-between items-center">
+                                <span className="text-sm font-medium text-foreground">Total Invertido</span>
+                                <span className="text-sm font-bold text-foreground">{marketPositionSummary.totalInvested.toLocaleString()} pts</span>
+                              </div>
+                              <div className="flex justify-between items-center">
+                                <span className="text-sm font-medium text-foreground">Valor Actual</span>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-bold text-primary">{marketPositionSummary.totalCurrentValue.toLocaleString()} pts</span>
+                                  <Badge variant="outline" className={cn("text-[10px] font-bold px-1.5 py-0 h-5 border", marketPositionSummary.pnl >= 0 ? "bg-green-500/10 text-green-600 border-green-500/30" : "bg-red-500/10 text-red-600 border-red-500/30")}>
+                                    {marketPositionSummary.pnl >= 0 ? '+' : ''}{marketPositionSummary.pnlPct.toFixed(1)}%
+                                  </Badge>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
                         </>
                       )}
                     </div>
@@ -971,8 +1036,9 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
             </div>
           </div>
 
-          <div className="block lg:hidden w-full order-3 mt-2">{DebateBlock}</div>
-          <div className="block lg:hidden w-full order-4 mt-2">{UltimasApuestasBlock}</div>
+          <div className="block lg:hidden w-full order-3 mt-2">{ReglasBlock}</div>
+          <div className="block lg:hidden w-full order-4 mt-2">{DebateBlock}</div>
+          <div className="block lg:hidden w-full order-5 mt-2">{UltimasApuestasBlock}</div>
         </div>
 
         <Dialog open={isShareModalOpen} onOpenChange={setIsShareModalOpen}>
