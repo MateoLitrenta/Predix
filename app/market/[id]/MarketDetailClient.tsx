@@ -19,7 +19,6 @@ import {
 } from "@/components/ui/dialog";
 import { createClient } from "@/lib/supabase/client";
 import { sellBet } from "@/lib/actions";
-// ACÁ ESTÁ LA CORRECCIÓN: Agregué Wallet al final de esta lista 👇
 import { Loader2, ArrowLeft, Clock, Coins, X, User as UserIcon, MessageSquare, Reply, ChevronDown, ChevronUp, Trash2, ArrowDownRight, ArrowUpRight, TrendingUp, LineChart as LineChartIcon, Share2, Twitter, MessageCircle, Copy, Check, Lock, CheckCircle2, Trophy, Scale, AlertCircle, Wallet } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -152,14 +151,14 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     const rawCashouts = cashoutsData || [];
     
     const userIds = [...new Set([...rawBets.map(b => b.user_id), ...rawCashouts.map(c => c.user_id)])];
-    const profileMap: Record<string, string> = {};
+    const profileMap: Record<string, any> = {};
     if (userIds.length > 0) {
-      const { data: profilesData } = await supabase.from("profiles").select("id, username").in("id", userIds);
-      if (profilesData) profilesData.forEach(p => { profileMap[p.id] = p.username || "Usuario Anónimo"; });
+      const { data: profilesData } = await supabase.from("profiles").select("id, username, avatar_url").in("id", userIds);
+      if (profilesData) profilesData.forEach(p => { profileMap[p.id] = p; });
     }
 
-    const mappedBets = rawBets.map(bet => ({ ...bet, activityType: 'bet', profiles: { username: profileMap[bet.user_id] || "Usuario Anónimo" } }));
-    const mappedCashouts = rawCashouts.map(c => ({ ...c, activityType: 'cashout', profiles: { username: profileMap[c.user_id] || "Usuario Anónimo" } }));
+    const mappedBets = rawBets.map(bet => ({ ...bet, activityType: 'bet', profiles: { username: profileMap[bet.user_id]?.username || "Usuario Anónimo", avatar_url: profileMap[bet.user_id]?.avatar_url } }));
+    const mappedCashouts = rawCashouts.map(c => ({ ...c, activityType: 'cashout', profiles: { username: profileMap[c.user_id]?.username || "Usuario Anónimo", avatar_url: profileMap[c.user_id]?.avatar_url } }));
 
     const combinedFeed = [...mappedBets, ...mappedCashouts].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     setActivityFeed(combinedFeed);
@@ -385,7 +384,6 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       return date.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
   };
 
-  // CÁLCULO DE MINI-PORTFOLIO PARA ESTE MERCADO
   const marketPositionSummary = useMemo(() => {
     if (!userBets || userBets.length === 0) return null;
     let totalInvested = 0;
@@ -405,10 +403,31 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     return { totalInvested, totalCurrentValue, pnl, pnlPct };
   }, [userBets, options, calculateRealCashout]);
 
+  // CÁLCULO DE LAS BALLENAS (TOP HOLDERS)
+  const topHolders = useMemo(() => {
+    const holders: Record<string, { userId: string, username: string, avatarUrl: string | null, invested: number }> = {};
+    
+    activityFeed.forEach(item => {
+      if (item.activityType === 'bet') {
+        if (!holders[item.user_id]) {
+          holders[item.user_id] = {
+            userId: item.user_id,
+            username: item.profiles?.username || 'Usuario Anónimo',
+            avatarUrl: item.profiles?.avatar_url || null,
+            invested: 0
+          };
+        }
+        holders[item.user_id].invested += Number(item.amount);
+      }
+    });
+
+    return Object.values(holders).sort((a, b) => b.invested - a.invested).slice(0, 5);
+  }, [activityFeed]);
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex flex-col">
-        <NavHeader points={profile?.points ?? 10000} isDarkMode={isDarkMode} onToggleDarkMode={() => setIsDarkMode(!isDarkMode)} onPointsUpdate={() => {}} userId={null} userEmail={null} onOpenAuthModal={() => {}} onSignOut={async () => {}} isAdmin={false} />
+        <NavHeader points={profile?.points ?? 10000} isDarkMode={isDarkMode} onToggleDarkMode={() => setIsDarkMode(!isDarkMode)} onPointsUpdate={() => {}} userId={null} userEmail={null} onOpenAuthModal={() => {}} onSignOut={async () => {}} isAdmin={false} username={null} />
         
         <main className="container mx-auto px-4 py-8 flex-1 max-w-6xl">
           <div className="h-8 w-32 bg-muted/60 rounded animate-pulse mb-6" />
@@ -589,6 +608,34 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
               }
             })}
           </div>
+        )}
+      </div>
+    </div>
+  );
+
+  // BLOQUE DE BALLENAS (TOP HOLDERS)
+  const TopHoldersBlock = (
+    <div className="mt-6 rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
+      <div className="p-4 border-b border-border/20 bg-muted/10 flex items-center gap-2">
+        <Trophy className="w-4 h-4 text-amber-500" />
+        <h3 className="font-bold text-sm text-foreground">Top Inversores</h3>
+      </div>
+      <div className="p-2 space-y-1 max-h-[250px] overflow-y-auto scrollbar-thin scrollbar-thumb-border">
+        {topHolders.length === 0 ? (
+          <p className="text-center text-xs text-muted-foreground py-6">Aún no hay inversores en este mercado.</p>
+        ) : (
+          topHolders.map((holder, i) => (
+            <div key={holder.userId} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => openUserProfile(holder.userId, holder.username)}>
+              <div className="flex items-center gap-3 overflow-hidden">
+                <span className="text-xs font-bold text-muted-foreground w-4 text-center">{i + 1}</span>
+                <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center overflow-hidden shrink-0 border border-border/50">
+                  {holder.avatarUrl ? <img src={holder.avatarUrl} alt="av" className="w-full h-full object-cover" /> : <UserIcon className="w-3 h-3 text-muted-foreground opacity-50" />}
+                </div>
+                <span className="font-semibold text-sm text-foreground truncate">{holder.username}</span>
+              </div>
+              <span className="font-bold text-xs text-amber-600 dark:text-amber-500">{holder.invested.toLocaleString()} pts</span>
+            </div>
+          ))
         )}
       </div>
     </div>
@@ -830,7 +877,6 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
               )}
             </div>
             
-            {/* AGREGAMOS EL BLOQUE DE REGLAS ACÁ */}
             <div className="hidden lg:block">{ReglasBlock}</div>
             <div className="hidden lg:block">{DebateBlock}</div>
             
@@ -936,7 +982,6 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                             {isMarketClosed ? <><Lock className="w-5 h-5 mr-2" /> Mercado Cerrado</> : isPlacingBet ? <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Procesando...</> : !user ? "Ingresar para Operar" : `Confirmar Orden`}
                           </Button>
 
-                          {/* AGREGAMOS EL MINI PORTFOLIO ACÁ ABAJO DEL BOTÓN COMPRAR */}
                           {marketPositionSummary && (
                             <div className="mt-4 p-4 bg-background border border-border/50 rounded-xl space-y-2 animate-in fade-in">
                               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2 flex items-center gap-1.5"><Wallet className="w-3 h-3" /> Resumen de tus posiciones</p>
@@ -1034,11 +1079,18 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                 </Tabs>
               )}
             </div>
+
+            {/* LAS BALLENAS VAN ABAJO DEL PANEL DE TRADING EN DESKTOP */}
+            <div className="hidden lg:block mt-6">
+              {TopHoldersBlock}
+            </div>
+
           </div>
 
           <div className="block lg:hidden w-full order-3 mt-2">{ReglasBlock}</div>
-          <div className="block lg:hidden w-full order-4 mt-2">{DebateBlock}</div>
-          <div className="block lg:hidden w-full order-5 mt-2">{UltimasApuestasBlock}</div>
+          <div className="block lg:hidden w-full order-4 mt-2">{TopHoldersBlock}</div>
+          <div className="block lg:hidden w-full order-5 mt-2">{DebateBlock}</div>
+          <div className="block lg:hidden w-full order-6 mt-2">{UltimasApuestasBlock}</div>
         </div>
 
         <Dialog open={isShareModalOpen} onOpenChange={setIsShareModalOpen}>
