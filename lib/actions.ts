@@ -83,6 +83,8 @@ export async function getMyBets(): Promise<{ data: BetWithMarket[] | null; error
     .from("bets")
     .select("*, markets(*)")
     .eq("user_id", user.id)
+    .eq("status", "active")
+    .gt("amount", 0)
     .order("created_at", { ascending: false });
 
   if (error) return { data: null, error: error.message };

@@ -28,6 +28,7 @@ import { ResponsiveContainer, AreaChart, Area, Tooltip, XAxis, YAxis } from "rec
 
 const ACTIVE_STATUSES = ["active", "pending"];
 const FINISHED_STATUSES = ["resolved", "rejected"];
+const INITIAL_BALANCE = 10000;
 
 type TimeframeType = '1D' | '1W' | '1M' | '6M' | '1Y' | 'ALL';
 
@@ -197,14 +198,18 @@ export default function ProfilePage() {
   }, [transactions]);
 
   const chartData = useMemo(() => {
-    const chronological = [...processedTransactions].reverse();
-    const now = Date.now();
+    // 1. Ordenar todas las transacciones cronológicamente
+    const chronologicalTxs = [...transactions].sort(
+      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    );
 
+    const now = Date.now();
     let startTimeForAll = now;
+    
     if (profile?.created_at) {
       startTimeForAll = new Date(profile.created_at).getTime();
-    } else if (chronological.length > 0) {
-      startTimeForAll = new Date(chronological[0].created_at).getTime();
+    } else if (chronologicalTxs.length > 0) {
+      startTimeForAll = new Date(chronologicalTxs[0].created_at).getTime();
     } else {
       const d = new Date(now);
       d.setMonth(d.getMonth() - 1);
@@ -241,64 +246,41 @@ export default function ProfilePage() {
 
     const startTime = timestamps[0];
 
-    chronological.forEach(tx => {
+    chronologicalTxs.forEach(tx => {
       const txTime = new Date(tx.created_at).getTime();
       if (txTime >= startTime && txTime <= now) timestamps.push(txTime);
     });
 
     timestamps = Array.from(new Set(timestamps)).sort((a, b) => a - b);
 
+    // 2. Generar Running Balance Real iterando sobre transacciones
     const data = timestamps.map(ts => {
-      const pastTxs = chronological.filter(tx => new Date(tx.created_at).getTime() <= ts);
-      let baseBalance = 0;
-
-      if (pastTxs.length > 0) {
-        baseBalance = pastTxs[pastTxs.length - 1].balanceAfter;
-      } else if (chronological.length > 0) {
-        baseBalance = chronological[0].balanceBefore;
-      } else {
-        baseBalance = profile?.points || 0;
-      }
-
-      // --- INICIO DEL FIX DE PORTFOLIO VALUE ---
-      let historicalLockedValue = 0;
-
-      bets.forEach(bet => {
-        const betTime = new Date(bet.created_at).getTime();
-
-        // Solo sumamos el valor de las apuestas que YA EXISTÍAN en este momento del tiempo (ts)
-        if (betTime <= ts) {
-          const market = getMarket(bet);
-          if (!market) return;
-
-          const isActiveNow = ACTIVE_STATUSES.includes(String(market.status).toLowerCase());
-
-          if (isActiveNow) {
-            // Si la apuesta sigue activa hoy, sumamos su valor estimado para anular la caída
-            historicalLockedValue += calculateRealCashout(bet, market, bet.option_details);
-          } else {
-            // Si la apuesta ya cerró, sumamos su valor inicial SOLO si en este momento del pasado ('ts') todavía estaba viva.
-            const closeTime = market.end_date ? new Date(market.end_date).getTime() : 0;
-            if (closeTime > ts || !market.end_date) {
-              historicalLockedValue += Number(bet.amount || 0);
-            }
-          }
+      let currentBalance = INITIAL_BALANCE;
+      
+      chronologicalTxs.forEach(tx => {
+        const txTime = new Date(tx.created_at).getTime();
+        if (txTime <= ts) {
+          currentBalance += Number(tx.amount || 0);
         }
       });
 
-      let val = baseBalance + historicalLockedValue;
-      val = Math.max(0, val);
-      // --- FIN DEL FIX ---
-
-      return { timestamp: ts, value: val };
+      return { timestamp: ts, value: currentBalance };
     });
 
-    if (data.length === 0 || data[data.length - 1].timestamp !== now) {
-      data.push({ timestamp: now, value: portfolioStats.totalPortfolioValue });
+    // 3. Asegurar que el último punto coincida con el balance actual
+    const finalBalance = portfolioStats.totalPortfolioValue;
+    if (data.length > 0) {
+      if (data[data.length - 1].timestamp === now) {
+        data[data.length - 1].value = finalBalance;
+      } else {
+        data.push({ timestamp: now, value: finalBalance });
+      }
+    } else {
+      data.push({ timestamp: now, value: finalBalance });
     }
 
     return data;
-  }, [processedTransactions, timeframe, portfolioStats, profile, bets, calculateRealCashout]); // <-- Dependencias actualizadas aquí
+  }, [transactions, timeframe, profile, portfolioStats.totalPortfolioValue]);
 
   const dynamicPnl = useMemo(() => {
     if (chartData.length < 2) return { value: 0, percentage: 0 };
@@ -309,7 +291,7 @@ export default function ProfilePage() {
     const val = endValue - startValue;
 
     let divisor = startValue;
-    if (divisor === 0) divisor = 10000;
+    if (divisor === 0) divisor = INITIAL_BALANCE;
     const pct = (val / Math.abs(divisor)) * 100;
 
     return { value: val, percentage: pct };
