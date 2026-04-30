@@ -11,23 +11,6 @@ export const metadata: Metadata = {
   title: 'Predix - Predictive Markets',
   description: 'Operá sobre el futuro y ganá puntos. La plataforma global de mercados predictivos.',
   generator: 'v0.app',
-  icons: {
-    icon: [
-      {
-        url: '/icon-light-32x32.png',
-        media: '(prefers-color-scheme: light)',
-      },
-      {
-        url: '/icon-dark-32x32.png',
-        media: '(prefers-color-scheme: dark)',
-      },
-      {
-        url: '/icon.svg',
-        type: 'image/svg+xml',
-      },
-    ],
-    apple: '/apple-icon.png',
-  },
 }
 
 import { Toaster } from "@/components/ui/toaster";
