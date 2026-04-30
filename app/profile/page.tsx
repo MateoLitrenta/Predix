@@ -20,7 +20,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { Coins, User as UserIcon, ArrowLeft, Loader2, TrendingUp, TrendingDown, History, Pencil, Landmark, Lock, Camera, LineChart, CheckCircle2, Clock, XCircle, ArrowUpRight, ArrowDownRight, Gift, Copy, Check, Users, ChevronDown, ChevronUp, Wallet, Trophy, CalendarDays } from "lucide-react";
+import { Coins, User as UserIcon, ArrowLeft, Loader2, TrendingUp, History, Pencil, Landmark, Lock, LineChart, CheckCircle2, XCircle, Gift, Copy, Check, Users, Wallet, CalendarDays } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -74,7 +74,6 @@ export default function ProfilePage() {
   const [isChangingPassword, setIsChangingPassword] = useState(false);
 
   const [timeframe, setTimeframe] = useState<TimeframeType>('ALL');
-  const [expandedTx, setExpandedTx] = useState<string | null>(null);
   const [referralLink, setReferralLink] = useState("");
   const [isCopied, setIsCopied] = useState(false);
   const [referredUsers, setReferredUsers] = useState<any[]>([]);
@@ -136,21 +135,15 @@ export default function ProfilePage() {
     setTimeout(() => setIsCopied(false), 2000);
   };
 
-  const calculateRealCashout = useCallback((bet: any, market: any, opt: any) => {
+  const calculatePositionValue = useCallback((bet: any, market: any, opt: any) => {
     const shares = Number(bet.shares || 0);
-    if (shares <= 0) return Math.round(bet.amount * 0.95);
+    if (shares <= 0) return bet.amount;
     const direction = bet.direction || 'yes';
     const optionVotes = Number(opt.total_votes || 0);
     const totalVol = Number(market.total_volume || 0);
     const totalOptions = marketOptions.filter(o => o.market_id === market.id).length || 2;
-    const startPriceYes = (optionVotes + 100.0) / (totalVol + (totalOptions * 100.0));
-    const estPayout = shares * (direction === 'yes' ? startPriceYes : (1 - startPriceYes));
-    let endPriceYes = 0;
-    if (direction === 'yes') { endPriceYes = Math.max(0.01, (optionVotes - estPayout + 100.0) / (Math.max(1, totalVol - estPayout) + (totalOptions * 100.0))); }
-    else { endPriceYes = Math.max(0.01, (optionVotes + 100.0) / (Math.max(1, totalVol - estPayout) + (totalOptions * 100.0))); }
-    let avgPriceYes = (startPriceYes + endPriceYes) / 2.0;
-    avgPriceYes = Math.max(0.01, Math.min(0.99, avgPriceYes));
-    const currentPrice = direction === 'yes' ? avgPriceYes : (1 - avgPriceYes);
+    const currentPriceYes = (optionVotes + 100.0) / (totalVol + (totalOptions * 100.0));
+    const currentPrice = direction === 'yes' ? currentPriceYes : (1 - currentPriceYes);
     return Math.round(shares * currentPrice);
   }, [marketOptions]);
 
@@ -164,13 +157,13 @@ export default function ProfilePage() {
         const market = getMarket(bet);
         const opt = bet.option_details;
         if (market && opt) {
-          totalCurrentValueActive += calculateRealCashout(bet, market, opt);
+          totalCurrentValueActive += calculatePositionValue(bet, market, opt);
         }
       });
 
     const totalPortfolioValue = availableCapital + totalCurrentValueActive;
     return { availableCapital, totalPortfolioValue, lockedValueOffset: totalCurrentValueActive };
-  }, [bets, profile?.points, calculateRealCashout, marketOptions]);
+  }, [bets, profile?.points, calculatePositionValue, marketOptions]);
 
   const processedTransactions = useMemo(() => {
     if (!transactions.length) return [];
@@ -183,38 +176,26 @@ export default function ProfilePage() {
     });
   }, [transactions, profile?.points]);
 
-  const bonusStats = useMemo(() => {
-    if (!transactions.length) return { total: 0, count: 0 };
-    const bonusTxs = transactions.filter(tx => tx.description?.toLowerCase().includes('bonus') || tx.description?.toLowerCase().includes('bienvenida'));
-    const total = bonusTxs.reduce((acc, tx) => acc + Number(tx.amount || 0), 0);
-    return { total, count: bonusTxs.length };
-  }, [transactions]);
-
-  const salesStats = useMemo(() => {
-    if (!transactions.length) return { total: 0, count: 0 };
-    const salesTxs = transactions.filter(tx => tx.description?.toLowerCase().includes('vent') || tx.description?.toLowerCase().includes('cashout'));
-    const total = salesTxs.reduce((acc, tx) => acc + Number(tx.amount || 0), 0);
-    return { total, count: salesTxs.length };
-  }, [transactions]);
-
+  // LÓGICA DE GRÁFICO FINAL Y ESTABLE: CÁLCULO HACIA ATRÁS
   const chartData = useMemo(() => {
-    // 1. Ordenar todas las transacciones cronológicamente
     const chronologicalTxs = [...transactions].sort(
       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     );
 
+    // 1. ANCLAJE A LA REALIDAD: Calculamos el balance histórico hacia atrás 
+    // partiendo de los puntos reales y actuales de la base de datos.
+    let currentTempBalance = profile?.points ?? 0;
+    const txsWithBalance = [...chronologicalTxs].reverse().map((tx) => {
+      const balanceAfter = currentTempBalance;
+      const balanceBefore = currentTempBalance - Number(tx.amount || 0);
+      currentTempBalance = balanceBefore;
+      return { ...tx, balanceAfter, balanceBefore };
+    }).reverse();
+
+    const trueStartingBalance = currentTempBalance; // El balance inicial real derivado
+
     const now = Date.now();
-    let startTimeForAll = now;
-    
-    if (profile?.created_at) {
-      startTimeForAll = new Date(profile.created_at).getTime();
-    } else if (chronologicalTxs.length > 0) {
-      startTimeForAll = new Date(chronologicalTxs[0].created_at).getTime();
-    } else {
-      const d = new Date(now);
-      d.setMonth(d.getMonth() - 1);
-      startTimeForAll = d.getTime();
-    }
+    let startTimeForAll = profile?.created_at ? new Date(profile.created_at).getTime() : (chronologicalTxs.length > 0 ? new Date(chronologicalTxs[0].created_at).getTime() : now - 30 * 86400 * 1000);
 
     let timestamps: number[] = [];
 
@@ -253,40 +234,41 @@ export default function ProfilePage() {
 
     timestamps = Array.from(new Set(timestamps)).sort((a, b) => a - b);
 
-    // 2. Generar Running Balance Real iterando sobre transacciones
     const data = timestamps.map(ts => {
-      let currentBalance = INITIAL_BALANCE;
-      
-      chronologicalTxs.forEach(tx => {
-        const txTime = new Date(tx.created_at).getTime();
+      // Balance líquido exacto en este milisegundo de la historia
+      let liquidAtTs = trueStartingBalance;
+      for (let i = 0; i < txsWithBalance.length; i++) {
+        const txTime = new Date(txsWithBalance[i].created_at).getTime();
         if (txTime <= ts) {
-          currentBalance += Number(tx.amount || 0);
+          liquidAtTs = txsWithBalance[i].balanceAfter;
+        } else {
+          break;
+        }
+      }
+
+      // Costo base de las inversiones que *actualmente* están activas
+      let activeInvestmentAtTs = 0;
+      bets.forEach(bet => {
+        const betTime = new Date(bet.created_at || '').getTime();
+        if (betTime <= ts) {
+          const market = getMarket(bet);
+          if (market && ACTIVE_STATUSES.includes(String(market.status).toLowerCase())) {
+            activeInvestmentAtTs += Number(bet.amount || 0);
+          }
         }
       });
 
-      return { timestamp: ts, value: currentBalance };
+      return { timestamp: ts, value: Math.max(0, liquidAtTs + activeInvestmentAtTs) };
     });
 
-    // 3. Asegurar que el último punto coincida con el balance actual
-    const finalBalance = portfolioStats.totalPortfolioValue;
-    if (data.length > 0) {
-      if (data[data.length - 1].timestamp === now) {
-        data[data.length - 1].value = finalBalance;
-      } else {
-        data.push({ timestamp: now, value: finalBalance });
-      }
-    } else {
-      data.push({ timestamp: now, value: finalBalance });
-    }
-
     return data;
-  }, [transactions, timeframe, profile, portfolioStats.totalPortfolioValue]);
+  }, [transactions, timeframe, profile, bets]);
 
   const dynamicPnl = useMemo(() => {
     if (chartData.length < 2) return { value: 0, percentage: 0 };
 
     const startValue = chartData[0].value;
-    const endValue = chartData[chartData.length - 1].value;
+    const endValue = portfolioStats.totalPortfolioValue;
 
     const val = endValue - startValue;
 
@@ -295,7 +277,7 @@ export default function ProfilePage() {
     const pct = (val / Math.abs(divisor)) * 100;
 
     return { value: val, percentage: pct };
-  }, [chartData]);
+  }, [chartData, portfolioStats.totalPortfolioValue]);
 
   const confirmSell = async () => {
     if (!betToSell) return;
@@ -358,20 +340,17 @@ export default function ProfilePage() {
   const tooltipBgColor = isDarkMode ? '#0f172a' : '#ffffff';
   const tooltipTextColor = isDarkMode ? '#f8fafc' : '#0f172a';
 
-  // --- ACÁ METEMOS EL SKELETON LOADER DEL PERFIL ---
   if (isChecking) {
     return (
       <div className="min-h-screen bg-muted/10 flex flex-col">
         <NavHeader points={10000} isDarkMode={isDarkMode} onToggleDarkMode={() => setIsDarkMode(!isDarkMode)} onPointsUpdate={() => { }} userId={null} userEmail={null} onOpenAuthModal={() => { }} onSignOut={async () => { }} isAdmin={false} username={null} />
 
         <main className="container mx-auto px-4 py-8 flex-1 max-w-4xl">
-          {/* Botón Volver y Badge Area Personal */}
           <div className="flex items-center justify-between mb-8">
             <div className="h-8 w-32 bg-muted/60 rounded animate-pulse" />
             <div className="h-6 w-24 bg-muted/60 rounded-full animate-pulse" />
           </div>
 
-          {/* Perfil Info */}
           <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 mb-10">
             <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-muted/60 animate-pulse shrink-0 border-4 border-background" />
             <div className="flex-1 w-full space-y-4 mt-2">
@@ -384,7 +363,6 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          {/* Grilla de Métricas */}
           <div className="bg-card/30 border border-border/30 rounded-3xl p-6 md:p-10 mb-12 shadow-sm animate-pulse">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
               {[...Array(3)].map((_, i) => (
@@ -397,10 +375,8 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          {/* Gráfico Gigante */}
           <div className="h-[450px] w-full bg-muted/30 rounded-2xl border border-border/50 animate-pulse mb-12" />
 
-          {/* Tabs y Contenido de Historial */}
           <div className="h-8 w-40 bg-muted/60 rounded animate-pulse mb-6" />
           <div className="h-[300px] w-full bg-muted/30 rounded-2xl border border-border/50 animate-pulse p-6">
             <div className="h-12 w-full bg-muted/50 rounded-lg mb-8" />
@@ -430,7 +406,6 @@ export default function ProfilePage() {
           <Badge className="bg-primary/10 text-primary border-primary/20 font-medium">Área Personal</Badge>
         </div>
 
-        {/* PERFIL HEADER */}
         <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 mb-10">
           <Avatar className="w-24 h-24 sm:w-28 sm:h-28 border-4 border-background bg-primary/10 shadow-lg shrink-0">
             {profile.avatar_url ? <AvatarImage src={profile.avatar_url} className="object-cover" /> : <AvatarFallback><UserIcon className="w-12 h-12 text-primary opacity-50" /></AvatarFallback>}
@@ -454,17 +429,14 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        {/* MÉTRICAS SUPERIORES */}
         <div className="bg-card/40 backdrop-blur-xl border border-border/40 rounded-3xl p-8 md:p-12 mb-12 shadow-sm">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
-            {/* Panel 1 */}
             <div className="flex flex-col">
               <Wallet className="w-6 h-6 text-muted-foreground mb-4 opacity-70" />
               <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5">Portfolio Total</p>
               <p className="text-3xl font-black text-foreground">{portfolioStats.totalPortfolioValue.toLocaleString()} pts</p>
             </div>
 
-            {/* Panel 2 */}
             <div className="flex flex-col">
               <TrendingUp className="w-6 h-6 text-muted-foreground mb-4 opacity-70" />
               <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5">Posiciones Activas</p>
@@ -472,7 +444,6 @@ export default function ProfilePage() {
               <p className="text-xs font-semibold text-muted-foreground mt-1">{bets.filter(b => getMarket(b) && ACTIVE_STATUSES.includes(String(getMarket(b)!.status).toLowerCase())).length} Mercados</p>
             </div>
 
-            {/* Panel 3 */}
             <div className="flex flex-col">
               <Coins className="w-6 h-6 text-muted-foreground mb-4 opacity-70" />
               <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5">Balance Líquido</p>
@@ -482,13 +453,12 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        {/* GRÁFICO PRINCIPAL */}
         <Card className="bg-card border border-border/50 shadow-sm rounded-2xl overflow-hidden mb-12">
           <CardContent className="p-0">
             <div className="p-6 md:p-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-6 border-b border-border/20">
               <div>
                 <div className="flex items-center gap-2 font-bold text-muted-foreground mb-2">
-                  <TrendingUp className="w-4 h-4" /> Crecimiento de Cuenta
+                  <TrendingUp className="w-4 h-4" /> Variación del Portfolio
                 </div>
 
                 <div className="flex items-baseline gap-3 flex-wrap">
@@ -508,7 +478,7 @@ export default function ProfilePage() {
                 </div>
 
                 <p className="text-sm font-medium text-muted-foreground mt-2">
-                  Rendimiento en {timeframeLabels[timeframe]} • Total: {portfolioStats.totalPortfolioValue.toLocaleString()} pts
+                  Fluctuación en {timeframeLabels[timeframe]} • Total: {portfolioStats.totalPortfolioValue.toLocaleString()} pts
                 </p>
               </div>
 
@@ -597,7 +567,6 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
 
-        {/* SECCIÓN DE HISTORIAL Y TABS */}
         <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
           <History className="w-6 h-6 text-primary" /> Tu Historial
         </h2>
@@ -610,7 +579,7 @@ export default function ProfilePage() {
                 <TabsTrigger value="bank" className="flex items-center gap-2 text-xs sm:text-sm font-bold rounded-md"><Landmark className="w-4 h-4" /><span className="hidden sm:inline">Movimientos</span></TabsTrigger>
               </TabsList>
 
-              <TabsContent value="active" className="space-y-4">
+              <TabsContent value="active" className="space-y-6">
                 {isLoadingBets ? (
                   <div className="flex items-center justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-primary opacity-60" /></div>
                 ) : bets.filter((b) => getMarket(b) && ACTIVE_STATUSES.includes(String(getMarket(b)!.status).toLowerCase())).length === 0 ? (
@@ -622,7 +591,7 @@ export default function ProfilePage() {
                     </Button>
                   </div>
                 ) : (
-                  <div className="space-y-4">
+                  <div className="flex flex-col gap-6">
                     {bets.filter((b) => getMarket(b) && ACTIVE_STATUSES.includes(String(getMarket(b)!.status).toLowerCase())).map((bet) => {
                       const market = getMarket(bet); const opt = bet.option_details;
                       const isOldBinary = bet.outcome === "yes" || bet.outcome === "no";
@@ -635,24 +604,35 @@ export default function ProfilePage() {
                       let cashoutValue = 0, pnl = 0, pnlPercentage = 0;
                       if (market) {
                         const shares = Number((bet as any).shares || 0);
-                        cashoutValue = shares > 0 && opt ? calculateRealCashout(bet, market, opt) : Math.round(bet.amount * 0.95);
+                        cashoutValue = shares > 0 && opt ? calculatePositionValue(bet, market, opt) : bet.amount;
                         pnl = cashoutValue - bet.amount; pnlPercentage = (pnl / bet.amount) * 100;
                       }
 
                       return (
-                        <div key={bet.id} className="rounded-2xl border border-border/50 bg-card hover:border-primary/50 transition-all p-5 md:p-7 shadow-sm relative overflow-hidden group">
-                          <Link href={`/market/${bet.market_id}`} className="block"><p className="font-bold text-lg md:text-xl text-foreground line-clamp-2 mb-5 leading-tight group-hover:text-primary transition-colors pr-12">{market?.title ?? "Mercado"}</p></Link>
-                          <div className="flex flex-col md:flex-row md:items-center justify-between gap-5 md:gap-8 bg-muted/10 md:bg-transparent p-5 md:p-0 rounded-xl border md:border-none border-border/50">
-                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-5 md:gap-10">
-                              <div className="flex flex-col"><p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1.5">Inversión</p><p className="font-black text-foreground text-xl md:text-2xl leading-none">{bet.amount.toLocaleString()} <span className="text-xs font-bold text-muted-foreground">pts</span></p></div>
-                              <div className="flex flex-col"><p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1.5">Posición</p><Badge variant="outline" className={cn("text-xs md:text-sm font-bold border h-8 justify-center w-fit", isEffectivelyNo ? "bg-red-500/10 text-red-600 dark:text-red-500 border-red-500/30 dark:border-[#FF0000]/30" : "bg-green-500/10 text-green-600 dark:text-[#00FF00] border-green-500/30 dark:border-[#00FF00]/30")}>{predictionText}</Badge></div>
-                              <div className="flex flex-col min-w-[90px] col-span-2 sm:col-span-1"><p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1.5 hidden md:block">Retorno</p>
-                                <div className="flex items-center gap-2"><span className={cn("font-black text-xl md:text-2xl leading-none", pnl >= 0 ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>{pnl >= 0 ? "+" : ""}{pnlPercentage.toFixed(1)}%</span></div>
+                        <div key={bet.id} className="rounded-2xl border border-border/50 bg-card hover:border-primary/50 transition-all p-6 md:p-8 shadow-sm relative overflow-hidden group">
+                          <Link href={`/market/${bet.market_id}`} className="block">
+                            <p className="font-bold text-lg md:text-xl text-foreground mb-6 leading-relaxed group-hover:text-primary transition-colors md:pr-12">{market?.title ?? "Mercado"}</p>
+                          </Link>
+
+                          <div className="grid grid-cols-1 md:grid-cols-12 gap-6 bg-muted/10 p-5 rounded-xl border border-border/50 items-center">
+                            <div className="flex flex-col md:col-span-3">
+                              <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-2">Inversión</p>
+                              <p className="font-black text-foreground text-xl leading-none">{bet.amount.toLocaleString()} <span className="text-xs font-bold text-muted-foreground">pts</span></p>
+                            </div>
+                            <div className="flex flex-col md:col-span-3">
+                              <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-2">Posición</p>
+                              <Badge variant="outline" className={cn("text-xs font-bold border h-8 justify-center w-fit", isEffectivelyNo ? "bg-red-500/10 text-red-600 dark:text-red-500 border-red-500/30 dark:border-[#FF0000]/30" : "bg-green-500/10 text-green-600 dark:text-[#00FF00] border-green-500/30 dark:border-[#00FF00]/30")}>{predictionText}</Badge>
+                            </div>
+                            <div className="flex flex-col md:col-span-3">
+                              <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-2">Retorno</p>
+                              <div className="flex items-center gap-2">
+                                <span className={cn("font-black text-xl leading-none", pnl >= 0 ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>{pnl >= 0 ? "+" : ""}{pnlPercentage.toFixed(1)}%</span>
                               </div>
                             </div>
-
-                            <div className="w-full md:w-auto mt-2 md:mt-0 pt-4 md:pt-0 border-t md:border-t-0 border-border/50">
-                              <Button onClick={(e) => { e.preventDefault(); e.stopPropagation(); setBetToSell({ id: bet.id, title: market?.title ?? "Mercado", outcomeName: predictionText, direction: direction, cashoutValue: cashoutValue, pnl: pnl, pnlPercentage: pnlPercentage }); }} className="bg-primary hover:bg-primary/90 text-primary-foreground font-black h-11 px-7 w-full md:w-auto shadow-md hover:scale-[1.02] active:scale-[0.98] transition-all rounded-full" ><Coins className="w-4 h-4 mr-2" /> Vender por {cashoutValue.toLocaleString()} pts</Button>
+                            <div className="md:col-span-3 flex justify-end w-full">
+                              <Button onClick={(e) => { e.preventDefault(); e.stopPropagation(); setBetToSell({ id: bet.id, title: market?.title ?? "Mercado", outcomeName: predictionText, direction: direction, cashoutValue: cashoutValue, pnl: pnl, pnlPercentage: pnlPercentage }); }} className="bg-primary hover:bg-primary/90 text-primary-foreground font-black h-11 w-full md:w-auto px-6 shadow-md hover:scale-[1.02] active:scale-[0.98] transition-all rounded-full" >
+                                <Coins className="w-4 h-4 mr-2" /> Vender por {cashoutValue.toLocaleString()} pts
+                              </Button>
                             </div>
                           </div>
                         </div>
@@ -694,7 +674,6 @@ export default function ProfilePage() {
                 )}
               </TabsContent>
 
-              {/* TABLA FINANCIERA DE MOVIMIENTOS (LEDGER) */}
               <TabsContent value="bank" className="space-y-4 pt-2">
                 {isLoadingTransactions ? (
                   <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
@@ -705,7 +684,6 @@ export default function ProfilePage() {
                   </div>
                 ) : (
                   <div className="rounded-xl border border-border/50 bg-card overflow-hidden shadow-sm">
-                    {/* Encabezado de la tabla (solo visible en md en adelante) */}
                     <div className="hidden md:grid grid-cols-12 gap-4 bg-muted/40 p-4 border-b border-border/50 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                       <div className="col-span-2">Fecha</div>
                       <div className="col-span-5">Descripción</div>
@@ -713,7 +691,6 @@ export default function ProfilePage() {
                       <div className="col-span-3 text-right pr-2">Saldo Resultante</div>
                     </div>
 
-                    {/* Filas de la tabla */}
                     <div className="divide-y divide-border/30 max-h-[600px] overflow-y-auto">
                       {processedTransactions.map((tx) => {
                         const isPositive = tx.amount > 0;
@@ -723,20 +700,17 @@ export default function ProfilePage() {
                         return (
                           <div key={tx.id} className="group flex flex-col md:grid md:grid-cols-12 gap-2 md:gap-4 p-4 hover:bg-muted/10 transition-colors items-start md:items-center">
 
-                            {/* Fecha y Hora (Móvil y Desktop) */}
                             <div className="col-span-2 flex flex-row md:flex-col items-center md:items-start gap-2 md:gap-0 w-full md:w-auto">
                               <span className="text-xs font-bold text-foreground/80 w-[45px] text-center md:text-left bg-muted md:bg-transparent rounded px-1.5 md:px-0 py-0.5 md:py-0">{formattedDate}</span>
                               <span className="text-[10px] font-medium text-muted-foreground">{formattedTime}</span>
                             </div>
 
-                            {/* Descripción */}
                             <div className="col-span-5 w-full">
                               <p className="text-sm font-semibold text-foreground line-clamp-2 md:line-clamp-1 group-hover:text-primary transition-colors cursor-default" title={tx.description}>
                                 {tx.description}
                               </p>
                             </div>
 
-                            {/* Monto (Desktop lo alinea a la derecha, móvil lo pone en línea con el saldo) */}
                             <div className="col-span-2 flex items-center md:justify-end w-full md:w-auto mt-2 md:mt-0">
                               <span className="md:hidden text-[10px] font-bold text-muted-foreground uppercase mr-2">Monto:</span>
                               <span className={cn("font-black text-base md:text-lg tabular-nums", isPositive ? "text-green-600 dark:text-[#00FF00]" : "text-foreground")}>
@@ -744,7 +718,6 @@ export default function ProfilePage() {
                               </span>
                             </div>
 
-                            {/* Saldo Resultante */}
                             <div className="col-span-3 flex items-center md:justify-end w-full md:w-auto md:pr-2">
                               <span className="md:hidden text-[10px] font-bold text-muted-foreground uppercase mr-2">Saldo:</span>
                               <span className="font-bold text-sm md:text-base text-muted-foreground tabular-nums">
@@ -762,7 +735,6 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
 
-        {/* BLOQUE DE REFERIDOS */}
         <Card className="bg-gradient-to-br from-primary/10 via-background to-background border-primary/20 shadow-md rounded-2xl mb-8 overflow-hidden">
           <CardContent className="p-6 md:p-8">
             <div className="flex flex-col md:flex-row items-center gap-6">
@@ -796,7 +768,6 @@ export default function ProfilePage() {
 
       </main>
 
-      {/* MODALES DE ACCIÓN */}
       <Dialog open={!!betToSell} onOpenChange={(open) => !open && setBetToSell(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader><DialogTitle className="flex items-center gap-2 text-xl text-foreground"><LineChart className="w-5 h-5 text-primary" /> Confirmar Venta</DialogTitle></DialogHeader>
