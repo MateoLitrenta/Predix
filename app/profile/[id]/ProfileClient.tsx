@@ -141,7 +141,6 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
   }, [userBets, viewedProfile?.points, calculateRealCashout, marketOptions]);
 
   const totalVolumeCalculated = useMemo(() => {
-    // Calculamos el volumen total iterando sobre las transacciones de tipo 'bet'
     let total = 0;
     transactions.forEach(tx => {
       if (tx.amount < 0 && tx.description && !tx.description.toLowerCase().includes('bonus')) {
@@ -152,14 +151,12 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
   }, [transactions]);
 
 
-  // LÓGICA DE GRÁFICO FINAL Y ESTABLE: CÁLCULO HACIA ATRÁS
+  // LÓGICA DEL GRÁFICO (RESTAURADA A LA VERSIÓN ROBUSTA DE "COSTO BASE")
   const chartData = useMemo(() => {
     const chronologicalTxs = [...transactions].sort(
       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     );
 
-    // 1. ANCLAJE A LA REALIDAD: Calculamos el balance histórico hacia atrás 
-    // partiendo de los puntos reales y actuales de la base de datos.
     let currentTempBalance = viewedProfile?.points ?? 0;
     const txsWithBalance = [...chronologicalTxs].reverse().map((tx) => {
       const balanceAfter = currentTempBalance;
@@ -211,7 +208,6 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
     timestamps = Array.from(new Set(timestamps)).sort((a, b) => a - b);
 
     const data = timestamps.map(ts => {
-      // Balance líquido exacto en este milisegundo de la historia
       let liquidAtTs = trueStartingBalance;
       for (let i = 0; i < txsWithBalance.length; i++) {
         const txTime = new Date(txsWithBalance[i].created_at).getTime();
@@ -222,12 +218,12 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
         }
       }
 
-      // Costo base de las inversiones que *actualmente* están activas
       let activeInvestmentAtTs = 0;
       userBets.forEach(bet => {
         const betTime = new Date(bet.created_at || '').getTime();
         if (betTime <= ts) {
           const market = bet.markets;
+          // ACÁ ES DONDE SE ARREGLA EL "ACANTILADO": Usamos siempre bet.amount
           if (market && ACTIVE_STATUSES.includes(String(market.status).toLowerCase())) {
             activeInvestmentAtTs += Number(bet.amount || 0);
           }
@@ -249,6 +245,15 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
       data.push({ timestamp: now, value: Math.max(0, currentLiquid + currentActiveInvestment) });
     }
 
+    // EL ARREGLO PARA QUE 'ALL' ARRANQUE EN 0
+    if (timeframe === 'ALL' && data.length > 0) {
+      if (data[0].timestamp > startTimeForAll) {
+        data.unshift({ timestamp: startTimeForAll, value: 0 });
+      } else {
+        data[0].value = 0;
+      }
+    }
+
     return data;
   }, [transactions, timeframe, viewedProfile, userBets]);
 
@@ -256,21 +261,33 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
     return userBets.filter(b => b.markets && ACTIVE_STATUSES.includes(String(b.markets.status).toLowerCase()) && Number(b.shares) > 0).length;
   }, [userBets]);
 
+  // PnL para la tarjeta superior (Usa el valor real actual del portafolio)
+  const totalMarketPnL = useMemo(() => {
+    const startValue = INITIAL_BALANCE;
+    const endValue = portfolioStats.totalPortfolioValue;
+    const val = endValue - startValue;
+    const pct = (val / INITIAL_BALANCE) * 100;
+    return { value: val, percentage: pct };
+  }, [portfolioStats.totalPortfolioValue]);
+
+  // PnL DEL GRÁFICO (Usa estrictamente la diferencia entre el primer y último punto de la línea)
   const dynamicPnl = useMemo(() => {
     if (chartData.length < 2) return { value: 0, percentage: 0 };
 
     let startValue = chartData[0].value;
-    const endValue = portfolioStats.totalPortfolioValue;
-
-    if (timeframe === 'ALL' || startValue === 0) {
-      startValue = 10000;
-    }
+    const endValue = chartData[chartData.length - 1].value;
 
     const val = endValue - startValue;
-    const pct = (val / Math.abs(startValue)) * 100;
+
+    // Si startValue es 0 (como pasa ahora en 'ALL'), el porcentaje daría Infinito.
+    // En ese caso, dividimos por el endValue para mostrar un crecimiento del 100% o usar el balance inicial
+    let divisor = startValue === 0 ? INITIAL_BALANCE : startValue;
+
+    const pct = (val / Math.abs(divisor)) * 100;
 
     return { value: val, percentage: pct };
-  }, [chartData, timeframe, portfolioStats.totalPortfolioValue]);
+  }, [chartData]);
+
 
   const customTooltipFormatter = (value: number) => [`${value.toLocaleString()} pts`];
 
@@ -300,7 +317,6 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
   const tooltipBgColor = isDarkMode ? '#0f172a' : '#ffffff';
   const tooltipTextColor = isDarkMode ? '#f8fafc' : '#0f172a';
 
-  // --- SKELETON LOADER PARA EL PERFIL PÚBLICO ---
   if (isLoading) {
     return (
       <div className="min-h-screen bg-muted/10 flex flex-col">
@@ -308,7 +324,6 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
         <main className="container mx-auto px-4 py-8 flex-1 max-w-5xl">
           <div className="h-8 w-32 bg-muted/60 rounded animate-pulse mb-8" />
 
-          {/* Perfil Info Skeleton */}
           <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 mb-10">
             <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-muted/60 animate-pulse shrink-0 border-4 border-background" />
             <div className="flex-1 w-full space-y-4 mt-2">
@@ -317,7 +332,6 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
             </div>
           </div>
 
-          {/* Grilla de Métricas Skeleton */}
           <div className="bg-card/30 border border-border/30 rounded-3xl p-6 md:p-10 mb-12 shadow-sm animate-pulse">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
               {[...Array(3)].map((_, i) => (
@@ -330,10 +344,8 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
             </div>
           </div>
 
-          {/* Gráfico y Estadísticas Generales Skeleton */}
           <div className="h-[500px] w-full bg-muted/30 rounded-2xl border border-border/50 animate-pulse mb-12" />
 
-          {/* Historial Skeleton */}
           <div className="h-8 w-40 bg-muted/60 rounded animate-pulse mb-6" />
           <div className="h-[400px] w-full bg-muted/30 rounded-2xl border border-border/50 animate-pulse p-6" />
         </main>
@@ -346,7 +358,6 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
   const isMe = currentUser?.id === profileId;
   const displayName = viewedProfile.username || "Trader";
 
-  // RENDER NORMAL
   return (
     <div className="min-h-screen bg-muted/10 flex flex-col">
       <NavHeader points={myProfile?.points ?? 10000} isDarkMode={isDarkMode} onToggleDarkMode={() => setIsDarkMode(!isDarkMode)} onPointsUpdate={() => fetchAuth()} userId={currentUser?.id ?? null} userEmail={currentUser?.email ?? null} onOpenAuthModal={() => setIsAuthModalOpen(true)} onSignOut={async () => { await supabase.auth.signOut(); router.push("/"); }} isAdmin={myProfile?.role === "admin"} username={myProfile?.username} />
@@ -359,7 +370,6 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
           <Badge className="bg-primary/10 text-primary border-primary/20 font-medium">Perfil Público de Trader</Badge>
         </div>
 
-        {/* PERFIL HEADER */}
         <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 mb-12">
           <Avatar className="w-24 h-24 sm:w-28 sm:h-28 border-4 border-background bg-primary/10 shadow-lg shrink-0">
             {viewedProfile.avatar_url ? <AvatarImage src={viewedProfile.avatar_url} className="object-cover" /> : <AvatarFallback><UserIcon className="w-12 h-12 text-primary opacity-50" /></AvatarFallback>}
@@ -379,22 +389,19 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
           </div>
         </div>
 
-        {/* MÉTRICAS SUPERIORES */}
         <div className="bg-card/40 backdrop-blur-xl border border-border/40 rounded-3xl p-8 md:p-12 mb-12 shadow-sm">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
-            {/* Panel 1 */}
             <div className="flex flex-col">
               <TrendingUp className="w-6 h-6 text-muted-foreground mb-4 opacity-70" />
               <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5">PnL Total</p>
-              <p className={cn("text-3xl font-black", isProfit ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
-                {isProfit ? '+' : ''}{dynamicPnl.value.toLocaleString()} pts
+              <p className={cn("text-3xl font-black", totalMarketPnL.value >= 0 ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
+                {totalMarketPnL.value >= 0 ? '+' : ''}{totalMarketPnL.value.toLocaleString()} pts
               </p>
               <p className="text-xs font-semibold text-muted-foreground mt-1">
-                {isProfit ? '+' : ''}{dynamicPnl.percentage.toFixed(2)}%
+                {totalMarketPnL.value >= 0 ? '+' : ''}{totalMarketPnL.percentage.toFixed(2)}%
               </p>
             </div>
 
-            {/* Panel 2 */}
             <div className="flex flex-col">
               <Scale className="w-6 h-6 text-muted-foreground mb-4 opacity-70" />
               <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5">Volumen Total Operado</p>
@@ -402,7 +409,6 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
               <p className="text-xs font-semibold text-muted-foreground mt-1">pts acumulados</p>
             </div>
 
-            {/* Panel 3 */}
             <div className="flex flex-col">
               <Target className="w-6 h-6 text-muted-foreground mb-4 opacity-70" />
               <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5">Posiciones Activas</p>
@@ -412,7 +418,6 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
           </div>
         </div>
 
-        {/* GRÁFICO PRINCIPAL */}
         <Card className="bg-card border border-border/50 shadow-sm rounded-2xl overflow-hidden mb-12">
           <CardContent className="p-0">
             <div className="p-6 border-b border-border/20 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -503,7 +508,6 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
           </CardContent>
         </Card>
 
-        {/* TABLA DE PREDICCIONES (ESTILO LEDGER PÚBLICO) */}
         <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
           <History className="w-6 h-6 text-primary" /> Predicciones Recientes
         </h2>
@@ -517,7 +521,6 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
               </div>
             ) : (
               <div className="w-full">
-                {/* Encabezado de Tabla (Solo Desktop) */}
                 <div className="hidden md:grid grid-cols-12 gap-4 bg-muted/40 p-4 border-b border-border/50 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                   <div className="col-span-2">Fecha</div>
                   <div className="col-span-5">Mercado</div>
@@ -526,7 +529,6 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
                   <div className="col-span-2 text-right pr-2">Estado</div>
                 </div>
 
-                {/* Filas */}
                 <div className="divide-y divide-border/30 max-h-[600px] overflow-y-auto">
                   {userBets.map((bet) => {
                     const market = bet.markets;
@@ -566,32 +568,27 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
                       <Link href={`/market/${bet.market_id}`} key={bet.id} className="block hover:bg-muted/10 transition-colors">
                         <div className="flex flex-col md:grid md:grid-cols-12 gap-3 md:gap-4 p-4 items-start md:items-center">
 
-                          {/* Fecha */}
                           <div className="col-span-2 text-xs font-bold text-muted-foreground w-full md:w-auto">
                             <span className="bg-muted md:bg-transparent rounded px-1.5 md:px-0 py-0.5 md:py-0">{formattedDate}</span>
                           </div>
 
-                          {/* Mercado */}
                           <div className="col-span-5 w-full">
                             <p className="text-sm font-bold text-foreground line-clamp-2 md:line-clamp-1 group-hover:text-primary transition-colors pr-2">
                               {market.title || "Mercado no disponible"}
                             </p>
                           </div>
 
-                          {/* Predicción */}
                           <div className="col-span-2 w-full md:w-auto flex items-center mt-1 md:mt-0">
                             <Badge variant="outline" className={cn("text-[10px] font-bold border h-6", isEffectivelyNo ? "bg-red-500/10 text-red-600 border-red-500/30" : "bg-green-500/10 text-green-600 border-green-500/30")}>
                               {predictionText}
                             </Badge>
                           </div>
 
-                          {/* Monto */}
                           <div className="col-span-1 w-full md:w-auto flex items-center md:justify-end mt-1 md:mt-0">
                             <span className="md:hidden text-[10px] font-bold text-muted-foreground uppercase mr-2">Inversión:</span>
                             <span className="font-bold text-sm text-foreground">{bet.amount.toLocaleString()} <span className="text-[9px] opacity-70">pts</span></span>
                           </div>
 
-                          {/* Estado/Resultado */}
                           <div className="col-span-2 w-full md:w-auto flex items-center md:justify-end mt-1 md:mt-0 md:pr-2">
                             <span className="md:hidden text-[10px] font-bold text-muted-foreground uppercase mr-2">Resultado:</span>
                             {shares === 0 && !isResolved ? (
