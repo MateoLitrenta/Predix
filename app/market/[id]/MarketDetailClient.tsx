@@ -469,23 +469,73 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       genesisPoint[opt.id] = (1 / totalOptsCount) * 100;
     });
 
-    // 2. FORWARD FILL (Arrastrar último precio conocido)
+    // 2. FORWARD FILL Y EVENTOS DE ELIMINACIÓN
     const rawHistory = (history || [])
       .filter(h => h.timestamp > marketCreatedAt + 2000)
       .sort((a, b) => a.timestamp - b.timestamp);
 
+    const eliminations = options
+      .filter(o => o.is_eliminated && o.eliminated_at)
+      .map(o => ({ optId: o.id, elimTime: new Date(o.eliminated_at).getTime() }));
+
+    const events: { type: 'history' | 'elimination', timestamp: number, data?: any, optId?: string }[] = [];
+    rawHistory.forEach(h => events.push({ type: 'history', timestamp: h.timestamp, data: h }));
+    eliminations.forEach(e => events.push({ type: 'elimination', timestamp: e.elimTime, optId: e.optId }));
+
+    events.sort((a, b) => a.timestamp - b.timestamp);
+
     const timeline: any[] = [genesisPoint];
     let lastKnownState = { ...genesisPoint };
 
-    rawHistory.forEach(point => {
-      const newState = { ...lastKnownState, timestamp: point.timestamp };
+    const normalizeState = (timestamp: number, baseValues: Record<string, number>) => {
+      let activePool = 0;
       options.forEach(opt => {
-        if (point[opt.id] !== undefined && !Number.isNaN(Number(point[opt.id]))) {
-          newState[opt.id] = Number(point[opt.id]);
+        if (opt.is_eliminated && opt.eliminated_at && timestamp >= new Date(opt.eliminated_at).getTime()) {
+          baseValues[opt.id] = 0;
+        } else {
+          activePool += baseValues[opt.id];
         }
       });
-      timeline.push(newState);
-      lastKnownState = { ...newState };
+      
+      const newState: any = { timestamp };
+      options.forEach(opt => {
+        if (baseValues[opt.id] === 0 || activePool === 0) {
+          newState[opt.id] = 0;
+        } else {
+          newState[opt.id] = (baseValues[opt.id] / activePool) * 100;
+        }
+      });
+      return newState;
+    };
+
+    events.forEach(event => {
+      if (event.type === 'history') {
+        const point = event.data;
+        const baseValues: Record<string, number> = {};
+        options.forEach(opt => {
+          let val = lastKnownState[opt.id];
+          if (point[opt.id] !== undefined && !Number.isNaN(Number(point[opt.id]))) {
+            val = Number(point[opt.id]);
+          }
+          baseValues[opt.id] = val;
+        });
+        
+        const newState = normalizeState(point.timestamp, baseValues);
+        timeline.push(newState);
+        lastKnownState = { ...newState };
+      } else if (event.type === 'elimination') {
+        if (timeline[timeline.length - 1].timestamp < event.timestamp - 1) {
+          timeline.push({ ...lastKnownState, timestamp: event.timestamp - 1 });
+        }
+        
+        const baseValues: Record<string, number> = {};
+        options.forEach(opt => { baseValues[opt.id] = lastKnownState[opt.id]; });
+        baseValues[event.optId!] = 0;
+        
+        const newState = normalizeState(event.timestamp, baseValues);
+        timeline.push(newState);
+        lastKnownState = { ...newState };
+      }
     });
 
     // 3. ESTADO DE RESOLUCIÓN O EN VIVO

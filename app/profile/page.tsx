@@ -82,16 +82,20 @@ export default function ProfilePage() {
   const isBetActive = useCallback((b: BetWithMarket) => {
     const market = getMarket(b);
     if (!market) return false;
+    const opt = (b as any).option_details;
+    if (opt?.is_eliminated) return false;
     return ACTIVE_STATUSES.includes(String(market.status).toLowerCase()) &&
-      ACTIVE_STATUSES.includes(String(b.status).toLowerCase());
+      ACTIVE_STATUSES.includes(String((b as any).status).toLowerCase());
   }, []);
 
   const isBetFinished = useCallback((b: BetWithMarket) => {
     const market = getMarket(b);
     if (!market) return false;
+    const opt = (b as any).option_details;
+    if (opt?.is_eliminated) return true;
     return FINISHED_STATUSES.includes(String(market.status).toLowerCase()) ||
-      String(b.status).toLowerCase() === 'lost' ||
-      String(b.status).toLowerCase() === 'sold';
+      String((b as any).status).toLowerCase() === 'lost' ||
+      String((b as any).status).toLowerCase() === 'sold';
   }, []);
 
   const fetchUserData = useCallback(async () => {
@@ -258,13 +262,33 @@ export default function ProfilePage() {
       let activeInvestmentAtTs = 0;
       bets.forEach(bet => {
         const betTime = new Date(bet.created_at || '').getTime();
-        if (betTime <= ts && isBetActive(bet)) {
+        if (betTime <= ts) {
           const market = getMarket(bet);
-          const opt = bet.option_details;
-          if (market && opt) {
-            activeInvestmentAtTs += calculatePositionValue(bet, market, opt);
+          const opt = (bet as any).option_details;
+          
+          let isActiveTimeline = false;
+          
+          if (opt?.is_eliminated) {
+            if (opt.eliminated_at) {
+              const elimTime = new Date(opt.eliminated_at).getTime();
+              if (ts < elimTime) {
+                isActiveTimeline = true;
+              }
+            } else {
+              isActiveTimeline = false;
+            }
           } else {
-            activeInvestmentAtTs += Number(bet.amount || 0);
+            isActiveTimeline = ACTIVE_STATUSES.includes(String(market?.status).toLowerCase()) &&
+                               ACTIVE_STATUSES.includes(String((bet as any).status).toLowerCase());
+          }
+
+          if (isActiveTimeline) {
+            if (market && opt) {
+              const mockOpt = { ...opt, is_eliminated: false };
+              activeInvestmentAtTs += calculatePositionValue(bet, market, mockOpt);
+            } else {
+              activeInvestmentAtTs += Number(bet.amount || 0);
+            }
           }
         }
       });
@@ -575,7 +599,7 @@ export default function ProfilePage() {
                 let predictionText = isOptBinary ? (direction === 'no' ? (displayOutcome.toLowerCase().includes('s') ? 'No' : 'Sí') : displayOutcome) : `${direction === 'no' ? 'No' : 'Sí'} a ${displayOutcome}`;
                 const isEffectivelyNo = direction === 'no' || (isOptBinary && displayOutcome.toLowerCase() === 'no' && direction === 'yes');
 
-                const isBetLost = String(bet.status).toLowerCase() === 'lost';
+                const isBetLost = String((bet as any).status).toLowerCase() === 'lost' || (opt as any)?.is_eliminated;
                 const isResolvedAndWon = market?.winning_outcome !== null && ((direction === 'yes' && market?.winning_outcome === bet.outcome) || (direction === 'no' && market?.winning_outcome !== bet.outcome));
                 const won = !isBetLost && isResolvedAndWon;
 

@@ -71,6 +71,8 @@ export type BetWithMarket = {
     option_name: string;
     color: string;
     total_votes: number;
+    is_eliminated?: boolean;
+    eliminated_at?: string;
   } | null;
 };
 
@@ -90,7 +92,7 @@ export async function getMyBets(): Promise<{ data: BetWithMarket[] | null; error
   if (error) return { data: null, error: error.message };
   if (!betsData || betsData.length === 0) return { data: [], error: null };
 
-  const { data: optionsData } = await supabase.from("market_options").select("id, option_name, color, total_votes");
+  const { data: optionsData } = await supabase.from("market_options").select("id, option_name, color, total_votes, is_eliminated, eliminated_at");
 
   const enrichedBets = betsData.map((bet: any) => {
     if (bet.outcome === 'yes') return { ...bet, option_details: { option_name: 'Sí', color: '#0ea5e9', total_votes: bet.amount } };
@@ -99,7 +101,7 @@ export async function getMyBets(): Promise<{ data: BetWithMarket[] | null; error
     const opt = optionsData?.find(o => o.id === bet.outcome);
     return {
       ...bet,
-      option_details: opt ? { option_name: opt.option_name, color: opt.color, total_votes: opt.total_votes } : null
+      option_details: opt ? { option_name: opt.option_name, color: opt.color, total_votes: opt.total_votes, is_eliminated: opt.is_eliminated, eliminated_at: opt.eliminated_at } : null
     };
   });
 
@@ -462,10 +464,10 @@ export async function eliminateMarketOption(optionId: string) {
   if (!optData) return { error: "Opción no encontrada" };
   const marketId = optData.market_id;
 
-  // 2. Marcar la opción como eliminada
+  // 2. Marcar la opción como eliminada y guardar la fecha
   const { error: updateError } = await supabase
     .from("market_options")
-    .update({ is_eliminated: true })
+    .update({ is_eliminated: true, eliminated_at: new Date().toISOString() })
     .eq("id", optionId);
 
   if (updateError) return { error: updateError.message };
