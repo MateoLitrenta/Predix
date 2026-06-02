@@ -156,11 +156,26 @@ export default function ProfilePage() {
     const shares = Number(bet.shares || 0);
     if (shares <= 0) return bet.amount;
     const direction = bet.direction || 'yes';
+
     const optionVotes = Number(opt.total_votes || 0);
-    const totalVol = Number(market.total_volume || 0);
-    const totalOptions = marketOptions.filter(o => o.market_id === market.id).length || 2;
-    const currentPriceYes = (optionVotes + 100.0) / (totalVol + (totalOptions * 100.0));
-    const currentPrice = direction === 'yes' ? currentPriceYes : (1 - currentPriceYes);
+    const marketOpts = marketOptions.filter(o => o.market_id === market.id);
+    const totalOptions = marketOpts.length || 2;
+    const realTotalVotes = marketOpts.reduce((acc, o) => acc + Number(o.total_votes || 0), 0);
+
+    const startPriceYes = (optionVotes + 100.0) / (realTotalVotes + (totalOptions * 100.0));
+    const estPayout = shares * (direction === 'yes' ? startPriceYes : (1 - startPriceYes));
+
+    let endPriceYes = 0;
+    if (direction === 'yes') {
+      endPriceYes = Math.max(0.01, (optionVotes - estPayout + 100.0) / (Math.max(1, realTotalVotes - estPayout) + (totalOptions * 100.0)));
+    } else {
+      endPriceYes = Math.max(0.01, (optionVotes + 100.0) / (Math.max(1, realTotalVotes - estPayout) + (totalOptions * 100.0)));
+    }
+
+    let avgPriceYes = (startPriceYes + endPriceYes) / 2.0;
+    avgPriceYes = Math.max(0.01, Math.min(0.99, avgPriceYes));
+
+    const currentPrice = direction === 'yes' ? avgPriceYes : (1 - avgPriceYes);
     return Math.round(shares * currentPrice);
   }, [marketOptions]);
 
@@ -246,13 +261,18 @@ export default function ProfilePage() {
       if (txTime >= startTime && txTime <= now) timestamps.push(txTime);
     });
 
+    bets.forEach(bet => {
+      const betTime = new Date(bet.created_at || '').getTime();
+      if (betTime >= startTime && betTime <= now) timestamps.push(betTime);
+    });
+
     timestamps = Array.from(new Set(timestamps)).sort((a, b) => a - b);
 
     const data = timestamps.map(ts => {
       let liquidAtTs = trueStartingBalance;
       for (let i = 0; i < txsWithBalance.length; i++) {
         const txTime = new Date(txsWithBalance[i].created_at).getTime();
-        if (txTime <= ts) {
+        if (txTime <= ts + 1000) {
           liquidAtTs = txsWithBalance[i].balanceAfter;
         } else {
           break;
@@ -267,6 +287,8 @@ export default function ProfilePage() {
           const opt = (bet as any).option_details;
           
           let isActiveTimeline = false;
+          const betStatus = String((bet as any).status).toLowerCase();
+          const marketStatus = String(market?.status).toLowerCase();
           
           if (opt?.is_eliminated) {
             if (opt.eliminated_at) {
@@ -277,17 +299,42 @@ export default function ProfilePage() {
             } else {
               isActiveTimeline = false;
             }
+          } else if (ACTIVE_STATUSES.includes(betStatus) && ACTIVE_STATUSES.includes(marketStatus)) {
+            isActiveTimeline = true;
           } else {
-            isActiveTimeline = ACTIVE_STATUSES.includes(String(market?.status).toLowerCase()) &&
-                               ACTIVE_STATUSES.includes(String((bet as any).status).toLowerCase());
+            // Sincronización Estricta: Buscar la transacción correspondiente en la billetera
+            const approxClosedTime = new Date((bet as any).updated_at || (market as any).updated_at || (bet as any).created_at).getTime();
+            
+            // Buscar una transacción cercana en tiempo (cashout o resolución)
+            const correspondingTx = chronologicalTxs.find(tx => Math.abs(new Date(tx.created_at).getTime() - approxClosedTime) < 5000);
+            
+            // Si hay una transacción, usamos EXACTAMENTE su timestamp
+            // Si no hay transacción (ej. perdió la apuesta), el fin lo dicta el approxClosedTime
+            const finalClosedAtTime = correspondingTx ? new Date(correspondingTx.created_at).getTime() : approxClosedTime;
+            
+            if (ts < finalClosedAtTime) {
+              isActiveTimeline = true;
+            }
           }
 
           if (isActiveTimeline) {
-            if (market && opt) {
-              const mockOpt = { ...opt, is_eliminated: false };
-              activeInvestmentAtTs += calculatePositionValue(bet, market, mockOpt);
+            const betStatus = String((bet as any).status).toLowerCase();
+            const marketStatus = String(market?.status).toLowerCase();
+            
+            // Usamos investment (o points_invested como fallback si la db tiene ese nombre) 
+            const originalInvestment = Number((bet as any).investment || (bet as any).points_invested || bet.amount || 0);
+
+            if (!ACTIVE_STATUSES.includes(betStatus) || !ACTIVE_STATUSES.includes(marketStatus)) {
+              // Tasación Histórica: Apuesta cerrada. Usamos estrictamente el costo original en puntos.
+              activeInvestmentAtTs += originalInvestment;
             } else {
-              activeInvestmentAtTs += Number(bet.amount || 0);
+              // Apuesta activa hoy: Usamos valor de mercado actual (Unrealized PnL)
+              if (market && opt) {
+                const mockOpt = { ...opt, is_eliminated: false };
+                activeInvestmentAtTs += calculatePositionValue(bet, market, mockOpt);
+              } else {
+                activeInvestmentAtTs += originalInvestment;
+              }
             }
           }
         }
@@ -682,7 +729,7 @@ export default function ProfilePage() {
 
       {/* MODAL DE VENTA */}
       <Dialog open={!!betToSell} onOpenChange={(open) => !open && setBetToSell(null)}>
-        <DialogContent className="sm:max-w-md p-0 lg:p-6 fixed bottom-0 left-0 right-0 top-auto translate-y-0 rounded-t-3xl rounded-b-none border-t border-border/50 lg:static lg:rounded-2xl lg:border animate-in slide-in-from-bottom duration-300 lg:animate-none">
+        <DialogContent className="w-[95vw] max-w-md rounded-[24px] border-border/50 bg-background/95 backdrop-blur-xl p-6 shadow-2xl z-50">
           <div className="w-12 h-1.5 bg-muted rounded-full mx-auto mt-4 mb-2 lg:hidden" />
           <DialogHeader className="px-6 pt-2 pb-0 lg:p-0"><DialogTitle className="flex items-center gap-2 text-xl text-foreground"><LineChart className="w-5 h-5 text-primary" /> Confirmar Venta</DialogTitle></DialogHeader>
           <div className="px-6 py-4 space-y-4 pb-safe lg:px-0">

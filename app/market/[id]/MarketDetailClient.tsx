@@ -603,7 +603,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     return result;
   }, [market, options, history, chartWindowStart, chartTimeframe, getOptionPrice]);
 
-  const dynamicStrokeWidth = (chartTimeframe === 'ALL' || chartTimeframe === '1Y' || chartTimeframe === '6M') ? 1.5 : 2.5;
+  const dynamicStrokeWidth = (chartTimeframe === 'ALL' || chartTimeframe === '1Y' || chartTimeframe === '6M') ? 2 : 3;
 
   const axisTextColor = isDarkMode ? '#a1a1aa' : '#64748b';
   const axisLineColor = isDarkMode ? '#334155' : '#e2e8f0';
@@ -967,6 +967,8 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                           fillOpacity={0}
                           fill="transparent"
                           strokeWidth={dynamicStrokeWidth}
+                          strokeLinejoin="round"
+                          strokeLinecap="round"
                           dot={false}
                           activeDot={{ r: 4, strokeWidth: 0, fill: opt.color }}
                           name={opt.option_name}
