@@ -54,6 +54,7 @@ interface NavHeaderProps {
   onSignOut: () => void;
   isAdmin?: boolean;
   username?: string | null;
+  avatarUrl?: string | null;
 }
 
 interface AppNotification {
@@ -78,6 +79,7 @@ export function NavHeader({
   onSignOut,
   isAdmin = false,
   username = null,
+  avatarUrl = null,
 }: NavHeaderProps) {
   const router = useRouter();
   const [showMobileMenu, setShowMobileMenu] = useState(false);
@@ -343,8 +345,12 @@ export function NavHeader({
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="flex items-center gap-2 px-3 rounded-xl bg-muted hover:bg-muted/80 border border-border/50 shadow-sm">
-                    <div className="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center">
-                      <User className="w-4 h-4 text-primary" />
+                    <div className="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center overflow-hidden">
+                      {avatarUrl ? (
+                        <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                      ) : (
+                        <User className="w-4 h-4 text-primary" />
+                      )}
                     </div>
                     <span className="font-semibold text-sm max-w-[100px] truncate">{getUserDisplayName()}</span>
                   </Button>
@@ -420,8 +426,12 @@ export function NavHeader({
 
               {userId ? (
                 <div className="flex items-center gap-4 p-4 rounded-xl bg-muted/30 border border-border/50">
-                  <div className="w-12 h-12 rounded-xl bg-primary/20 flex items-center justify-center border border-primary/30 shrink-0">
-                    <User className="w-6 h-6 text-primary" />
+                  <div className="w-12 h-12 rounded-xl bg-primary/20 flex items-center justify-center border border-primary/30 shrink-0 overflow-hidden">
+                    {avatarUrl ? (
+                      <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                    ) : (
+                      <User className="w-6 h-6 text-primary" />
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-base font-bold text-foreground truncate">{getUserDisplayName()}</p>

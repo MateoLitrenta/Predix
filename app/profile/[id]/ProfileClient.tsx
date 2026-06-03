@@ -352,7 +352,7 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
 
   return (
     <div className="min-h-screen bg-muted/10 flex flex-col pb-20 lg:pb-0">
-      <NavHeader points={myProfile?.points ?? 10000} isDarkMode={isDarkMode} onToggleDarkMode={toggleDarkMode} onPointsUpdate={() => fetchAuth()} userId={currentUser?.id ?? null} userEmail={currentUser?.email ?? null} onOpenAuthModal={() => setIsAuthModalOpen(true)} onSignOut={async () => { await supabase.auth.signOut(); router.push("/"); }} isAdmin={myProfile?.role === "admin"} username={myProfile?.username} />
+      <NavHeader points={myProfile?.points ?? 10000} isDarkMode={isDarkMode} onToggleDarkMode={toggleDarkMode} onPointsUpdate={() => fetchAuth()} userId={currentUser?.id ?? null} userEmail={currentUser?.email ?? null} onOpenAuthModal={() => setIsAuthModalOpen(true)} onSignOut={async () => { await supabase.auth.signOut(); router.push("/"); }} isAdmin={myProfile?.role === "admin"} username={myProfile?.username} avatarUrl={myProfile?.avatar_url ?? null} />
 
       <main className="container mx-auto px-4 sm:px-6 py-6 lg:py-8 flex-1 max-w-4xl">
         <div className="flex items-center justify-between mb-6 sm:mb-8">

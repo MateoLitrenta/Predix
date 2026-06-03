@@ -46,6 +46,17 @@ function getMarket(bet: BetWithMarket) {
   return bet.markets ?? bet.market ?? null;
 }
 
+export type PortfolioPosition = {
+  market_id: string;
+  outcome: string;
+  status: 'active' | 'closed';
+  shares: number;
+  avg_price: number;
+  realized_pnl: number;
+  market_title?: string;
+  market_image_url?: string | null;
+};
+
 export default function ProfilePage() {
   const router = useRouter();
   const supabase = createClient();
@@ -53,6 +64,7 @@ export default function ProfilePage() {
   const [bets, setBets] = useState<BetWithMarket[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [marketOptions, setMarketOptions] = useState<any[]>([]);
+  const [portfolioPositions, setPortfolioPositions] = useState<PortfolioPosition[]>([]);
 
   const [isChecking, setIsChecking] = useState(true);
   const [isLoadingBets, setIsLoadingBets] = useState(true);
@@ -99,24 +111,61 @@ export default function ProfilePage() {
   }, []);
 
   const fetchUserData = useCallback(async () => {
+    if (!profile?.id) return;
+
     setIsLoadingBets(true);
     setIsLoadingTransactions(true);
 
     let refUsers: any[] = [];
-    if (profile?.id) {
-      const { data, error } = await supabase.from("profiles").select("username").eq("referred_by", profile.id);
-      if (!error && data) refUsers = data;
-    }
+    const { data, error } = await supabase.from("profiles").select("username").eq("referred_by", profile.id);
+    if (!error && data) refUsers = data;
 
-    const [betsRes, txRes, optionsRes] = await Promise.all([
+    console.log("DEBUG: ID de usuario enviado a RPC:", profile?.id);
+
+    const [betsRes, txRes, optionsRes, portfolioRes] = await Promise.all([
       getMyBets(),
       getMyTransactions(),
-      supabase.from("market_options").select("*")
+      supabase.from("market_options").select("*"),
+      supabase.rpc('get_user_portfolio', { p_user_id: profile.id })
     ]);
 
     if (!betsRes.error && betsRes.data) setBets(betsRes.data);
     if (!txRes.error && txRes.data) setTransactions(txRes.data);
     if (optionsRes.data) setMarketOptions(optionsRes.data);
+    
+    console.log("DEBUG: Datos recibidos de RPC:", portfolioRes.data);
+    if (portfolioRes.error) {
+      console.error("ERROR CRÍTICO RPC:", portfolioRes.error);
+    }
+    
+    let positions: PortfolioPosition[] = [];
+    if (!portfolioRes.error && portfolioRes.data) {
+      positions = portfolioRes.data;
+      const marketIds = Array.from(new Set(positions.map((p: any) => p.market_id)));
+      if (marketIds.length > 0) {
+        const { data: marketsData, error: marketsError } = await supabase.from('markets').select('id, title, image_url').in('id', marketIds);
+        
+        if (marketsData) {
+          const marketMap = new Map(marketsData.map(m => [m.id, m]));
+          positions = positions.map((p: any) => ({
+            ...p,
+            market_title: marketMap.get(p.market_id)?.title ?? "Mercado",
+            market_image_url: marketMap.get(p.market_id)?.image_url ?? null
+          }));
+        } else {
+          // Si falla la tabla markets, al menos guardamos los datos crudos
+          positions = positions.map((p: any) => ({
+            ...p,
+            market_title: "Mercado",
+            market_image_url: null
+          }));
+        }
+      }
+    }
+    
+    console.log("DEBUG: Cantidad de posiciones activas encontradas:", positions.filter(p => p.status === 'active').length);
+
+    setPortfolioPositions(positions);
     setReferredUsers(refUsers);
 
     setIsLoadingBets(false);
@@ -371,7 +420,21 @@ export default function ProfilePage() {
   };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
-    e.preventDefault(); if (!newUsername.trim()) return; setIsSaving(true);
+    e.preventDefault(); 
+    if (!newUsername.trim()) return; 
+
+    if (newPassword || confirmPassword) {
+      if (newPassword !== confirmPassword) {
+        toast({ title: "Error", description: "Las contraseñas no coinciden", variant: "destructive" });
+        return;
+      }
+      if (newPassword.length < 6) {
+        toast({ title: "Error", description: "La contraseña debe tener al menos 6 caracteres", variant: "destructive" });
+        return;
+      }
+    }
+
+    setIsSaving(true);
     let finalAvatarUrl = profile.avatar_url;
     if (selectedImage) {
       const fileExt = selectedImage.name.split('.').pop(); const filePath = `${profile.id}-${Date.now()}.${fileExt}`;
@@ -380,19 +443,27 @@ export default function ProfilePage() {
       const { data } = supabase.storage.from("avatars").getPublicUrl(filePath); finalAvatarUrl = data.publicUrl;
     }
     const { ok, error } = await updateProfileSettings(newUsername.trim(), finalAvatarUrl);
+    
+    let pwError = null;
+    if (newPassword) {
+      const res = await updateUserPassword(newPassword);
+      pwError = res.error;
+    }
+
     setIsSaving(false);
-    if (error) { toast({ title: "Error", description: error, variant: "destructive" }); }
-    else { toast({ title: "Perfil actualizado" }); setProfile({ ...profile, username: newUsername.trim(), avatar_url: finalAvatarUrl }); setIsEditModalOpen(false); setSelectedImage(null); router.refresh(); }
+    if (error || pwError) { toast({ title: "Error", description: error || pwError, variant: "destructive" }); }
+    else { 
+      toast({ title: "Perfil actualizado" }); 
+      setProfile({ ...profile, username: newUsername.trim(), avatar_url: finalAvatarUrl }); 
+      setIsEditModalOpen(false); 
+      setSelectedImage(null); 
+      setNewPassword(""); 
+      setConfirmPassword(""); 
+      router.refresh(); 
+    }
   };
 
-  const handleChangePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (newPassword !== confirmPassword || newPassword.length < 6) return;
-    setIsChangingPassword(true);
-    const { ok, error } = await updateUserPassword(newPassword);
-    setIsChangingPassword(false);
-    if (!error) { toast({ title: "¡Contraseña actualizada!" }); setIsPasswordModalOpen(false); setNewPassword(""); setConfirmPassword(""); }
-  };
+
 
   const customTooltipFormatter = (value: number) => [`${value.toLocaleString()} pts`];
 
@@ -453,121 +524,139 @@ export default function ProfilePage() {
 
   return (
     <div className="min-h-screen bg-muted/10 flex flex-col pb-20 lg:pb-0">
-      <NavHeader points={profile.points ?? 10000} isDarkMode={isDarkMode} onToggleDarkMode={toggleDarkMode} onPointsUpdate={() => { }} userId={profile.id} userEmail={profile.email ?? null} onOpenAuthModal={() => router.push("/")} onSignOut={async () => { await createClient().auth.signOut(); router.replace("/"); }} isAdmin={profile.role === "admin"} username={profile.username ?? null} />
+      <NavHeader points={profile.points ?? 10000} isDarkMode={isDarkMode} onToggleDarkMode={toggleDarkMode} onPointsUpdate={() => { }} userId={profile.id} userEmail={profile.email ?? null} onOpenAuthModal={() => router.push("/")} onSignOut={async () => { await createClient().auth.signOut(); router.replace("/"); }} isAdmin={profile.role === "admin"} username={profile.username ?? null} avatarUrl={profile.avatar_url ?? null} />
 
-      <main className="container mx-auto px-4 sm:px-6 py-6 lg:py-8 flex-1 max-w-4xl">
-
-        {/* ENCABEZADO COMPACTO */}
-        <div className="flex items-center justify-between gap-4 mb-8">
-          <div className="flex items-center gap-4">
-            <Avatar className="w-16 h-16 sm:w-20 sm:h-20 border-2 sm:border-4 border-background bg-primary/10 shadow-md shrink-0">
-              {profile.avatar_url ? <AvatarImage src={profile.avatar_url} className="object-cover" /> : <AvatarFallback><UserIcon className="w-8 h-8 text-primary opacity-50" /></AvatarFallback>}
-            </Avatar>
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-black text-foreground truncate tracking-tighter mb-0.5 sm:mb-1">{displayName}</h1>
-              <p className="text-xs sm:text-sm text-muted-foreground font-medium flex items-center gap-1.5 opacity-80">
-                <CalendarDays className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> Miembro desde {new Date(profile.created_at || new Date()).getFullYear()}
-              </p>
-            </div>
-          </div>
-          <Button variant="ghost" size="icon" className="shrink-0 h-10 w-10 sm:hidden border border-border/50 bg-background shadow-sm rounded-full" onClick={() => { setNewUsername(profile.username || ""); setPreviewUrl(profile.avatar_url || null); setSelectedImage(null); setIsEditModalOpen(true); }}>
-            <Pencil className="w-4 h-4 text-muted-foreground" />
-          </Button>
-          <div className="hidden sm:flex items-center gap-2">
-            <Button variant="outline" size="icon" onClick={() => setIsPasswordModalOpen(true)}><Lock className="w-4 h-4" /></Button>
-            <Button variant="outline" size="sm" onClick={() => { setNewUsername(profile.username || ""); setPreviewUrl(profile.avatar_url || null); setSelectedImage(null); setIsEditModalOpen(true); }}><Pencil className="w-4 h-4 mr-2" /> Editar</Button>
-          </div>
-        </div>
-
-        {/* MÉTRICAS FINANCIERAS (GRILLA MÓVIL) */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-6 mb-8">
-          <div className="col-span-2 sm:col-span-1 bg-card border border-border/50 rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col justify-between">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-[10px] sm:text-xs font-bold text-muted-foreground uppercase tracking-widest">Portfolio Total</p>
-              <Wallet className="w-4 h-4 sm:w-5 sm:h-5 text-primary opacity-80" />
-            </div>
-            <p className="text-2xl sm:text-3xl font-black text-foreground">{portfolioStats.totalPortfolioValue.toLocaleString()} pts</p>
-          </div>
-
-          <div className="bg-card border border-border/50 rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col justify-between">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-[10px] sm:text-xs font-bold text-muted-foreground uppercase tracking-widest leading-tight">Activo</p>
-              <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-blue-500 opacity-80" />
-            </div>
-            <div>
-              <p className="text-lg sm:text-2xl font-black text-foreground">{portfolioStats.lockedValueOffset.toLocaleString()}</p>
-              <p className="text-[10px] font-semibold text-muted-foreground">{bets.filter(isBetActive).length} mercados</p>
-            </div>
-          </div>
-
-          <div className="bg-card border border-border/50 rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col justify-between">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-[10px] sm:text-xs font-bold text-muted-foreground uppercase tracking-widest leading-tight">Líquido</p>
-              <Coins className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500 opacity-80" />
-            </div>
-            <div>
-              <p className="text-lg sm:text-2xl font-black text-foreground">{(profile.points ?? 0).toLocaleString()}</p>
-              <p className="text-[10px] font-semibold text-muted-foreground">Disponibles</p>
-            </div>
-          </div>
-        </div>
-
-        {/* GRÁFICO DE RENDIMIENTO (OPTIMIZADO) */}
-        <Card className="bg-card border border-border/50 shadow-sm rounded-2xl overflow-hidden mb-8">
-          <CardContent className="p-0">
-            <div className="p-4 sm:p-6 md:p-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-4 border-b border-border/20">
+      <main className="w-full max-w-[1440px] mx-auto px-4 md:px-8 py-6 flex-1">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-10">
+          
+          {/* COLUMNA IZQUIERDA (Perfil y Estadísticas) */}
+          <div className="lg:col-span-4 flex flex-col gap-6">
+            
+            {/* ENCABEZADO COMPACTO */}
+            <div className="flex justify-between items-start gap-4 bg-card border border-border/50 rounded-2xl p-5 shadow-sm">
+              <div className="flex items-center gap-4">
+                <Avatar className="w-16 h-16 sm:w-20 sm:h-20 border-2 sm:border-4 border-background bg-primary/10 shadow-md shrink-0">
+                  {profile.avatar_url ? <AvatarImage src={profile.avatar_url} className="object-cover" /> : <AvatarFallback><UserIcon className="w-8 h-8 text-primary opacity-50" /></AvatarFallback>}
+                </Avatar>
+                <div className="flex flex-col justify-center pt-1">
+                  <h1 className="text-2xl sm:text-3xl font-black text-foreground truncate tracking-tighter mb-0.5 sm:mb-1">{displayName}</h1>
+                  <p className="text-xs sm:text-sm text-muted-foreground font-medium flex items-center gap-1.5 opacity-80">
+                    <CalendarDays className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> Miembro desde {new Date(profile.created_at || new Date()).getFullYear()}
+                  </p>
+                </div>
+              </div>
               <div>
-                <div className="flex items-center gap-2 font-bold text-muted-foreground mb-1 text-sm sm:text-base">
-                  <TrendingUp className="w-4 h-4" /> Variación
-                </div>
-                <div className="flex items-baseline gap-2 sm:gap-3 flex-wrap mt-1">
-                  <span className={cn("text-3xl sm:text-4xl md:text-5xl font-black tracking-tight", isProfit ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
-                    {isProfit ? '+' : ''}{dynamicPnl.value.toLocaleString()} <span className="text-lg sm:text-2xl opacity-80">pts</span>
-                  </span>
-                  <Badge variant="outline" className={cn("text-xs sm:text-sm md:text-base px-2 py-0.5 font-bold border-2", isProfit ? "bg-green-500/10 text-green-600 dark:text-[#00FF00] border-green-500/30" : "bg-red-500/10 text-red-600 dark:text-[#FF0000] border-red-500/30")}>
-                    {isProfit ? '+' : ''}{dynamicPnl.percentage.toFixed(2)}%
-                  </Badge>
-                </div>
-              </div>
-
-              <div className="flex bg-muted/50 p-1 rounded-xl backdrop-blur-md border border-border/30 w-full md:w-auto overflow-x-auto scrollbar-none">
-                {(['1D', '1W', '1M', '6M', '1Y', 'ALL'] as TimeframeType[]).map((tf) => (
-                  <button key={tf} onClick={() => setTimeframe(tf)} className={cn("px-3 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-xs font-bold rounded-lg transition-all whitespace-nowrap flex-1 md:flex-none", timeframe === tf ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>
-                    {tf}
-                  </button>
-                ))}
+                <Button variant="ghost" size="icon" className="shrink-0 h-10 w-10 sm:hidden border border-border/50 bg-background shadow-sm rounded-full" onClick={() => { setNewUsername(profile.username || ""); setPreviewUrl(profile.avatar_url || null); setSelectedImage(null); setIsEditModalOpen(true); }}>
+                  <Pencil className="w-4 h-4 text-muted-foreground" />
+                </Button>
+                <Button variant="outline" size="sm" className="hidden sm:flex items-center" onClick={() => { setNewUsername(profile.username || ""); setPreviewUrl(profile.avatar_url || null); setSelectedImage(null); setIsEditModalOpen(true); }}>
+                  <Pencil className="w-4 h-4 mr-2" /> Editar
+                </Button>
               </div>
             </div>
 
-            {/* ALTO LIMITADO EN MOBILE (h-[250px]) */}
-            <div className="w-full h-[250px] md:h-[400px] p-2 sm:p-4 md:p-6 pt-6">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData} margin={{ top: 5, right: 0, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor={themeChartColor} stopOpacity={0.15} />
-                      <stop offset="60%" stopColor={themeChartColor} stopOpacity={0.03} />
-                      <stop offset="100%" stopColor={themeChartColor} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <XAxis dataKey="timestamp" type="number" domain={['dataMin', 'dataMax']} tickFormatter={xAxisFormatter} tick={{ fill: axisTextColor, fontSize: 10, fontWeight: 600 }} tickLine={false} axisLine={{ stroke: axisLineColor, strokeWidth: 1 }} minTickGap={60} dy={10} />
-                  <YAxis domain={['auto', 'auto']} tickFormatter={yAxisFormatter} tick={{ fill: axisTextColor, fontSize: 10, fontWeight: 600 }} tickLine={false} axisLine={{ stroke: axisLineColor, strokeWidth: 1 }} width={45} orientation="left" dx={-5} tickCount={4} />
-                  <Tooltip formatter={customTooltipFormatter} labelFormatter={customTooltipLabelFormatter} contentStyle={{ backgroundColor: tooltipBgColor, borderRadius: '12px', border: `1px solid ${axisLineColor}`, boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', color: tooltipTextColor, fontWeight: 'bold', padding: '10px' }} itemStyle={{ color: themeChartColor, fontSize: '14px' }} labelStyle={{ color: axisTextColor, marginBottom: '4px', fontSize: '11px' }} cursor={{ stroke: axisTextColor, strokeWidth: 1, strokeDasharray: '4 4' }} />
-                  <Area type="monotone" dataKey="value" stroke={themeChartColor} strokeWidth={2.5} fillOpacity={1} fill="url(#colorValue)" dot={false} activeDot={{ r: 4, fill: themeChartColor, stroke: 'hsl(var(--background))', strokeWidth: 2 }} isAnimationActive={false} />
-                </AreaChart>
-              </ResponsiveContainer>
+            {/* MÉTRICAS FINANCIERAS */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+              <div className="col-span-1 sm:col-span-2 bg-card border border-border/50 rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col justify-between">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-[10px] sm:text-xs font-bold text-muted-foreground uppercase tracking-widest">Portfolio Total</p>
+                  <Wallet className="w-4 h-4 sm:w-5 sm:h-5 text-primary opacity-80" />
+                </div>
+                <p className="text-2xl sm:text-3xl font-black text-foreground">{portfolioStats.totalPortfolioValue.toLocaleString()} pts</p>
+              </div>
+
+              <div className="bg-card border border-border/50 rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col justify-between">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-[10px] sm:text-xs font-bold text-muted-foreground uppercase tracking-widest leading-tight">Activo</p>
+                  <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-blue-500 opacity-80" />
+                </div>
+                <div>
+                  <p className="text-lg sm:text-2xl font-black text-foreground">{portfolioStats.lockedValueOffset.toLocaleString()}</p>
+                  <p className="text-[10px] font-semibold text-muted-foreground">{bets.filter(isBetActive).length} mercados</p>
+                </div>
+              </div>
+
+              <div className="bg-card border border-border/50 rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col justify-between">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-[10px] sm:text-xs font-bold text-muted-foreground uppercase tracking-widest leading-tight">Líquido</p>
+                  <Coins className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500 opacity-80" />
+                </div>
+                <div>
+                  <p className="text-lg sm:text-2xl font-black text-foreground">{(profile.points ?? 0).toLocaleString()}</p>
+                  <p className="text-[10px] font-semibold text-muted-foreground">Disponibles</p>
+                </div>
+              </div>
             </div>
-          </CardContent>
-        </Card>
+
+            {/* ESTADÍSTICAS MOCK */}
+            <div className="bg-card border border-border/50 rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col gap-4">
+              <div className="flex justify-between items-center border-b border-border/30 pb-3">
+                <span className="text-sm font-bold text-muted-foreground">Mejor Predicción</span>
+                <span className="text-base font-black text-green-600 dark:text-[#00FF00]">+4,500 pts</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-bold text-muted-foreground">Predicciones Jugadas</span>
+                <span className="text-base font-black text-foreground">27</span>
+              </div>
+            </div>
+          </div>
+
+          {/* COLUMNA DERECHA (Gráfico y Acciones) */}
+          <div className="lg:col-span-8 flex flex-col gap-4">
+            
+            {/* GRÁFICO DE RENDIMIENTO (OPTIMIZADO) */}
+            <Card className="bg-card border border-border/50 shadow-sm rounded-2xl overflow-hidden h-full flex flex-col">
+              <CardContent className="p-0 flex-1 flex flex-col">
+                <div className="p-4 sm:p-6 md:p-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-4 border-b border-border/20">
+                  <div>
+                    <div className="flex items-center gap-2 font-bold text-muted-foreground mb-1 text-sm sm:text-base">
+                      <TrendingUp className="w-4 h-4" /> Variación
+                    </div>
+                    <div className="flex items-baseline gap-2 sm:gap-3 flex-wrap mt-1">
+                      <span className={cn("text-3xl sm:text-4xl md:text-5xl font-black tracking-tight", isProfit ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
+                        {isProfit ? '+' : ''}{dynamicPnl.value.toLocaleString()} <span className="text-lg sm:text-2xl opacity-80">pts</span>
+                      </span>
+                      <Badge variant="outline" className={cn("text-xs sm:text-sm md:text-base px-2 py-0.5 font-bold border-2", isProfit ? "bg-green-500/10 text-green-600 dark:text-[#00FF00] border-green-500/30" : "bg-red-500/10 text-red-600 dark:text-[#FF0000] border-red-500/30")}>
+                        {isProfit ? '+' : ''}{dynamicPnl.percentage.toFixed(2)}%
+                      </Badge>
+                    </div>
+                  </div>
+
+                  <div className="flex bg-muted/50 p-1 rounded-xl backdrop-blur-md border border-border/30 w-full md:w-auto overflow-x-auto scrollbar-none">
+                    {(['1D', '1W', '1M', '6M', '1Y', 'ALL'] as TimeframeType[]).map((tf) => (
+                      <button key={tf} onClick={() => setTimeframe(tf)} className={cn("px-3 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-xs font-bold rounded-lg transition-all whitespace-nowrap flex-1 md:flex-none", timeframe === tf ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>
+                        {tf}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="w-full flex-1 min-h-[300px] max-h-[350px] p-2 sm:p-4 md:p-6 pt-6">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={chartData} margin={{ top: 5, right: 0, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor={themeChartColor} stopOpacity={0.15} />
+                          <stop offset="60%" stopColor={themeChartColor} stopOpacity={0.03} />
+                          <stop offset="100%" stopColor={themeChartColor} stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <XAxis dataKey="timestamp" type="number" domain={['dataMin', 'dataMax']} tickFormatter={xAxisFormatter} tick={{ fill: axisTextColor, fontSize: 10, fontWeight: 600 }} tickLine={false} axisLine={{ stroke: axisLineColor, strokeWidth: 1 }} minTickGap={60} dy={10} />
+                      <YAxis domain={['auto', 'auto']} tickFormatter={yAxisFormatter} tick={{ fill: axisTextColor, fontSize: 10, fontWeight: 600 }} tickLine={false} axisLine={{ stroke: axisLineColor, strokeWidth: 1 }} width={45} orientation="left" dx={-5} tickCount={4} />
+                      <Tooltip formatter={customTooltipFormatter} labelFormatter={customTooltipLabelFormatter} contentStyle={{ backgroundColor: tooltipBgColor, borderRadius: '12px', border: `1px solid ${axisLineColor}`, boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', color: tooltipTextColor, fontWeight: 'bold', padding: '10px' }} itemStyle={{ color: themeChartColor, fontSize: '14px' }} labelStyle={{ color: axisTextColor, marginBottom: '4px', fontSize: '11px' }} cursor={{ stroke: axisTextColor, strokeWidth: 1, strokeDasharray: '4 4' }} />
+                      <Area type="monotone" dataKey="value" stroke={themeChartColor} strokeWidth={2.5} fillOpacity={1} fill="url(#colorValue)" dot={false} activeDot={{ r: 4, fill: themeChartColor, stroke: 'hsl(var(--background))', strokeWidth: 2 }} isAnimationActive={false} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
 
         {/* TABS DE HISTORIAL */}
-        <h2 className="text-xl sm:text-2xl font-bold mb-4 flex items-center gap-2 px-1">
-          <History className="w-5 h-5 text-primary" /> Tu Historial
-        </h2>
-
         <Tabs defaultValue="active" className="w-full mb-8">
           <TabsList className="grid w-full grid-cols-3 h-12 mb-6 bg-muted/30 rounded-xl p-1 border border-border/50">
-            <TabsTrigger value="active" className="flex items-center gap-1.5 text-[11px] sm:text-sm font-bold rounded-lg"><LineChart className="w-3.5 h-3.5 hidden sm:block" />Activas <Badge variant="secondary" className="font-black h-4 px-1 ml-0.5 text-[9px]">{bets.filter(isBetActive).length}</Badge></TabsTrigger>
+            <TabsTrigger value="active" className="flex items-center gap-1.5 text-[11px] sm:text-sm font-bold rounded-lg"><LineChart className="w-3.5 h-3.5 hidden sm:block" />Activas <Badge variant="secondary" className="font-black h-4 px-1 ml-0.5 text-[9px]">{portfolioPositions.filter(p => p.status === 'active').length}</Badge></TabsTrigger>
             <TabsTrigger value="finished" className="flex items-center gap-1.5 text-[11px] sm:text-sm font-bold rounded-lg"><History className="w-3.5 h-3.5 hidden sm:block" />Cerradas</TabsTrigger>
             <TabsTrigger value="bank" className="flex items-center gap-1.5 text-[11px] sm:text-sm font-bold rounded-lg"><Landmark className="w-3.5 h-3.5 hidden sm:block" />Billetera</TabsTrigger>
           </TabsList>
@@ -575,59 +664,58 @@ export default function ProfilePage() {
           <TabsContent value="active" className="m-0">
             {isLoadingBets ? (
               <div className="flex items-center justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-primary opacity-60" /></div>
-            ) : bets.filter(isBetActive).length === 0 ? (
+            ) : portfolioPositions.filter(p => p.status === 'active').length === 0 ? (
               <div className="p-10 sm:p-16 text-center text-muted-foreground bg-muted/10 border-2 border-dashed border-border/50 rounded-2xl">
                 <LineChart className="w-12 h-12 sm:w-16 sm:h-16 mx-auto mb-4 opacity-20" />
                 <p className="text-lg sm:text-xl font-bold mb-2 text-foreground">Tu portfolio activo está vacío</p>
                 <Button size="sm" asChild className="mt-4 font-bold rounded-full"><Link href="/">Explorar Mercados</Link></Button>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {bets.filter(isBetActive).map((bet) => {
-                  const market = getMarket(bet); const opt = bet.option_details;
-                  const isOldBinary = bet.outcome === "yes" || bet.outcome === "no";
-                  const displayOutcome = opt ? opt.option_name : (isOldBinary ? (bet.outcome === "yes" ? "SÍ" : "NO") : "Opción");
-                  const direction = (bet as any).direction || 'yes';
-                  const isOptBinary = ['sí', 'si', 'yes', 'no'].includes(displayOutcome.toLowerCase());
-                  let predictionText = isOptBinary ? (direction === 'no' ? (displayOutcome.toLowerCase().includes('s') ? 'No' : 'Sí') : displayOutcome) : `${direction === 'no' ? 'No' : 'Sí'} a ${displayOutcome}`;
-                  const isEffectivelyNo = direction === 'no' || (isOptBinary && displayOutcome.toLowerCase() === 'no' && direction === 'yes');
+              <div className="flex flex-col border border-border/50 rounded-2xl bg-card overflow-hidden shadow-sm">
+                {portfolioPositions.filter(p => p.status === 'active').map((pos, idx, arr) => {
+                  const currentPrice = 0.50; // Mock current price temporalmente
+                  const currentValue = pos.shares * currentPrice;
+                  const totalInvestment = pos.shares * pos.avg_price;
+                  const floatingPnl = currentValue - totalInvestment;
+                  const floatingPnlPct = totalInvestment > 0 ? (floatingPnl / totalInvestment) * 100 : 0;
+                  const isProfit = floatingPnl >= 0;
 
-                  let cashoutValue = 0, pnl = 0, pnlPercentage = 0;
-                  if (market) {
-                    const shares = Number((bet as any).shares || 0);
-                    cashoutValue = shares > 0 && opt ? calculatePositionValue(bet, market, opt) : bet.amount;
-                    pnl = cashoutValue - bet.amount; pnlPercentage = (pnl / bet.amount) * 100;
-                  }
-
-                  // DISEÑO DE TARJETA MOBILE FIRST
                   return (
-                    <div key={bet.id} className="rounded-2xl border border-border/50 bg-card hover:border-primary/50 transition-all p-4 shadow-sm flex flex-col h-full">
-                      <Link href={`/market/${bet.market_id}`} className="block mb-4 flex-1">
-                        <p className="font-bold text-base sm:text-lg text-foreground leading-snug line-clamp-2 hover:text-primary transition-colors pr-2">
-                          {market?.title ?? "Mercado"}
-                        </p>
-                      </Link>
-
-                      <div className="grid grid-cols-2 gap-3 mb-4 bg-muted/10 p-3 rounded-xl border border-border/30">
-                        <div>
-                          <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1">Inversión</p>
-                          <p className="font-black text-foreground text-sm sm:text-base">{bet.amount.toLocaleString()} <span className="text-[10px] font-bold text-muted-foreground">pts</span></p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1">Retorno</p>
-                          <span className={cn("font-black text-sm sm:text-base leading-none", pnl >= 0 ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>{pnl >= 0 ? "+" : ""}{pnlPercentage.toFixed(1)}%</span>
-                        </div>
-                        <div className="col-span-2 mt-1">
-                          <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1.5">Posición</p>
-                          <Badge variant="outline" className={cn("text-xs font-bold border h-7 justify-center w-full", isEffectivelyNo ? "bg-red-500/10 text-red-600 dark:text-red-500 border-red-500/30" : "bg-green-500/10 text-green-600 dark:text-[#00FF00] border-green-500/30")}>
-                            {predictionText}
-                          </Badge>
+                    <div key={`${pos.market_id}-${pos.outcome}-${idx}`} className={cn("p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:bg-muted/10 transition-colors", idx !== arr.length - 1 && "border-b border-border/30")}>
+                      
+                      {/* Columna 1: Mercado */}
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        {pos.market_image_url ? (
+                          <img src={pos.market_image_url} alt="market" className="w-10 h-10 rounded-full object-cover border border-border/50 shrink-0 hidden sm:block" />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center shrink-0 hidden sm:block">
+                            <LineChart className="w-5 h-5 text-muted-foreground" />
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <Link href={`/market/${pos.market_id}`} className="block hover:underline">
+                            <p className="font-bold text-sm text-foreground truncate">{pos.market_title}</p>
+                          </Link>
+                          <Badge variant="outline" className="mt-1 text-[10px] font-bold h-5 px-1.5 bg-muted/30">{pos.outcome}</Badge>
                         </div>
                       </div>
 
-                      <Button onClick={(e) => { e.preventDefault(); e.stopPropagation(); setBetToSell({ id: bet.id, title: market?.title ?? "Mercado", outcomeName: predictionText, direction: direction, cashoutValue: cashoutValue, pnl: pnl, pnlPercentage: pnlPercentage }); }} className="bg-primary hover:bg-primary/90 text-primary-foreground font-black h-11 w-full shadow-sm rounded-xl">
-                        <Coins className="w-4 h-4 mr-2" /> Vender • {cashoutValue.toLocaleString()} pts
-                      </Button>
+                      {/* Columna 2: Precios */}
+                      <div className="flex flex-row sm:flex-col items-center sm:items-end gap-3 sm:gap-0.5 min-w-[100px] shrink-0 border-t sm:border-t-0 border-border/30 pt-3 sm:pt-0 w-full sm:w-auto mt-2 sm:mt-0">
+                        <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1 w-full sm:w-auto justify-between sm:justify-start">Avg <span className="font-bold text-foreground">{pos.avg_price.toFixed(2)}</span></p>
+                        <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1 w-full sm:w-auto justify-between sm:justify-start">Current <span className="font-bold text-foreground">{currentPrice.toFixed(2)}</span></p>
+                      </div>
+
+                      {/* Columna 3: Valor y PnL */}
+                      <div className="flex flex-col items-end min-w-[110px] shrink-0 border-t sm:border-t-0 border-border/30 pt-3 sm:pt-0 w-full sm:w-auto mt-2 sm:mt-0">
+                        <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 text-left w-full sm:text-right">Value</p>
+                        <div className="flex sm:flex-col justify-between sm:justify-start items-center sm:items-end w-full">
+                          <p className="font-black text-sm sm:text-base text-foreground">{currentValue.toLocaleString(undefined, {maximumFractionDigits: 0})} pts</p>
+                          <p className={cn("text-xs font-bold", isProfit ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
+                            {isProfit ? '+' : ''}{floatingPnl.toLocaleString(undefined, {maximumFractionDigits: 0})} ({isProfit ? '+' : ''}{floatingPnlPct.toFixed(1)}%)
+                          </p>
+                        </div>
+                      </div>
                     </div>
                   );
                 })}
@@ -636,35 +724,64 @@ export default function ProfilePage() {
           </TabsContent>
 
           <TabsContent value="finished" className="m-0 space-y-3">
-            {bets.filter(isBetFinished).length === 0 ? (
+            {isLoadingBets ? (
+              <div className="flex items-center justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-primary opacity-60" /></div>
+            ) : portfolioPositions.filter(p => p.status === 'closed').length === 0 ? (
               <div className="p-12 text-center text-muted-foreground bg-muted/10 rounded-2xl"><History className="w-10 h-10 mx-auto mb-3 opacity-20" /><p className="text-sm font-medium">Aún no hay resultados.</p></div>
             ) : (
-              bets.filter(isBetFinished).map((bet) => {
-                const market = getMarket(bet); const opt = bet.option_details; const direction = (bet as any).direction || 'yes';
-                const displayOutcome = opt ? opt.option_name : 'Opción';
-                const isOptBinary = ['sí', 'si', 'yes', 'no'].includes(displayOutcome.toLowerCase());
-                let predictionText = isOptBinary ? (direction === 'no' ? (displayOutcome.toLowerCase().includes('s') ? 'No' : 'Sí') : displayOutcome) : `${direction === 'no' ? 'No' : 'Sí'} a ${displayOutcome}`;
-                const isEffectivelyNo = direction === 'no' || (isOptBinary && displayOutcome.toLowerCase() === 'no' && direction === 'yes');
+              <div className="flex flex-col border border-border/50 rounded-2xl bg-card overflow-hidden shadow-sm">
+                {portfolioPositions.filter(p => p.status === 'closed').map((pos, idx, arr) => {
+                  const totalInvestment = pos.shares * pos.avg_price;
+                  const finalAmount = totalInvestment + pos.realized_pnl;
+                  const pnlPct = totalInvestment > 0 ? (pos.realized_pnl / totalInvestment) * 100 : 0;
+                  const isProfit = pos.realized_pnl >= 0;
 
-                const isBetLost = String((bet as any).status).toLowerCase() === 'lost' || (opt as any)?.is_eliminated;
-                const isResolvedAndWon = market?.winning_outcome !== null && ((direction === 'yes' && market?.winning_outcome === bet.outcome) || (direction === 'no' && market?.winning_outcome !== bet.outcome));
-                const won = !isBetLost && isResolvedAndWon;
-
-                return (
-                  <div key={bet.id} className="rounded-xl border border-border/50 bg-card p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div className="flex-1 min-w-0">
-                      <p className="font-bold text-sm text-foreground line-clamp-1 mb-2">{market?.title ?? "Mercado"}</p>
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs font-medium text-muted-foreground">{bet.amount.toLocaleString()} pts</span>
-                        <Badge variant="outline" className={cn("text-[10px] h-5 px-1.5 font-bold border", isEffectivelyNo ? "bg-red-500/10 text-red-600 border-red-500/30" : "bg-green-500/10 text-green-600 border-green-500/30")}>{predictionText}</Badge>
+                  return (
+                    <div key={`${pos.market_id}-${pos.outcome}-${idx}`} className={cn("p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:bg-muted/10 transition-colors", idx !== arr.length - 1 && "border-b border-border/30")}>
+                      
+                      {/* Columna 1 y 2: Indicador y Mercado */}
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <div className="w-8 h-8 rounded-full bg-muted/50 flex items-center justify-center shrink-0 border border-border/50 hidden sm:flex">
+                          <CheckCircle2 className="w-4 h-4 text-muted-foreground" />
+                        </div>
+                        {pos.market_image_url ? (
+                          <img src={pos.market_image_url} alt="market" className="w-10 h-10 rounded-full object-cover border border-border/50 shrink-0 hidden sm:block" />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center shrink-0 hidden sm:block">
+                            <History className="w-5 h-5 text-muted-foreground" />
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <Link href={`/market/${pos.market_id}`} className="block hover:underline">
+                            <p className="font-bold text-sm text-foreground truncate">{pos.market_title}</p>
+                          </Link>
+                          <Badge variant="outline" className="mt-1 text-[10px] font-bold h-5 px-1.5 bg-muted/30">{pos.outcome}</Badge>
+                        </div>
                       </div>
+
+                      {/* Columna 3: Total Traded */}
+                      <div className="flex flex-col items-start sm:items-end min-w-[90px] shrink-0 border-t sm:border-t-0 border-border/30 pt-3 sm:pt-0 w-full sm:w-auto mt-2 sm:mt-0">
+                        <div className="flex sm:flex-col justify-between sm:justify-start items-center sm:items-end w-full">
+                          <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5">Inversión</p>
+                          <p className="font-bold text-sm text-foreground">{totalInvestment.toLocaleString(undefined, {maximumFractionDigits: 0})} pts</p>
+                        </div>
+                      </div>
+
+                      {/* Columna 4: Retorno y PnL */}
+                      <div className="flex flex-col items-end min-w-[110px] shrink-0 border-t sm:border-t-0 border-border/30 pt-3 sm:pt-0 w-full sm:w-auto mt-2 sm:mt-0">
+                        <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 text-left w-full sm:text-right">Retorno Final</p>
+                        <div className="flex sm:flex-col justify-between sm:justify-start items-center sm:items-end w-full">
+                          <p className="font-black text-sm sm:text-base text-foreground">{finalAmount.toLocaleString(undefined, {maximumFractionDigits: 0})} pts</p>
+                          <p className={cn("text-xs font-bold", isProfit ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
+                            {isProfit ? '+' : ''}{pos.realized_pnl.toLocaleString(undefined, {maximumFractionDigits: 0})} ({isProfit ? '+' : ''}{pnlPct.toFixed(1)}%)
+                          </p>
+                        </div>
+                      </div>
+
                     </div>
-                    <div className="pt-3 sm:pt-0 border-t sm:border-t-0 border-border/30 w-full sm:w-auto text-right sm:text-left">
-                      {won ? <span className="font-black text-sm text-green-600 dark:text-[#00FF00] flex items-center justify-end sm:justify-start gap-1"><CheckCircle2 className="w-4 h-4" /> Acertó</span> : <span className="font-black text-sm text-red-600 dark:text-[#FF0000] flex items-center justify-end sm:justify-start gap-1 opacity-90"><XCircle className="w-4 h-4" /> Perdió</span>}
-                    </div>
-                  </div>
-                );
-              })
+                  );
+                })}
+              </div>
             )}
           </TabsContent>
 
@@ -746,38 +863,41 @@ export default function ProfilePage() {
       </Dialog>
 
       <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
-        <DialogContent className="sm:max-w-md w-[90vw] rounded-2xl">
-          <DialogHeader><DialogTitle>Editar Perfil</DialogTitle></DialogHeader>
-          <form onSubmit={handleSaveProfile} className="space-y-4 pt-4">
-            <div className="flex flex-col items-center gap-4 mb-6">
-              <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-primary/10 flex items-center justify-center border-2 border-border overflow-hidden">
-                {previewUrl ? <img src={previewUrl} alt="Avatar" className="w-full h-full object-cover" /> : <AvatarFallback><UserIcon className="w-10 h-10 text-primary opacity-50" /></AvatarFallback>}
+        <DialogContent className="sm:max-w-md w-[90vw] max-h-[90vh] overflow-y-auto rounded-2xl">
+          <DialogHeader><DialogTitle>Configuración de Cuenta</DialogTitle></DialogHeader>
+          <form onSubmit={handleSaveProfile} className="space-y-6 pt-4">
+            
+            {/* SECCIÓN PERFIL */}
+            <div className="space-y-4">
+              <h3 className="text-sm font-bold text-muted-foreground border-b border-border/30 pb-2">Perfil Público</h3>
+              
+              <div className="flex flex-col items-center gap-4 mb-2">
+                <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-primary/10 flex items-center justify-center border-2 border-border overflow-hidden">
+                  {previewUrl ? <img src={previewUrl} alt="Avatar" className="w-full h-full object-cover" /> : <UserIcon className="w-10 h-10 text-primary opacity-50" />}
+                </div>
+                <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={(e) => { if (e.target.files && e.target.files[0]) { setSelectedImage(e.target.files[0]); setPreviewUrl(URL.createObjectURL(e.target.files[0])); } }} />
+                <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} className="rounded-full text-xs">Cambiar foto</Button>
               </div>
-              <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={(e) => { if (e.target.files && e.target.files[0]) { setSelectedImage(e.target.files[0]); setPreviewUrl(URL.createObjectURL(e.target.files[0])); } }} />
-              <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} className="rounded-full text-xs">Cambiar foto</Button>
+              <div className="space-y-2">
+                <Label htmlFor="username">Nombre de usuario</Label>
+                <Input id="username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} required className="rounded-xl h-12" />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="username">Nombre de usuario</Label>
-              <Input id="username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} required className="rounded-xl h-12" />
-            </div>
-            <Button type="submit" className="w-full mt-4 h-12 rounded-xl font-bold" disabled={isSaving}>{isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null} Guardar Cambios</Button>
-          </form>
-        </DialogContent>
-      </Dialog>
 
-      <Dialog open={isPasswordModalOpen} onOpenChange={setIsPasswordModalOpen}>
-        <DialogContent className="sm:max-w-md w-[90vw] rounded-2xl">
-          <DialogHeader><DialogTitle>Cambiar Contraseña</DialogTitle></DialogHeader>
-          <form onSubmit={handleChangePassword} className="space-y-4 pt-4">
-            <div className="space-y-2">
-              <Label htmlFor="new-password">Nueva Contraseña</Label>
-              <Input id="new-password" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required minLength={6} className="rounded-xl h-12" />
+            {/* SECCIÓN SEGURIDAD */}
+            <div className="space-y-4">
+              <h3 className="text-sm font-bold text-muted-foreground border-b border-border/30 pb-2">Seguridad (Opcional)</h3>
+              <div className="space-y-2">
+                <Label htmlFor="new-password">Nueva Contraseña</Label>
+                <Input id="new-password" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} minLength={6} className="rounded-xl h-12" placeholder="Dejar en blanco para no cambiar" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="confirm-password">Confirmar Nueva Contraseña</Label>
+                <Input id="confirm-password" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} minLength={6} className="rounded-xl h-12" />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="confirm-password">Confirmar Contraseña</Label>
-              <Input id="confirm-password" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required minLength={6} className="rounded-xl h-12" />
-            </div>
-            <Button type="submit" className="w-full mt-4 h-12 rounded-xl font-bold" disabled={isChangingPassword}>{isChangingPassword ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null} Actualizar Contraseña</Button>
+
+            <Button type="submit" className="w-full h-12 rounded-xl font-bold mt-2" disabled={isSaving}>{isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null} Guardar Cambios</Button>
           </form>
         </DialogContent>
       </Dialog>

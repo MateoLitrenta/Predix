@@ -53,6 +53,7 @@ export default function PredictionMarketDashboard() {
   const [user, setUser] = useState<User | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [username, setUsername] = useState<string | null>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [markets, setMarkets] = useState<Market[]>([]);
   const [isLoadingMarkets, setIsLoadingMarkets] = useState(true);
   const [isLoadingUser, setIsLoadingUser] = useState(true);
@@ -63,7 +64,7 @@ export default function PredictionMarketDashboard() {
     async (userId: string) => {
       const { data: profile } = await supabase
         .from("profiles")
-        .select("points, username, role")
+        .select("points, username, role, avatar_url")
         .eq("id", userId)
         .single();
 
@@ -71,6 +72,7 @@ export default function PredictionMarketDashboard() {
         setUserPoints(profile.points ?? 10000);
         setUsername(profile.username ?? null);
         setUserRole(profile.role ?? null);
+        setAvatarUrl(profile.avatar_url ?? null);
       }
     },
     [supabase]
@@ -89,6 +91,7 @@ export default function PredictionMarketDashboard() {
         setUserPoints(10000);
         setUsername(null);
         setUserRole(null);
+        setAvatarUrl(null);
       }
       setIsLoadingUser(false);
     };
@@ -104,6 +107,7 @@ export default function PredictionMarketDashboard() {
         setUserPoints(10000);
         setUsername(null);
         setUserRole(null);
+        setAvatarUrl(null);
       }
     });
 
@@ -216,7 +220,7 @@ export default function PredictionMarketDashboard() {
   return (
     <div className="min-h-screen bg-background">
       <ProductTour />
-      <NavHeader points={userPoints} isDarkMode={isDarkMode} onToggleDarkMode={toggleDarkMode} onPointsUpdate={handlePointsUpdate} userId={user?.id ?? null} userEmail={user?.email ?? null} onOpenAuthModal={() => setIsAuthModalOpen(true)} onSignOut={handleSignOut} isAdmin={userRole === "admin"} username={username} />
+      <NavHeader points={userPoints} isDarkMode={isDarkMode} onToggleDarkMode={toggleDarkMode} onPointsUpdate={handlePointsUpdate} userId={user?.id ?? null} userEmail={user?.email ?? null} onOpenAuthModal={() => setIsAuthModalOpen(true)} onSignOut={handleSignOut} isAdmin={userRole === "admin"} username={username} avatarUrl={avatarUrl} />
 
       <main className="container mx-auto px-4 py-4 md:py-6 max-w-[1400px]">
         <div className="flex flex-col lg:flex-row lg:items-center gap-3 lg:gap-6 mb-6 pb-4 border-b border-border/40 lg:pb-0 lg:h-14 lg:border-none">

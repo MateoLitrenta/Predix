@@ -353,7 +353,7 @@ export default function AdminDashboardClient() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      <NavHeader points={safeNumber(profile?.points ?? 10000)} isDarkMode={isDarkMode} onToggleDarkMode={() => setIsDarkMode(!isDarkMode)} onPointsUpdate={() => { }} userId={profile?.id ? String(profile.id) : null} userEmail={profile?.email != null ? String(profile.email) : null} onOpenAuthModal={() => { }} onSignOut={async () => { await createClient().auth.signOut(); router.replace("/"); }} isAdmin={true} username={profile?.username != null ? String(profile.username) : null} />
+      <NavHeader points={safeNumber(profile?.points ?? 10000)} isDarkMode={isDarkMode} onToggleDarkMode={() => setIsDarkMode(!isDarkMode)} onPointsUpdate={() => { }} userId={profile?.id ? String(profile.id) : null} userEmail={profile?.email != null ? String(profile.email) : null} onOpenAuthModal={() => { }} onSignOut={async () => { await createClient().auth.signOut(); router.replace("/"); }} isAdmin={true} username={profile?.username != null ? String(profile.username) : null} avatarUrl={profile?.avatar_url != null ? String(profile.avatar_url) : null} />
 
       <main className="container mx-auto px-4 py-8 flex-1">
         <div className="mb-6"><Button variant="ghost" size="sm" asChild className="-ml-2 text-muted-foreground hover:text-foreground"><Link href="/"><ArrowLeft className="w-4 h-4 mr-2" />Volver</Link></Button></div>

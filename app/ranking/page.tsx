@@ -157,6 +157,7 @@ export default function RankingPage() {
         onSignOut={async () => { await supabase.auth.signOut(); router.push("/"); }} 
         isAdmin={currentUser?.role === "admin"} 
         username={currentUser?.username} 
+        avatarUrl={currentUser?.avatar_url ?? null}
       />
 
       <main className="container mx-auto px-4 py-8 flex-1 max-w-6xl">
