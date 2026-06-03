@@ -151,3 +151,7 @@ input[type=number] {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+/* Hide Lightweight Charts Attribution Logo */
+#tv-attr-logo, a[href*="tradingview"] {
+    display: none !important;
+}

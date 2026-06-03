@@ -23,7 +23,7 @@ import { sellBet, sellPartialShares } from "@/lib/actions";
 import { Loader2, ArrowLeft, Clock, Coins, X, User as UserIcon, MessageSquare, Reply, ChevronDown, ChevronUp, Trash2, TrendingUp, LineChart as LineChartIcon, Share2, Twitter, MessageCircle, Copy, Check, Lock, CheckCircle2, Trophy, Scale, AlertCircle, Wallet, Layers } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import { LightweightChart } from "@/components/lightweight-chart";
 import { useTheme } from "@/components/theme-provider";
 
 const XIcon = ({ className }: { className?: string }) => (
@@ -36,37 +36,9 @@ interface MarketDetailClientProps {
   marketId: string;
 }
 
-type ChartTimeframe = '1H' | '6H' | '1D' | '1W' | '1M' | '6M' | '1Y' | 'ALL';
+type ChartTimeframe = '1D' | '1W' | '1M' | 'ALL';
 
-const CustomTooltip = ({ active, payload, label }: any) => {
-  if (active && payload && payload.length) {
-    const sortedPayload = [...payload].sort((a, b) => b.value - a.value);
 
-    return (
-      <div className="flex flex-col items-center pointer-events-none -mt-4">
-        <div className="bg-background/80 backdrop-blur-md text-[10px] font-bold text-muted-foreground px-2 py-0.5 rounded mb-1.5 border border-border/50 shadow-sm">
-          {new Date(label).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).toUpperCase()}
-        </div>
-        <div className="flex flex-col gap-1 w-full bg-background/95 backdrop-blur-md border border-border/50 p-2 rounded-lg shadow-xl">
-          {sortedPayload.map((entry: any, index: number) => (
-            <div key={index} className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-1.5">
-                <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: entry.color }} />
-                <span className="text-[11px] font-semibold text-foreground/90 truncate max-w-[90px]">
-                  {entry.name}
-                </span>
-              </div>
-              <span className="text-[11px] font-black" style={{ color: entry.color }}>
-                {entry.value.toFixed(1)}%
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-  return null;
-};
 
 export default function MarketDetailClient({ marketId }: MarketDetailClientProps) {
   const router = useRouter();
@@ -108,6 +80,11 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
   const [isDeletingComment, setIsDeletingComment] = useState(false);
 
   const [chartTimeframe, setChartTimeframe] = useState<ChartTimeframe>('ALL');
+
+  const handleTimeframeChange = (tf: ChartTimeframe) => {
+    if (tf === chartTimeframe) return;
+    setChartTimeframe(tf);
+  };
 
   useEffect(() => {
     setMarketUrl(window.location.href);
@@ -172,7 +149,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
         }
         historyMap.get(ts)[h.option_id] = Number(h.percentage);
       });
-      formattedHistory = Array.from(historyMap.values()).sort((a, b) => a.timestamp - b.timestamp);
+      formattedHistory = Array.from(historyMap.values()).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     }
     setHistory(formattedHistory);
 
@@ -433,27 +410,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     return Object.values(positions);
   }, [userBets]);
 
-  const timeframes: ChartTimeframe[] = ['1H', '6H', '1D', '1W', '1M', '6M', '1Y', 'ALL'];
-
-  // --- ARREGLO 1: Inicio de ventana independiente para ver espacio en blanco ---
-  const chartWindowStart = useMemo(() => {
-    if (!market) return 0;
-    const now = Date.now();
-    
-    if (chartTimeframe === 'ALL') return new Date(market.created_at).getTime();
-    
-    let start = now;
-    switch (chartTimeframe) {
-      case '1H': start = now - 60 * 60 * 1000; break;
-      case '6H': start = now - 6 * 60 * 60 * 1000; break;
-      case '1D': start = now - 24 * 60 * 60 * 1000; break;
-      case '1W': start = now - 7 * 24 * 60 * 60 * 1000; break;
-      case '1M': start = now - 30 * 24 * 60 * 60 * 1000; break;
-      case '6M': start = now - 180 * 24 * 60 * 60 * 1000; break;
-      case '1Y': start = now - 365 * 24 * 60 * 60 * 1000; break;
-    }
-    return start;
-  }, [chartTimeframe, market]);
+  const timeframes: ChartTimeframe[] = ['1D', '1W', '1M', 'ALL'];
 
   // --- ARREGLO 2 y 3: Génesis y Proyección inamovibles ---
   const filteredHistory = useMemo(() => {
@@ -472,7 +429,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     // 2. FORWARD FILL Y EVENTOS DE ELIMINACIÓN
     const rawHistory = (history || [])
       .filter(h => h.timestamp > marketCreatedAt + 2000)
-      .sort((a, b) => a.timestamp - b.timestamp);
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
     const eliminations = options
       .filter(o => o.is_eliminated && o.eliminated_at)
@@ -482,7 +439,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     rawHistory.forEach(h => events.push({ type: 'history', timestamp: h.timestamp, data: h }));
     eliminations.forEach(e => events.push({ type: 'elimination', timestamp: e.elimTime, optId: e.optId }));
 
-    events.sort((a, b) => a.timestamp - b.timestamp);
+    events.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
     const timeline: any[] = [genesisPoint];
     let lastKnownState = { ...genesisPoint };
@@ -551,30 +508,11 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       timeline.push(resolutionPoint);
       timeline.push({ ...resolutionPoint, timestamp: now }); 
     } else {
-      const currentProbs: any = { timestamp: now };
-      options.forEach(opt => {
-        currentProbs[opt.id] = opt.is_eliminated ? 0 : getOptionPrice(Number(opt.total_votes || 0), false) * 100;
-      });
-      timeline.push(currentProbs);
+      timeline.push({ ...lastKnownState, timestamp: now });
     }
 
-    // 4. RECORTAR AL VIEWPORT (chartWindowStart)
-    let result: any[] = [];
-    if (chartTimeframe === 'ALL') {
-      result = timeline;
-    } else {
-      if (chartWindowStart > marketCreatedAt) {
-        let baseline = timeline[0];
-        for (let i = timeline.length - 1; i >= 0; i--) {
-          if (timeline[i].timestamp <= chartWindowStart) {
-            baseline = timeline[i];
-            break;
-          }
-        }
-        result.push({ ...baseline, timestamp: chartWindowStart });
-      }
-      result.push(...timeline.filter(h => h.timestamp > chartWindowStart && h.timestamp <= now));
-    }
+    // 4. USAR TIMELINE COMPLETO SIEMPRE
+    let result = timeline;
 
     // 5. DENSIFY TIMELINE PARA TOOLTIP CONTINUO
     const denseResult = [];
@@ -597,11 +535,11 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       if (denseResult[denseResult.length - 1].timestamp !== maxT) {
         denseResult.push(result[result.length - 1]);
       }
-      return denseResult;
+      return denseResult.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     }
 
-    return result;
-  }, [market, options, history, chartWindowStart, chartTimeframe, getOptionPrice]);
+    return result.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }, [market, options, history, getOptionPrice]);
 
   const dynamicStrokeWidth = (chartTimeframe === 'ALL' || chartTimeframe === '1Y' || chartTimeframe === '6M') ? 2 : 3;
 
@@ -860,8 +798,9 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
           <Link href="/"><ArrowLeft className="w-4 h-4 mr-2" />Volver a Mercados</Link>
         </Button>
 
-        <div className="flex flex-col lg:grid lg:grid-cols-3 gap-8 items-start">
-          <div className="lg:col-span-2 w-full flex flex-col gap-6 order-1 lg:order-1">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 relative items-start">
+          {/* COLUMNA IZQUIERDA: 70% del ancho (Protagonista) */}
+          <div className="lg:col-span-8 flex flex-col gap-6 min-w-0">
             <div className="flex gap-4 sm:gap-6 items-start">
               {market.image_url && <img src={market.image_url} alt="Mercado" className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl object-cover shrink-0 shadow-md border border-border/50" />}
               <div>
@@ -895,7 +834,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
               </div>
             </div>
 
-            <div className="p-4 sm:p-6 rounded-xl border border-border/50 bg-card shadow-sm">
+            <div className="relative min-w-0 w-full">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
                 <h3 className="font-semibold flex items-center gap-2">
                   <LineChartIcon className="w-5 h-5 text-primary" /> Tendencia del Mercado
@@ -904,7 +843,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                   {timeframes.map((tf) => (
                     <button
                       key={tf}
-                      onClick={() => setChartTimeframe(tf)}
+                      onClick={() => handleTimeframeChange(tf)}
                       className={cn(
                         "px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap flex-1 sm:flex-none",
                         chartTimeframe === tf ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
@@ -917,70 +856,11 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
               </div>
 
               {filteredHistory.length > 0 ? (
-                <div className="h-[220px] sm:h-[300px] w-full mt-4 mb-2">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={filteredHistory} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                      <XAxis
-                        dataKey="timestamp"
-                        type="number"
-                        domain={
-                          chartTimeframe === 'ALL'
-                            ? [
-                                new Date(market.created_at).getTime() - Math.max(3600000, (Date.now() - new Date(market.created_at).getTime()) * 0.05),
-                                Date.now()
-                              ]
-                            : [chartWindowStart, Date.now()]
-                        }
-                        padding={{ right: 30 }}
-                        tickFormatter={formatXAxis}
-                        allowDataOverflow
-                        stroke={axisTextColor}
-                        fontSize={11}
-                        tickLine={false}
-                        axisLine={false}
-                        minTickGap={60}
-                        dy={10}
-                      />
-                      <YAxis
-                        stroke={axisTextColor}
-                        fontSize={11}
-                        tickLine={false}
-                        axisLine={false}
-                        domain={[0, 100]}
-                        tickFormatter={(val) => `${val}%`}
-                        width={60}
-                        orientation="right"
-                      />
-
-                      <Tooltip
-                        content={<CustomTooltip />}
-                        cursor={{ stroke: axisTextColor, strokeWidth: 1.5, strokeDasharray: 'none', opacity: 0.3 }}
-                        isAnimationActive={false}
-                      />
-
-                      {options.map((opt) => (
-                        <Area
-                          key={opt.id}
-                          type="stepAfter"
-                          dataKey={opt.id}
-                          stroke={opt.color}
-                          fillOpacity={0}
-                          fill="transparent"
-                          strokeWidth={dynamicStrokeWidth}
-                          strokeLinejoin="round"
-                          strokeLinecap="round"
-                          dot={false}
-                          activeDot={{ r: 4, strokeWidth: 0, fill: opt.color }}
-                          name={opt.option_name}
-                          isAnimationActive={true}
-                          animationDuration={500}
-                        />
-                      ))}
-                    </AreaChart>
-                  </ResponsiveContainer>
+                <div className="w-full h-[500px] relative min-w-0 pr-8 mt-4 mb-2">
+                    <LightweightChart data={filteredHistory} options={options} marketCreatedAt={new Date(market.created_at).getTime()} chartTimeframe={chartTimeframe} />
                 </div>
               ) : (
-                <div className="h-[220px] sm:h-[300px] w-full mt-4 mb-2 flex items-center justify-center border-2 border-dashed border-border/50 rounded-xl bg-muted/10">
+                <div className="w-full h-[500px] relative min-w-0 pr-8 mt-4 mb-2 flex items-center justify-center border-2 border-dashed border-border/50 rounded-xl bg-muted/10">
                   <p className="text-sm font-medium text-muted-foreground">No hay actividad en este período.</p>
                 </div>
               )}
@@ -1100,10 +980,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
               )}
             </div>
 
-          </div>
-
-          {/* TABS (Actividad / Debate) */}
-          <div className="lg:col-span-2 w-full flex flex-col gap-6 order-3 lg:order-3">
+            {/* TABS (Actividad / Debate) */}
             <div className="w-full mt-2">
             <Tabs defaultValue="activity" className="w-full">
               <TabsList className="grid w-full grid-cols-2 h-14 p-1.5 bg-muted/50 rounded-xl mb-8 border border-border/50 shadow-sm">
@@ -1277,10 +1154,22 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
               </div>
             </TabsContent>
           </Tabs>
-          </div>
+            </div>
+
+            {market.description && (
+              <div className="p-5 sm:p-6 rounded-2xl bg-muted/10 border border-border/50 text-foreground leading-relaxed shadow-sm">
+                <h3 className="text-base font-bold mb-2 text-foreground">Acerca de este mercado</h3>
+                <p className="text-sm font-medium text-muted-foreground">{market.description}</p>
+              </div>
+            )}
+
+            <div className="mb-8">
+              {ReglasBlock}
+            </div>
           </div>
 
-          <div className="w-full lg:col-span-1 lg:sticky lg:top-24 flex flex-col gap-6 order-2 lg:order-2 z-40">
+          {/* COLUMNA DERECHA: 30% del ancho (Panel de Trading Sticky) */}
+          <div className="lg:col-span-4 sticky top-24 self-start flex flex-col gap-6 z-40">
             
             {/* BACKDROP FUERA DEL CONTENEDOR TRANSFORMADO PARA QUE CUBRA TODA LA PANTALLA */}
             {(selectedOptionId || selectedSellPosition) && (
@@ -1582,26 +1471,11 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
               </div>
             </div>
 
-            <div className="hidden lg:block">
+            <div className="hidden lg:block w-full">
               {TopHoldersBlock}
             </div>
 
           </div>
-        </div>
-        
-        <div className="w-full max-w-2xl mx-auto lg:max-w-none lg:mx-0 mt-8">
-          {market.description && (
-            <div className="p-5 sm:p-6 rounded-2xl bg-muted/10 border border-border/50 text-foreground leading-relaxed mb-8 shadow-sm">
-              <h3 className="text-base font-bold mb-2 text-foreground">Acerca de este mercado</h3>
-              <p className="text-sm font-medium text-muted-foreground">{market.description}</p>
-            </div>
-          )}
-
-          <div className="block lg:hidden w-full mb-8">
-            {TopHoldersBlock}
-          </div>
-
-          {ReglasBlock}
         </div>
 
       </main>
