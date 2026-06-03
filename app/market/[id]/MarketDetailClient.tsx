@@ -793,14 +793,14 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     <div className="min-h-screen bg-background flex flex-col">
       <NavHeader points={profile?.points ?? 10000} isDarkMode={isDarkMode} onToggleDarkMode={toggleDarkMode} onPointsUpdate={() => fetchUserAndProfile()} userId={user?.id ?? null} userEmail={user?.email ?? null} onOpenAuthModal={() => setIsAuthModalOpen(true)} onSignOut={async () => { await supabase.auth.signOut(); fetchUserAndProfile(); }} isAdmin={profile?.role === "admin"} username={profile?.username} />
 
-      <main className="container mx-auto px-4 py-8 flex-1 max-w-6xl">
+      <main className="w-full max-w-[1440px] mx-auto px-4 md:px-8 py-8 flex-1">
         <Button variant="ghost" size="sm" asChild className="mb-6 -ml-2 text-muted-foreground hover:text-foreground">
           <Link href="/"><ArrowLeft className="w-4 h-4 mr-2" />Volver a Mercados</Link>
         </Button>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 relative items-start">
           {/* COLUMNA IZQUIERDA: 70% del ancho (Protagonista) */}
-          <div className="lg:col-span-8 flex flex-col gap-6 min-w-0">
+          <div className="lg:col-span-8 xl:col-span-9 flex flex-col gap-6 min-w-0">
             <div className="flex gap-4 sm:gap-6 items-start">
               {market.image_url && <img src={market.image_url} alt="Mercado" className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl object-cover shrink-0 shadow-md border border-border/50" />}
               <div>
@@ -856,11 +856,11 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
               </div>
 
               {filteredHistory.length > 0 ? (
-                <div className="w-full h-[500px] relative min-w-0 pr-8 mt-4 mb-2">
+                <div className="w-full h-[350px] relative min-w-0 overflow-hidden pr-2 lg:pr-8 mt-4 mb-2">
                     <LightweightChart data={filteredHistory} options={options} marketCreatedAt={new Date(market.created_at).getTime()} chartTimeframe={chartTimeframe} />
                 </div>
               ) : (
-                <div className="w-full h-[500px] relative min-w-0 pr-8 mt-4 mb-2 flex items-center justify-center border-2 border-dashed border-border/50 rounded-xl bg-muted/10">
+                <div className="w-full h-[350px] relative min-w-0 overflow-hidden pr-2 lg:pr-8 mt-4 mb-2 flex items-center justify-center border-2 border-dashed border-border/50 rounded-xl bg-muted/10">
                   <p className="text-sm font-medium text-muted-foreground">No hay actividad en este período.</p>
                 </div>
               )}
@@ -1156,6 +1156,10 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
           </Tabs>
             </div>
 
+            <div className="block lg:hidden w-full mt-4">
+              {TopHoldersBlock}
+            </div>
+
             {market.description && (
               <div className="p-5 sm:p-6 rounded-2xl bg-muted/10 border border-border/50 text-foreground leading-relaxed shadow-sm">
                 <h3 className="text-base font-bold mb-2 text-foreground">Acerca de este mercado</h3>
@@ -1169,7 +1173,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
           </div>
 
           {/* COLUMNA DERECHA: 30% del ancho (Panel de Trading Sticky) */}
-          <div className="lg:col-span-4 sticky top-24 self-start flex flex-col gap-6 z-40">
+          <div className="lg:col-span-4 xl:col-span-3 sticky top-24 self-start flex flex-col gap-6 z-40">
             
             {/* BACKDROP FUERA DEL CONTENEDOR TRANSFORMADO PARA QUE CUBRA TODA LA PANTALLA */}
             {(selectedOptionId || selectedSellPosition) && (

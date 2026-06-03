@@ -7,25 +7,20 @@ import { useTheme } from "next-themes";
 
 export function ProductTour() {
   const { theme } = useTheme();
+  const [isMounted, setIsMounted] = useState(false);
   const [run, setRun] = useState(false);
   const [tourKey, setTourKey] = useState(0);
   const [createTarget, setCreateTarget] = useState("#tour-create-btn-desktop");
 
   useEffect(() => {
+    setIsMounted(true); // Confirma a React que ya estamos en el navegador
+    
     // Calcular el target correcto del botón crear según el tamaño de la pantalla
     const updateTarget = () => {
       setCreateTarget(window.innerWidth >= 1024 ? "#tour-create-btn-desktop" : "#tour-create-btn-mobile");
     };
     updateTarget();
     window.addEventListener("resize", updateTarget);
-
-    // Revisar si ya lo vio al cargar
-    const hasSeenTour = localStorage.getItem("zeilo_has_seen_onboarding");
-    if (!hasSeenTour) {
-      // LO GRABAMOS INMEDIATAMENTE: así si el usuario navega a otra página sin apretar "Saltear", no vuelve a aparecer al regresar.
-      localStorage.setItem("zeilo_has_seen_onboarding", "true");
-      setTimeout(() => setRun(true), 800);
-    }
 
     // Escuchar el evento personalizado del NavHeader
     const handleStartTour = () => {
@@ -71,14 +66,15 @@ export function ProductTour() {
   ];
 
   const handleJoyrideCallback = (data: any) => {
-    const { status } = data;
-    const finishedStatuses: string[] = [STATUS.FINISHED, STATUS.SKIPPED];
+    const { status, action } = data;
     
-    if (finishedStatuses.includes(status)) {
-      localStorage.setItem("zeilo_has_seen_onboarding", "true");
-      setRun(false);
+    // Evaluamos directamente con los strings nativos de la librería
+    if (status === 'finished' || status === 'skipped' || action === 'close') {
+      setRun(false); // Apaga el tour
     }
   };
+
+  if (!isMounted) return null;
 
   return (
     <Joyride

@@ -23,19 +23,11 @@ export function LightweightChart({ data, options, marketCreatedAt, chartTimefram
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
-    const handleResize = () => {
-      if (chartRef.current && chartContainerRef.current) {
-        chartRef.current.applyOptions({
-          width: chartContainerRef.current.clientWidth,
-          height: chartContainerRef.current.clientHeight,
-        });
-      }
-    };
-
     const textColor = isDarkMode ? '#A3A3A3' : '#64748b';
     const gridColor = isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)';
 
     const chart = createChart(chartContainerRef.current, {
+      autoSize: true,
       layout: {
         background: { type: ColorType.Solid, color: 'transparent' },
         textColor: '#A3A3A3',
@@ -46,13 +38,13 @@ export function LightweightChart({ data, options, marketCreatedAt, chartTimefram
         horzLines: { color: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : '#f0f3fa' },
       },
       crosshair: {
-        vertLine: { color: isDarkMode ? '#334155' : '#e5e7eb', width: 1, style: 3, labelVisible: false },
-        horzLine: { color: isDarkMode ? '#334155' : '#e5e7eb', width: 1, style: 3, labelVisible: false },
+        mode: 1, // Magnet mode
+        vertLine: { color: isDarkMode ? '#334155' : '#e5e7eb', width: 1, style: 1, labelVisible: false, labelBackgroundColor: isDarkMode ? '#1f2937' : '#ffffff' },
+        horzLine: { visible: false, labelVisible: false },
       },
       rightPriceScale: { 
         visible: true, 
         borderVisible: false,
-        minimumWidth: 100, 
         autoScale: true,
         scaleMargins: { 
           top: 0.08, 
@@ -70,24 +62,23 @@ export function LightweightChart({ data, options, marketCreatedAt, chartTimefram
         locale: 'es-AR',
         priceFormatter: (price: number) => {
           const rounded = price.toFixed(1);
-          const text = rounded.endsWith('.0') ? `${Math.round(price)}%` : `${rounded}%`;
-          return `${text}\u00A0\u00A0\u00A0`; // Espacios irrompibles para engañar al trim() del Canvas
+          return rounded.endsWith('.0') ? `${Math.round(price)}%` : `${rounded}%`;
         },
       },
       handleScroll: {
         mouseWheel: false,
-        pressedMouseMove: false,
+        pressedMouseMove: true,
+        horzTouchDrag: true,
+        vertTouchDrag: true,
       },
       handleScale: {
-        axisPressedMouseMove: false,
+        axisPressedMouseMove: true,
         mouseWheel: false,
-        pinch: false,
+        pinch: true,
       },
       watermark: {
         visible: false,
       },
-      width: chartContainerRef.current.clientWidth,
-      height: chartContainerRef.current.clientHeight,
     });
 
     chartRef.current = chart;
@@ -118,8 +109,7 @@ export function LightweightChart({ data, options, marketCreatedAt, chartTimefram
           type: 'custom',
           formatter: (price: number) => {
             const rounded = price.toFixed(1);
-            const text = rounded.endsWith('.0') ? `${Math.round(price)}%` : `${rounded}%`;
-            return `${text}\u00A0\u00A0\u00A0`; // Espacios irrompibles para engañar al trim() del Canvas
+            return rounded.endsWith('.0') ? `${Math.round(price)}%` : `${rounded}%`;
           },
         },
         lastValueVisible: false,
@@ -140,7 +130,7 @@ export function LightweightChart({ data, options, marketCreatedAt, chartTimefram
       metadataRefs.current[opt.id] = { name: opt.option_name, color: color };
     });
 
-    chart.subscribeCrosshairMove((param) => {
+    const handleTooltip = (param: any) => {
       if (
         param.point === undefined ||
         !param.time ||
@@ -179,12 +169,12 @@ export function LightweightChart({ data, options, marketCreatedAt, chartTimefram
           y: param.point.y,
         });
       }
-    });
+    };
 
-    window.addEventListener("resize", handleResize);
+    chart.subscribeCrosshairMove(handleTooltip);
+    chart.subscribeClick(handleTooltip);
 
     return () => {
-      window.removeEventListener("resize", handleResize);
       if (chartRef.current) {
         chartRef.current.remove();
         chartRef.current = null;
