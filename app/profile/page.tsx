@@ -56,7 +56,9 @@ export type PortfolioPosition = {
   market_title?: string;
   market_image_url?: string | null;
   option_display_name?: string;
+  outcome_name?: string;
   direction?: string;
+  current_price?: number;
 };
 
 
@@ -245,7 +247,7 @@ export default function ProfilePage() {
     const totalCurrentValueActive = portfolioPositions
       .filter(p => p.status === 'active')
       .reduce((acc, pos) => {
-        const currentPrice = 0.50; // Mock current price temporalmente
+        const currentPrice = Number(pos.current_price) || 0;
         return acc + (pos.shares * currentPrice);
       }, 0);
 
@@ -680,12 +682,21 @@ export default function ProfilePage() {
             ) : (
               <div className="flex flex-col border border-border/50 rounded-2xl bg-card overflow-hidden shadow-sm">
                 {portfolioPositions.filter(p => p.status === 'active').map((pos, idx, arr) => {
-                  const currentPrice = 0.50; // Mock current price temporalmente
+                  const currentPrice = Number(pos.current_price) || 0;
                   const currentValue = pos.shares * currentPrice;
                   const totalInvestment = pos.shares * pos.avg_price;
                   const floatingPnl = currentValue - totalInvestment;
                   const floatingPnlPct = totalInvestment > 0 ? (floatingPnl / totalInvestment) * 100 : 0;
                   const isProfit = floatingPnl >= 0;
+
+                  const outcomeName = String(pos.outcome_name || pos.option_display_name || pos.outcome);
+                  const isBinary = ['sí', 'si', 'no', 'yes'].includes(outcomeName.toLowerCase().trim());
+                  const dirText = pos.direction === 'yes' ? 'SÍ' : 'NO';
+                  const badgeText = isBinary ? outcomeName.toUpperCase() : `${dirText} - ${outcomeName}`;
+
+                  const isRedBadge = isBinary 
+                    ? ['no'].includes(outcomeName.toLowerCase().trim()) 
+                    : pos.direction === 'no';
 
                   return (
                     <div key={`${pos.market_id}-${pos.outcome}-${idx}`} className={cn("p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:bg-muted/10 transition-colors", idx !== arr.length - 1 && "border-b border-border/30")}>
@@ -704,11 +715,11 @@ export default function ProfilePage() {
                             <p className="font-bold text-sm text-foreground truncate">{pos.market_title}</p>
                           </Link>
                           <div className="flex items-center gap-1.5 mt-1">
-                            <Badge variant="outline" className={cn("text-[9px] font-bold h-4 px-1 border", pos.direction === 'no' ? "bg-red-500/10 text-red-600 dark:text-red-500 border-red-500/30" : "bg-green-500/10 text-green-600 dark:text-green-500 border-green-500/30")}>
-                              {pos.direction === 'no' ? 'NO' : 'SÍ'}
+                            <Badge variant="outline" className={cn("text-[9px] font-bold h-4 px-1 border", isRedBadge ? "bg-red-500/10 text-red-600 dark:text-red-500 border-red-500/30" : "bg-green-500/10 text-green-600 dark:text-green-500 border-green-500/30")}>
+                              {badgeText}
                             </Badge>
                             <span className="text-[10px] font-medium text-muted-foreground">
-                              {pos.option_display_name || pos.outcome} | {Number(pos.shares).toLocaleString('es-AR')} acciones a ${(Number(pos.avg_price) || 0).toFixed(2)}
+                              | {Number(pos.shares).toLocaleString('es-AR')} acciones a ${(Number(pos.avg_price) || 0).toFixed(2)}
                             </span>
                           </div>
                         </div>
@@ -752,6 +763,15 @@ export default function ProfilePage() {
                   const isProfit = pos.realized_pnl > 0;
                   const isTie = pos.realized_pnl === 0;
 
+                  const outcomeName = String(pos.outcome_name || pos.option_display_name || pos.outcome);
+                  const isBinary = ['sí', 'si', 'no', 'yes'].includes(outcomeName.toLowerCase().trim());
+                  const dirText = pos.direction === 'yes' ? 'SÍ' : 'NO';
+                  const badgeText = isBinary ? outcomeName.toUpperCase() : `${dirText} - ${outcomeName}`;
+
+                  const isRedBadge = isBinary 
+                    ? ['no'].includes(outcomeName.toLowerCase().trim()) 
+                    : pos.direction === 'no';
+
                   return (
                     <div key={`${pos.market_id}-${pos.outcome}-${idx}`} className={cn("p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:bg-muted/10 transition-colors", idx !== arr.length - 1 && "border-b border-border/30")}>
                       
@@ -778,11 +798,11 @@ export default function ProfilePage() {
                             <p className="font-bold text-sm text-foreground truncate">{pos.market_title}</p>
                           </Link>
                           <div className="flex items-center gap-1.5 mt-1">
-                            <Badge variant="outline" className={cn("text-[9px] font-bold h-4 px-1 border", pos.direction === 'no' ? "bg-red-500/10 text-red-600 dark:text-red-500 border-red-500/30" : "bg-green-500/10 text-green-600 dark:text-green-500 border-green-500/30")}>
-                              {pos.direction === 'no' ? 'NO' : 'SÍ'}
+                            <Badge variant="outline" className={cn("text-[9px] font-bold h-4 px-1 border", isRedBadge ? "bg-red-500/10 text-red-600 dark:text-red-500 border-red-500/30" : "bg-green-500/10 text-green-600 dark:text-green-500 border-green-500/30")}>
+                              {badgeText}
                             </Badge>
                             <span className="text-[10px] font-medium text-muted-foreground">
-                              {pos.option_display_name || pos.outcome} | {Number(pos.shares).toLocaleString('es-AR')} acciones a ${(Number(pos.avg_price) || 0).toFixed(2)}
+                              | {Number(pos.shares).toLocaleString('es-AR')} acciones a ${(Number(pos.avg_price) || 0).toFixed(2)}
                             </span>
                           </div>
                         </div>
