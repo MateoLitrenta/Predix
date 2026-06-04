@@ -20,7 +20,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { Coins, User as UserIcon, ArrowLeft, Loader2, TrendingUp, History, Pencil, Landmark, Lock, LineChart, CheckCircle2, XCircle, Gift, Copy, Check, Users, Wallet, CalendarDays, ChevronRight, ArrowDownRight, ArrowUpRight } from "lucide-react";
+import { Coins, User as UserIcon, ArrowLeft, Loader2, TrendingUp, History, Pencil, Landmark, Lock, LineChart, CheckCircle2, XCircle, MinusCircle, Gift, Copy, Check, Users, Wallet, CalendarDays, ChevronRight, ArrowDownRight, ArrowUpRight } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/components/theme-provider";
@@ -59,17 +59,7 @@ export type PortfolioPosition = {
   direction?: string;
 };
 
-const formatPositionSummary = (optionName: string | undefined, direction: string | undefined, shares: number, avgPrice: number) => {
-  const dirLower = String(direction || 'yes').toLowerCase();
-  const dirStr = dirLower === 'yes' ? 'SÍ' : (dirLower === 'no' ? 'NO' : (direction?.toUpperCase() || 'SÍ'));
-  
-  const optNameLower = String(optionName || '').toLowerCase().trim();
-  const isRedundant = ['sí', 'si', 'no', 'yes'].includes(optNameLower);
 
-  const prefix = isRedundant ? dirStr : `${optionName || 'Opción'} - ${dirStr}`;
-  
-  return `${prefix} | ${Number(shares).toLocaleString('es-AR')} acciones a $${(Number(avgPrice) || 0).toFixed(2)}`;
-};
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -713,9 +703,14 @@ export default function ProfilePage() {
                           <Link href={`/market/${pos.market_id}`} className="block hover:underline">
                             <p className="font-bold text-sm text-foreground truncate">{pos.market_title}</p>
                           </Link>
-                          <Badge variant="outline" className="mt-1 text-[10px] font-bold h-5 px-1.5 bg-muted/30">
-                            {formatPositionSummary(pos.option_display_name || pos.outcome, pos.direction, pos.shares, pos.avg_price)}
-                          </Badge>
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <Badge variant="outline" className={cn("text-[9px] font-bold h-4 px-1 border", pos.direction === 'no' ? "bg-red-500/10 text-red-600 dark:text-red-500 border-red-500/30" : "bg-green-500/10 text-green-600 dark:text-green-500 border-green-500/30")}>
+                              {pos.direction === 'no' ? 'NO' : 'SÍ'}
+                            </Badge>
+                            <span className="text-[10px] font-medium text-muted-foreground">
+                              {pos.option_display_name || pos.outcome} | {Number(pos.shares).toLocaleString('es-AR')} acciones a ${(Number(pos.avg_price) || 0).toFixed(2)}
+                            </span>
+                          </div>
                         </div>
                       </div>
 
@@ -753,15 +748,23 @@ export default function ProfilePage() {
                   const totalInvestment = pos.shares * pos.avg_price;
                   const finalAmount = totalInvestment + pos.realized_pnl;
                   const pnlPct = totalInvestment > 0 ? (pos.realized_pnl / totalInvestment) * 100 : 0;
-                  const isProfit = pos.realized_pnl >= 0;
+                  const isLoss = pos.realized_pnl < 0;
+                  const isProfit = pos.realized_pnl > 0;
+                  const isTie = pos.realized_pnl === 0;
 
                   return (
                     <div key={`${pos.market_id}-${pos.outcome}-${idx}`} className={cn("p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:bg-muted/10 transition-colors", idx !== arr.length - 1 && "border-b border-border/30")}>
                       
                       {/* Columna 1 y 2: Indicador y Mercado */}
                       <div className="flex items-center gap-3 flex-1 min-w-0">
-                        <div className="w-8 h-8 rounded-full bg-muted/50 flex items-center justify-center shrink-0 border border-border/50 hidden sm:flex">
-                          <CheckCircle2 className="w-4 h-4 text-muted-foreground" />
+                        <div className={cn("w-8 h-8 rounded-full flex items-center justify-center shrink-0 border hidden sm:flex", 
+                          isProfit ? "bg-green-500/10 border-green-500/30" : 
+                          isLoss ? "bg-red-500/10 border-red-500/30" : 
+                          "bg-muted/50 border-border/50"
+                        )}>
+                          {isProfit && <CheckCircle2 className="w-4 h-4 text-green-500" />}
+                          {isLoss && <XCircle className="w-4 h-4 text-red-500" />}
+                          {isTie && <MinusCircle className="w-4 h-4 text-muted-foreground" />}
                         </div>
                         {pos.market_image_url ? (
                           <img src={pos.market_image_url} alt="market" className="w-10 h-10 rounded-full object-cover border border-border/50 shrink-0 hidden sm:block" />
@@ -774,9 +777,14 @@ export default function ProfilePage() {
                           <Link href={`/market/${pos.market_id}`} className="block hover:underline">
                             <p className="font-bold text-sm text-foreground truncate">{pos.market_title}</p>
                           </Link>
-                          <Badge variant="outline" className="mt-1 text-[10px] font-bold h-5 px-1.5 bg-muted/30">
-                            {formatPositionSummary(pos.option_display_name || pos.outcome, pos.direction, pos.shares, pos.avg_price)}
-                          </Badge>
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <Badge variant="outline" className={cn("text-[9px] font-bold h-4 px-1 border", pos.direction === 'no' ? "bg-red-500/10 text-red-600 dark:text-red-500 border-red-500/30" : "bg-green-500/10 text-green-600 dark:text-green-500 border-green-500/30")}>
+                              {pos.direction === 'no' ? 'NO' : 'SÍ'}
+                            </Badge>
+                            <span className="text-[10px] font-medium text-muted-foreground">
+                              {pos.option_display_name || pos.outcome} | {Number(pos.shares).toLocaleString('es-AR')} acciones a ${(Number(pos.avg_price) || 0).toFixed(2)}
+                            </span>
+                          </div>
                         </div>
                       </div>
 

@@ -19,7 +19,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { createClient } from "@/lib/supabase/client";
-import { sellBet, sellPartialShares } from "@/lib/actions";
+import { sellBet } from "@/lib/actions";
 import { Loader2, ArrowLeft, Clock, Coins, X, User as UserIcon, MessageSquare, Reply, ChevronDown, ChevronUp, Trash2, TrendingUp, LineChart as LineChartIcon, Share2, Twitter, MessageCircle, Copy, Check, Lock, CheckCircle2, Trophy, Scale, AlertCircle, Wallet, Layers } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -335,18 +335,20 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
   };
 
   const executeSellShares = async () => {
-    if (!selectedSellPosition || !sellSharesInput) return;
+    if (!selectedSellPosition) return;
 
     const [optId, dir] = selectedSellPosition.split('|');
-    const sharesToSell = parseFloat(sellSharesInput);
-
-    if (isNaN(sharesToSell) || sharesToSell <= 0) {
-      toast({ title: "Cantidad inválida", variant: "destructive" });
+    
+    // Buscamos el ticket activo en userBets para esta posición
+    const activeBet = userBets.find(b => b.outcome === optId && b.direction === dir && b.amount > 0 && b.shares > 0);
+    
+    if (!activeBet) {
+      toast({ title: "No se encontró el ticket", variant: "destructive" });
       return;
     }
 
     setIsSelling(true);
-    const { ok, error, cashoutValue } = await sellPartialShares(marketId, optId, dir, sharesToSell);
+    const { ok, error, cashoutValue } = await sellBet(activeBet.id);
     setIsSelling(false);
 
     if (!ok) {
@@ -1427,29 +1429,20 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                                 const pos = consolidatedPositions.find(p => p.outcome === optId && p.direction === dir);
                                 if (!pos) return null;
 
-                                const sharesToSell = parseFloat(sellSharesInput) || 0;
-                                const isValidSell = sharesToSell > 0 && sharesToSell <= pos.totalShares;
-                                const expectedReturn = isValidSell ? calculatePartialCashout(optId, dir, sharesToSell) : 0;
+                                const sharesToSell = pos.totalShares;
+                                const expectedReturn = calculatePartialCashout(optId, dir, sharesToSell);
                                 const isRed = dir === 'no' || (isBinaryYesNo && opt?.option_name.toLowerCase() === 'no');
 
                                 return (
                                   <>
                                     <div className="flex items-center gap-2 mb-2">
                                       <button onClick={() => { setSelectedSellPosition(null); setSellSharesInput(""); }} className="p-1 hover:bg-muted rounded text-muted-foreground"><ArrowLeft className="w-4 h-4" /></button>
-                                      <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Configurar Venta</p>
+                                      <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Confirmar Venta</p>
                                     </div>
 
                                     <div className={cn("p-4 rounded-xl border", !isRed ? 'border-green-500/30 bg-green-500/5' : 'border-red-500/30 bg-red-500/5')}>
                                       <p className="text-sm font-black text-foreground">{isBinaryYesNo ? opt?.option_name : `${dir === 'yes' ? 'Sí' : 'No'} a ${opt?.option_name}`}</p>
-                                      <p className="text-xs font-medium text-muted-foreground mt-1">Disponibles: <span className="font-bold text-foreground">{Math.round(pos.totalShares).toLocaleString()} acciones</span></p>
-                                    </div>
-
-                                    <div>
-                                      <div className="flex justify-between items-center mb-1.5">
-                                        <Label className="text-muted-foreground">Acciones a liquidar</Label>
-                                        <button onClick={() => setSellSharesInput(pos.totalShares.toString())} className="text-[10px] font-bold uppercase tracking-wider text-primary hover:text-primary/80 transition-colors bg-primary/10 px-2 py-0.5 rounded-full">MAX</button>
-                                      </div>
-                                      <Input type="number" placeholder="0" value={sellSharesInput} onChange={(e) => setSellSharesInput(e.target.value)} max={pos.totalShares} className="h-14 text-xl font-bold bg-muted/20 border-border/50 focus-visible:ring-primary/50" />
+                                      <p className="text-xs font-medium text-muted-foreground mt-1">Se liquidará el 100% de la posición: <span className="font-bold text-foreground">{Math.round(pos.totalShares).toLocaleString()} acciones</span></p>
                                     </div>
 
                                     <div className="p-4 rounded-xl bg-background border border-border/50">
@@ -1459,8 +1452,8 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                                       </div>
                                     </div>
 
-                                    <Button size="lg" className="w-full h-12 font-bold bg-secondary hover:bg-secondary/80 text-secondary-foreground mt-2" onClick={executeSellShares} disabled={!isValidSell || isSelling || isMarketClosed}>
-                                      {isMarketClosed ? <><Lock className="w-4 h-4 mr-2" /> Bloqueado</> : isSelling ? <Loader2 className="w-4 h-4 animate-spin" /> : isValidSell ? `Liquidar por ${expectedReturn} pts` : "Ingresar cantidad"}
+                                    <Button size="lg" className="w-full h-12 font-bold bg-secondary hover:bg-secondary/80 text-secondary-foreground mt-2" onClick={executeSellShares} disabled={isSelling || isMarketClosed}>
+                                      {isMarketClosed ? <><Lock className="w-4 h-4 mr-2" /> Bloqueado</> : isSelling ? <Loader2 className="w-4 h-4 animate-spin" /> : `Liquidar por ${expectedReturn} pts`}
                                     </Button>
                                   </>
                                 );
