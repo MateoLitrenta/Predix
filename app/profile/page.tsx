@@ -55,6 +55,20 @@ export type PortfolioPosition = {
   realized_pnl: number;
   market_title?: string;
   market_image_url?: string | null;
+  option_display_name?: string;
+  direction?: string;
+};
+
+const formatPositionSummary = (optionName: string | undefined, direction: string | undefined, shares: number, avgPrice: number) => {
+  const dirLower = String(direction || 'yes').toLowerCase();
+  const dirStr = dirLower === 'yes' ? 'SÍ' : (dirLower === 'no' ? 'NO' : (direction?.toUpperCase() || 'SÍ'));
+  
+  const optNameLower = String(optionName || '').toLowerCase().trim();
+  const isRedundant = ['sí', 'si', 'no', 'yes'].includes(optNameLower);
+
+  const prefix = isRedundant ? dirStr : `${optionName || 'Opción'} - ${dirStr}`;
+  
+  return `${prefix} | ${Number(shares).toLocaleString('es-AR')} acciones a $${(Number(avgPrice) || 0).toFixed(2)}`;
 };
 
 export default function ProfilePage() {
@@ -145,21 +159,28 @@ export default function ProfilePage() {
       if (marketIds.length > 0) {
         const { data: marketsData, error: marketsError } = await supabase.from('markets').select('id, title, image_url').in('id', marketIds);
         
-        if (marketsData) {
-          const marketMap = new Map(marketsData.map(m => [m.id, m]));
-          positions = positions.map((p: any) => ({
+        const marketMap = marketsData ? new Map(marketsData.map(m => [m.id, m])) : new Map();
+
+        positions = positions.map((p: any) => {
+          let option_display_name = p.outcome;
+          const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(p.outcome);
+          
+          if (isUUID && optionsRes.data) {
+            const option = optionsRes.data.find((o: any) => o.id === p.outcome);
+            if (option && option.option_name) {
+              option_display_name = option.option_name;
+            }
+          } else if (!isUUID && typeof p.outcome === 'string' && p.outcome.length > 0) {
+            option_display_name = p.outcome.charAt(0).toUpperCase() + p.outcome.slice(1);
+          }
+
+          return {
             ...p,
             market_title: marketMap.get(p.market_id)?.title ?? "Mercado",
-            market_image_url: marketMap.get(p.market_id)?.image_url ?? null
-          }));
-        } else {
-          // Si falla la tabla markets, al menos guardamos los datos crudos
-          positions = positions.map((p: any) => ({
-            ...p,
-            market_title: "Mercado",
-            market_image_url: null
-          }));
-        }
+            market_image_url: marketMap.get(p.market_id)?.image_url ?? null,
+            option_display_name
+          };
+        });
       }
     }
     
@@ -230,21 +251,17 @@ export default function ProfilePage() {
 
   const portfolioStats = useMemo(() => {
     const availableCapital = profile?.points ?? 0;
-    let totalCurrentValueActive = 0;
-
-    bets
-      .filter(isBetActive)
-      .forEach((bet) => {
-        const market = getMarket(bet);
-        const opt = bet.option_details;
-        if (market && opt) {
-          totalCurrentValueActive += calculatePositionValue(bet, market, opt);
-        }
-      });
+    
+    const totalCurrentValueActive = portfolioPositions
+      .filter(p => p.status === 'active')
+      .reduce((acc, pos) => {
+        const currentPrice = 0.50; // Mock current price temporalmente
+        return acc + (pos.shares * currentPrice);
+      }, 0);
 
     const totalPortfolioValue = availableCapital + totalCurrentValueActive;
     return { availableCapital, totalPortfolioValue, lockedValueOffset: totalCurrentValueActive };
-  }, [bets, profile?.points, calculatePositionValue, isBetActive]);
+  }, [portfolioPositions, profile?.points]);
 
   const processedTransactions = useMemo(() => {
     if (!transactions.length) return [];
@@ -571,8 +588,8 @@ export default function ProfilePage() {
                   <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-blue-500 opacity-80" />
                 </div>
                 <div>
-                  <p className="text-lg sm:text-2xl font-black text-foreground">{portfolioStats.lockedValueOffset.toLocaleString()}</p>
-                  <p className="text-[10px] font-semibold text-muted-foreground">{bets.filter(isBetActive).length} mercados</p>
+                  <p className="text-lg sm:text-2xl font-black text-foreground">{portfolioStats.lockedValueOffset.toLocaleString(undefined, {maximumFractionDigits: 0})} pts</p>
+                  <p className="text-[10px] font-semibold text-muted-foreground">{portfolioPositions.filter(p => p.status === 'active').length} mercados</p>
                 </div>
               </div>
 
@@ -696,7 +713,9 @@ export default function ProfilePage() {
                           <Link href={`/market/${pos.market_id}`} className="block hover:underline">
                             <p className="font-bold text-sm text-foreground truncate">{pos.market_title}</p>
                           </Link>
-                          <Badge variant="outline" className="mt-1 text-[10px] font-bold h-5 px-1.5 bg-muted/30">{pos.outcome}</Badge>
+                          <Badge variant="outline" className="mt-1 text-[10px] font-bold h-5 px-1.5 bg-muted/30">
+                            {formatPositionSummary(pos.option_display_name || pos.outcome, pos.direction, pos.shares, pos.avg_price)}
+                          </Badge>
                         </div>
                       </div>
 
@@ -755,7 +774,9 @@ export default function ProfilePage() {
                           <Link href={`/market/${pos.market_id}`} className="block hover:underline">
                             <p className="font-bold text-sm text-foreground truncate">{pos.market_title}</p>
                           </Link>
-                          <Badge variant="outline" className="mt-1 text-[10px] font-bold h-5 px-1.5 bg-muted/30">{pos.outcome}</Badge>
+                          <Badge variant="outline" className="mt-1 text-[10px] font-bold h-5 px-1.5 bg-muted/30">
+                            {formatPositionSummary(pos.option_display_name || pos.outcome, pos.direction, pos.shares, pos.avg_price)}
+                          </Badge>
                         </div>
                       </div>
 
