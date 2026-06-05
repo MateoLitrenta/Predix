@@ -59,6 +59,12 @@ export type PortfolioPosition = {
   outcome_name?: string;
   direction?: string;
   current_price?: number;
+  created_at?: string;
+  last_activity?: string;
+  updated_at?: string;
+  timestamp?: string;
+  date?: string;
+  [key: string]: any;
 };
 
 
@@ -97,23 +103,38 @@ export default function ProfilePage() {
       }
     };
     
+    const sortedPositions = [...result];
+    
+    const getPosDate = (pos: any) => {
+      // Buscar la fecha de la apuesta más reciente asociada a esta posición
+      const relatedBets = bets.filter(b => b.market_id === pos.market_id && b.outcome === pos.outcome);
+      if (relatedBets.length > 0) {
+        return Math.max(...relatedBets.map(b => new Date(b.created_at || 0).getTime()));
+      }
+      
+      // Fallback a las propiedades directas en caso de existir
+      const dateStr = pos.last_activity || pos.updated_at || pos.created_at || pos.timestamp || pos.date;
+      return dateStr ? new Date(dateStr).getTime() : 0;
+    };
+    
     switch (sortBy) {
       case 'oldest':
-        result.reverse(); 
+        sortedPositions.sort((a, b) => getPosDate(a) - getPosDate(b));
         break;
       case 'highest_value':
-        result.sort((a, b) => getValue(b) - getValue(a));
+        sortedPositions.sort((a, b) => getValue(b) - getValue(a));
         break;
       case 'lowest_value':
-        result.sort((a, b) => getValue(a) - getValue(b));
+        sortedPositions.sort((a, b) => getValue(a) - getValue(b));
         break;
       case 'recent':
       default:
+        sortedPositions.sort((a, b) => getPosDate(b) - getPosDate(a));
         break;
     }
     
-    return result;
-  }, [portfolioPositions, searchTerm, sortBy]);
+    return sortedPositions;
+  }, [portfolioPositions, searchTerm, sortBy, bets]);
 
   const [isChecking, setIsChecking] = useState(true);
   const [isLoadingBets, setIsLoadingBets] = useState(true);
@@ -714,19 +735,19 @@ export default function ProfilePage() {
           </TabsList>
 
           {activeTab !== 'bank' && (
-            <div className="flex flex-col sm:flex-row items-center gap-3 mb-6">
+            <div className="flex flex-col sm:flex-row items-center gap-4 mb-6">
               <div className="relative w-full sm:flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input 
                   placeholder="Buscar posiciones..." 
-                  className="pl-9 bg-card border-border/50 text-sm h-10 w-full rounded-xl focus-visible:ring-1 focus-visible:ring-primary/30 shadow-sm"
+                  className="pl-10 bg-background hover:bg-muted/30 border-border text-sm h-11 w-full rounded-full focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:border-primary/50 shadow-sm transition-all"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
               <div className="w-full sm:w-auto relative">
                 <select 
-                  className="w-full sm:w-[170px] h-10 pl-3 pr-8 bg-card border border-border/50 rounded-xl text-sm text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/30 appearance-none shadow-sm cursor-pointer hover:bg-muted/30 transition-colors"
+                  className="appearance-none bg-background border border-border rounded-xl px-4 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer w-full sm:w-auto transition-colors hover:bg-muted/50"
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value as any)}
                 >
@@ -735,9 +756,7 @@ export default function ProfilePage() {
                   <option value="highest_value">Mayor valor</option>
                   <option value="lowest_value">Menor valor</option>
                 </select>
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                  <ChevronDown className="w-4 h-4 text-muted-foreground opacity-50" />
-                </div>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none w-4 h-4 text-muted-foreground" />
               </div>
             </div>
           )}
