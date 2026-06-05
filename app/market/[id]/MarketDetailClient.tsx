@@ -268,11 +268,14 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
 
     setIsPlacingBet(true);
 
+    const sharesToBuy = orderSummary?.shares || 0;
+
     const { error } = await supabase.rpc("realizar_apuesta", {
       p_amount: numericAmount,
       p_market_id: marketId,
       p_outcome: selectedOptionId,
-      p_direction: selectedDirection
+      p_direction: selectedDirection,
+      p_shares: sharesToBuy
     });
 
     setIsPlacingBet(false);
@@ -282,14 +285,6 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     } else {
       const optionName = options.find(o => o.id === selectedOptionId)?.option_name || "la opción";
       const directionText = selectedDirection === 'yes' ? 'a favor de' : 'en contra de';
-
-      await supabase.from("transactions").insert({
-        user_id: user.id,
-        amount: -numericAmount,
-        type: "bet",
-        description: `Apuesta en ${market.title}`,
-        market_id: marketId,
-      });
 
       await supabase.from("notifications").insert({
         user_id: user.id,

@@ -949,14 +949,45 @@ export default function ProfilePage() {
                 <div className="hidden sm:flex items-center justify-between p-4 px-5 border-b border-border/30 bg-muted/20 text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
                   <div className="flex-1 pl-[52px]">Descripción</div>
                   <div className="flex items-center gap-6 sm:gap-8 pr-1">
+                    <div className="w-[80px] text-right">Precio</div>
                     <div className="w-[80px] text-right">Acciones</div>
                     <div className="w-[100px] text-right">Valor</div>
                   </div>
                 </div>
                 <div className="divide-y divide-border/30 max-h-[500px] overflow-y-auto scrollbar-none">
                   {processedTransactions.map((tx) => {
-                    const isPositive = tx.amount > 0;
+                    const desc = tx.description || "";
+                    const isBonusDiario = desc.toLowerCase().includes("bonus diario");
+
+                    const amount = Number(tx.amount || 0);
+                    const isBuy = amount < 0;
+                    const isPositive = amount > 0;
                     const formattedDate = new Date(tx.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: 'short' });
+
+                    const marketTitle = tx.market_title || tx.market_name || tx.metadata?.market_title;
+                    const isLegacy = !marketTitle;
+
+                    // Extraer cantidad de acciones (shares) priorizando datos estructurados
+                    let shares = 0;
+                    if (!isBonusDiario) {
+                      let extractedShares = 0;
+                      if (isLegacy) {
+                        if (!isBuy) { // VENTAS (Ej: "Venta de 14842 acciones (Sí a Francia) a 33¢")
+                          const extractedSharesStr = desc.match(/Venta de (\d+)/i)?.[1];
+                          if (extractedSharesStr) {
+                            extractedShares = Number(extractedSharesStr);
+                          }
+                        }
+                      }
+                      
+                      // Lectura Profunda de Variables: tx.shares -> tx.metadata?.shares -> extractedShares
+                      shares = Number(tx.shares || tx.metadata?.shares || extractedShares || 0);
+                    }
+
+                    // Calcular Precio por Acción en formato de moneda (seguridad ante shares falsy/cero)
+                    const priceDisplay = (!isBonusDiario && shares && shares > 0)
+                      ? `$${(Math.abs(amount) / shares).toFixed(2)}`
+                      : '-';
 
                     return (
                       <div key={tx.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 hover:bg-muted/10 transition-colors gap-3 sm:gap-4">
@@ -967,44 +998,29 @@ export default function ProfilePage() {
                           </div>
                           <div className="flex-1 min-w-0">
                             {(() => {
-                              const amount = Number(tx.amount || 0);
-                              const isBuy = amount < 0;
-                              const isSell = amount > 0;
-                              
-                              const marketTitle = tx.market_title || tx.market_name || tx.metadata?.market_title;
-
-                              // Formateo Tabular Simplificado
-                              if (marketTitle) {
-                                if (isBuy) {
-                                  return (
-                                    <p className="text-sm text-muted-foreground truncate">
-                                      Compra de acciones en el mercado <span className="font-semibold text-foreground">&quot;{marketTitle}&quot;</span>
-                                    </p>
-                                  );
-                                } else if (isSell) {
-                                  return (
-                                    <p className="text-sm text-muted-foreground truncate">
-                                      Venta de acciones en el mercado <span className="font-semibold text-foreground">&quot;{marketTitle}&quot;</span>
-                                    </p>
-                                  );
-                                }
-                              }
-
-                              // Fallback Inteligente (Parseo de Historial Viejo)
-                              const desc = tx.description || "";
-                              const buyMatch = desc.match(/(?:Apuesta|Compra)\s+en\s+(.+)/i);
-                              if (isBuy && buyMatch) {
-                                const extMarket = buyMatch[1];
+                              if (isBonusDiario) {
                                 return (
-                                  <p className="text-sm text-muted-foreground truncate">
-                                    Compra de acciones en el mercado <span className="font-semibold text-foreground">&quot;{extMarket}&quot;</span>
+                                  <p className="text-sm font-semibold text-foreground truncate">
+                                    Bonus Diario
                                   </p>
                                 );
                               }
 
-                              // Limpiamos la palabra "Apuesta" para el fallback total
-                              const safeDesc = desc.replace(/Apuesta/gi, "Compra").replace(/apuesta/gi, "compra");
-                              return <p className="text-sm text-muted-foreground truncate"><span className="font-semibold text-foreground">{safeDesc}</span></p>;
+                              const renderStyledDescription = (text: string) => {
+                                const parts = text.split(/(".*?")/g);
+                                return parts.map((part, i) => {
+                                  if (part.startsWith('"') && part.endsWith('"')) {
+                                    return <span key={i} className="font-semibold text-foreground">{part}</span>;
+                                  }
+                                  return <span key={i}>{part}</span>;
+                                });
+                              };
+
+                              return (
+                                <p className="text-sm text-muted-foreground truncate">
+                                  {renderStyledDescription(desc)}
+                                </p>
+                              );
                             })()}
                             <p className="text-[10px] font-medium text-muted-foreground mt-0.5">{formattedDate} • Saldo: {tx.balanceAfter.toLocaleString()} pts</p>
                           </div>
@@ -1013,28 +1029,24 @@ export default function ProfilePage() {
                         {/* Columnas de Datos */}
                         <div className="flex flex-row items-center justify-between sm:justify-end gap-6 sm:gap-8 border-t sm:border-t-0 border-border/30 pt-3 sm:pt-0 w-full sm:w-auto mt-2 sm:mt-0 sm:ml-auto shrink-0">
                           
+                          {/* Columna: Precio */}
+                          <div className="flex flex-col items-start sm:items-end sm:w-[80px]">
+                            <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 block sm:hidden">Precio</p>
+                            <p className="text-sm font-bold text-foreground text-right">{priceDisplay}</p>
+                          </div>
+
                           {/* Columna: Acciones */}
                           <div className="flex flex-col items-start sm:items-end sm:w-[80px]">
                             <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 block sm:hidden">Acciones</p>
-                            {(() => {
-                              const shares = tx.shares || tx.metadata?.shares;
-                              if (shares) {
-                                return <p className="text-sm font-bold text-foreground">{Number(shares).toLocaleString('es-AR')}</p>;
-                              }
-                              // Intentar extraer shares del viejo desc
-                              const desc = tx.description || "";
-                              const sellMatch = desc.match(/Venta de ([\d\.,]+) acciones/i);
-                              if (sellMatch) {
-                                return <p className="text-sm font-bold text-foreground">{sellMatch[1]}</p>;
-                              }
-                              return <p className="text-sm font-bold text-muted-foreground">-</p>;
-                            })()}
+                            <p className="text-sm font-bold text-foreground text-right">
+                              {(!isBonusDiario && shares && shares > 0) ? Number(shares).toLocaleString('es-AR') : '-'}
+                            </p>
                           </div>
 
                           {/* Columna: Valor */}
                           <div className="flex flex-col items-end min-w-[90px] sm:w-[100px]">
                             <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 block sm:hidden">Valor</p>
-                            <span className={cn("font-black text-sm sm:text-base", isPositive ? "text-green-600 dark:text-[#00FF00]" : "text-foreground")}>
+                            <span className={cn("font-black text-sm sm:text-base text-right", isPositive ? "text-green-600 dark:text-[#00FF00]" : "text-foreground")}>
                               {isPositive ? '+' : ''}{tx.amount.toLocaleString()}
                             </span>
                           </div>
