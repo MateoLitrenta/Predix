@@ -964,30 +964,11 @@ export default function ProfilePage() {
                     const isPositive = amount > 0;
                     const formattedDate = new Date(tx.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: 'short' });
 
-                    const marketTitle = tx.market_title || tx.market_name || tx.metadata?.market_title;
-                    const isLegacy = !marketTitle;
+                    const marketTitle = tx.markets?.title || tx.market?.title;
 
-                    // Extraer cantidad de acciones (shares) priorizando datos estructurados
-                    let shares = 0;
-                    if (!isBonusDiario) {
-                      let extractedShares = 0;
-                      if (isLegacy) {
-                        if (!isBuy) { // VENTAS (Ej: "Venta de 14842 acciones (Sí a Francia) a 33¢")
-                          const extractedSharesStr = desc.match(/Venta de (\d+)/i)?.[1];
-                          if (extractedSharesStr) {
-                            extractedShares = Number(extractedSharesStr);
-                          }
-                        }
-                      }
-                      
-                      // Lectura Profunda de Variables: tx.shares -> tx.metadata?.shares -> extractedShares
-                      shares = Number(tx.shares || tx.metadata?.shares || extractedShares || 0);
-                    }
-
-                    // Calcular Precio por Acción en formato de moneda (seguridad ante shares falsy/cero)
-                    const priceDisplay = (!isBonusDiario && shares && shares > 0)
-                      ? `$${(Math.abs(amount) / shares).toFixed(2)}`
-                      : '-';
+                    // Leer estrictamente del objeto de la transacción
+                    const sharesAmount = Number(tx.shares || tx.metadata?.shares || 0);
+                    const price = sharesAmount > 0 ? (Math.abs(tx.amount) / sharesAmount).toFixed(2) : '-';
 
                     return (
                       <div key={tx.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 hover:bg-muted/10 transition-colors gap-3 sm:gap-4">
@@ -1016,9 +997,15 @@ export default function ProfilePage() {
                                 });
                               };
 
+                              let finalDesc = desc;
+                              if (marketTitle) {
+                                const actionText = amount < 0 ? "Compra" : "Venta";
+                                finalDesc = `${actionText} de acciones en el mercado "${marketTitle}"`;
+                              }
+
                               return (
                                 <p className="text-sm text-muted-foreground truncate">
-                                  {renderStyledDescription(desc)}
+                                  {renderStyledDescription(finalDesc)}
                                 </p>
                               );
                             })()}
@@ -1032,14 +1019,14 @@ export default function ProfilePage() {
                           {/* Columna: Precio */}
                           <div className="flex flex-col items-start sm:items-end sm:w-[80px]">
                             <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 block sm:hidden">Precio</p>
-                            <p className="text-sm font-bold text-foreground text-right">{priceDisplay}</p>
+                            <p className="text-sm font-bold text-foreground text-right">{price !== '-' ? `$${price}` : '-'}</p>
                           </div>
 
                           {/* Columna: Acciones */}
                           <div className="flex flex-col items-start sm:items-end sm:w-[80px]">
                             <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 block sm:hidden">Acciones</p>
                             <p className="text-sm font-bold text-foreground text-right">
-                              {(!isBonusDiario && shares && shares > 0) ? Number(shares).toLocaleString('es-AR') : '-'}
+                              {sharesAmount > 0 ? sharesAmount.toLocaleString('es-AR') : '-'}
                             </p>
                           </div>
 

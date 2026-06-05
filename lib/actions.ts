@@ -352,14 +352,14 @@ export async function updateProfileName(username: string) {
   return { ok: true };
 }
 
-export type Transaction = { id: string; amount: number; type: string; description: string; created_at: string; };
+export type Transaction = { id: string; amount: number; type: string; description: string; created_at: string; markets?: { title: string } | null; market?: { title: string } | null; [key: string]: any; };
 
 export async function getMyTransactions(): Promise<{ data: Transaction[] | null; error: string | null }> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { data: null, error: "No autenticado" };
 
-  const { data, error } = await supabase.from("transactions").select("*").eq("user_id", user.id).order("created_at", { ascending: false });
+  const { data, error } = await supabase.from("transactions").select("*, markets(title)").eq("user_id", user.id).order("created_at", { ascending: false });
   if (error) return { data: null, error: error.message };
   return { data: data as Transaction[], error: null };
 }
@@ -438,7 +438,8 @@ export async function sellPartialShares(
     p_market_id: marketId,
     p_outcome: outcome,
     p_direction: direction,
-    p_shares_to_sell: sharesToSell
+    p_shares_to_sell: sharesToSell,
+    p_shares: sharesToSell // Agregado para garantizar compatibilidad con el backend
   });
 
   if (error) {
