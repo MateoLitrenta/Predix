@@ -20,7 +20,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { Coins, User as UserIcon, ArrowLeft, Loader2, TrendingUp, History, Pencil, Landmark, Lock, LineChart, CheckCircle2, XCircle, MinusCircle, Gift, Copy, Check, Users, Wallet, CalendarDays, ChevronRight, ArrowDownRight, ArrowUpRight } from "lucide-react";
+import { Coins, User as UserIcon, ArrowLeft, Loader2, TrendingUp, History, Pencil, Landmark, Lock, LineChart, CheckCircle2, XCircle, MinusCircle, Gift, Copy, Check, Users, Wallet, CalendarDays, ChevronRight, ArrowDownRight, ArrowUpRight, Search, ChevronDown } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/components/theme-provider";
@@ -71,6 +71,49 @@ export default function ProfilePage() {
   const [transactions, setTransactions] = useState<any[]>([]);
   const [marketOptions, setMarketOptions] = useState<any[]>([]);
   const [portfolioPositions, setPortfolioPositions] = useState<PortfolioPosition[]>([]);
+
+  const [activeTab, setActiveTab] = useState("active");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortBy, setSortBy] = useState<"recent" | "oldest" | "highest_value" | "lowest_value">("recent");
+
+  const filteredAndSortedPositions = useMemo(() => {
+    let result = [...portfolioPositions];
+    
+    if (searchTerm.trim() !== '') {
+      const lowerTerm = searchTerm.toLowerCase();
+      result = result.filter(p => 
+        (p.market_title?.toLowerCase().includes(lowerTerm)) ||
+        (p.option_display_name?.toLowerCase().includes(lowerTerm)) ||
+        (p.outcome_name?.toLowerCase().includes(lowerTerm))
+      );
+    }
+
+    const getValue = (pos: PortfolioPosition) => {
+      if (pos.status === 'active') {
+        const cp = Number(pos.current_price) || 0;
+        return pos.shares * cp;
+      } else {
+        return (pos.shares * pos.avg_price) + pos.realized_pnl;
+      }
+    };
+    
+    switch (sortBy) {
+      case 'oldest':
+        result.reverse(); 
+        break;
+      case 'highest_value':
+        result.sort((a, b) => getValue(b) - getValue(a));
+        break;
+      case 'lowest_value':
+        result.sort((a, b) => getValue(a) - getValue(b));
+        break;
+      case 'recent':
+      default:
+        break;
+    }
+    
+    return result;
+  }, [portfolioPositions, searchTerm, sortBy]);
 
   const [isChecking, setIsChecking] = useState(true);
   const [isLoadingBets, setIsLoadingBets] = useState(true);
@@ -663,25 +706,66 @@ export default function ProfilePage() {
         </div>
 
         {/* TABS DE HISTORIAL */}
-        <Tabs defaultValue="active" className="w-full mb-8">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full mb-8">
           <TabsList className="grid w-full grid-cols-3 h-12 mb-6 bg-muted/30 rounded-xl p-1 border border-border/50">
             <TabsTrigger value="active" className="flex items-center gap-1.5 text-[11px] sm:text-sm font-bold rounded-lg"><LineChart className="w-3.5 h-3.5 hidden sm:block" />Activas <Badge variant="secondary" className="font-black h-4 px-1 ml-0.5 text-[9px]">{portfolioPositions.filter(p => p.status === 'active').length}</Badge></TabsTrigger>
             <TabsTrigger value="finished" className="flex items-center gap-1.5 text-[11px] sm:text-sm font-bold rounded-lg"><History className="w-3.5 h-3.5 hidden sm:block" />Cerradas</TabsTrigger>
             <TabsTrigger value="bank" className="flex items-center gap-1.5 text-[11px] sm:text-sm font-bold rounded-lg"><Landmark className="w-3.5 h-3.5 hidden sm:block" />Billetera</TabsTrigger>
           </TabsList>
 
+          {activeTab !== 'bank' && (
+            <div className="flex flex-col sm:flex-row items-center gap-3 mb-6">
+              <div className="relative w-full sm:flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input 
+                  placeholder="Buscar posiciones..." 
+                  className="pl-9 bg-card border-border/50 text-sm h-10 w-full rounded-xl focus-visible:ring-1 focus-visible:ring-primary/30 shadow-sm"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+              <div className="w-full sm:w-auto relative">
+                <select 
+                  className="w-full sm:w-[170px] h-10 pl-3 pr-8 bg-card border border-border/50 rounded-xl text-sm text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/30 appearance-none shadow-sm cursor-pointer hover:bg-muted/30 transition-colors"
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as any)}
+                >
+                  <option value="recent">Más recientes</option>
+                  <option value="oldest">Menos reciente</option>
+                  <option value="highest_value">Mayor valor</option>
+                  <option value="lowest_value">Menor valor</option>
+                </select>
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                  <ChevronDown className="w-4 h-4 text-muted-foreground opacity-50" />
+                </div>
+              </div>
+            </div>
+          )}
+
           <TabsContent value="active" className="m-0">
             {isLoadingBets ? (
               <div className="flex items-center justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-primary opacity-60" /></div>
-            ) : portfolioPositions.filter(p => p.status === 'active').length === 0 ? (
+            ) : filteredAndSortedPositions.filter(p => p.status === 'active').length === 0 ? (
               <div className="p-10 sm:p-16 text-center text-muted-foreground bg-muted/10 border-2 border-dashed border-border/50 rounded-2xl">
                 <LineChart className="w-12 h-12 sm:w-16 sm:h-16 mx-auto mb-4 opacity-20" />
-                <p className="text-lg sm:text-xl font-bold mb-2 text-foreground">Tu portfolio activo está vacío</p>
+                <p className="text-lg sm:text-xl font-bold mb-2 text-foreground">Tu portfolio activo está vacío o no hay resultados de búsqueda</p>
                 <Button size="sm" asChild className="mt-4 font-bold rounded-full"><Link href="/">Explorar Mercados</Link></Button>
               </div>
             ) : (
               <div className="flex flex-col border border-border/50 rounded-2xl bg-card overflow-hidden shadow-sm">
-                {portfolioPositions.filter(p => p.status === 'active').map((pos, idx, arr) => {
+                {/* Cabecera de Tabla (Sólo Desktop) */}
+                <div className="hidden sm:flex items-center justify-between p-4 px-5 border-b border-border/30 bg-muted/20 text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
+                  <div className="flex-1">Mercado</div>
+                  <div className="flex items-center gap-6 sm:gap-8 pr-1">
+                    <div className="flex items-center gap-4 sm:gap-6">
+                      <div className="w-[60px] text-right">Promedio</div>
+                      <div className="w-[50px] text-right">Actual</div>
+                    </div>
+                    <div className="w-[90px] text-right">Valor</div>
+                  </div>
+                </div>
+
+                {filteredAndSortedPositions.filter(p => p.status === 'active').map((pos, idx, arr) => {
                   const currentPrice = Number(pos.current_price) || 0;
                   const currentValue = pos.shares * currentPrice;
                   const totalInvestment = pos.shares * pos.avg_price;
@@ -725,18 +809,26 @@ export default function ProfilePage() {
                         </div>
                       </div>
 
-                      {/* Columna 2: Precios */}
-                      <div className="flex flex-row sm:flex-col items-center sm:items-end gap-3 sm:gap-0.5 min-w-[100px] shrink-0 border-t sm:border-t-0 border-border/30 pt-3 sm:pt-0 w-full sm:w-auto mt-2 sm:mt-0">
-                        <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1 w-full sm:w-auto justify-between sm:justify-start">Avg <span className="font-bold text-foreground">{pos.avg_price.toFixed(2)}</span></p>
-                        <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1 w-full sm:w-auto justify-between sm:justify-start">Current <span className="font-bold text-foreground">{currentPrice.toFixed(2)}</span></p>
-                      </div>
+                      {/* Columnas de Datos */}
+                      <div className="flex flex-row items-center justify-between sm:justify-end gap-6 sm:gap-8 border-t sm:border-t-0 border-border/30 pt-3 sm:pt-0 w-full sm:w-auto mt-3 sm:mt-0 sm:ml-auto">
+                        
+                        {/* Columna 2: Precios (Promedio / Actual agrupados) */}
+                        <div className="flex items-center gap-4 sm:gap-6">
+                          <div className="flex flex-col items-start sm:items-end sm:w-[60px]">
+                            <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 block sm:hidden">Promedio</p>
+                            <p className="text-sm font-bold text-foreground">${pos.avg_price.toFixed(2)}</p>
+                          </div>
+                          <div className="flex flex-col items-start sm:items-end sm:w-[50px]">
+                            <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 block sm:hidden">Actual</p>
+                            <p className="text-sm font-bold text-foreground">${currentPrice.toFixed(2)}</p>
+                          </div>
+                        </div>
 
-                      {/* Columna 3: Valor y PnL */}
-                      <div className="flex flex-col items-end min-w-[110px] shrink-0 border-t sm:border-t-0 border-border/30 pt-3 sm:pt-0 w-full sm:w-auto mt-2 sm:mt-0">
-                        <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 text-left w-full sm:text-right">Value</p>
-                        <div className="flex sm:flex-col justify-between sm:justify-start items-center sm:items-end w-full">
+                        {/* Columna 3: Valor y PnL */}
+                        <div className="flex flex-col items-end min-w-[90px] sm:w-[90px]">
+                          <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 block sm:hidden">Valor</p>
                           <p className="font-black text-sm sm:text-base text-foreground">{currentValue.toLocaleString(undefined, {maximumFractionDigits: 0})} pts</p>
-                          <p className={cn("text-xs font-bold", isProfit ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
+                          <p className={cn("text-[11px] font-bold mt-0.5", isProfit ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
                             {isProfit ? '+' : ''}{floatingPnl.toLocaleString(undefined, {maximumFractionDigits: 0})} ({isProfit ? '+' : ''}{floatingPnlPct.toFixed(1)}%)
                           </p>
                         </div>
@@ -751,11 +843,20 @@ export default function ProfilePage() {
           <TabsContent value="finished" className="m-0 space-y-3">
             {isLoadingBets ? (
               <div className="flex items-center justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-primary opacity-60" /></div>
-            ) : portfolioPositions.filter(p => p.status === 'closed').length === 0 ? (
-              <div className="p-12 text-center text-muted-foreground bg-muted/10 rounded-2xl"><History className="w-10 h-10 mx-auto mb-3 opacity-20" /><p className="text-sm font-medium">Aún no hay resultados.</p></div>
+            ) : filteredAndSortedPositions.filter(p => p.status === 'closed').length === 0 ? (
+              <div className="p-12 text-center text-muted-foreground bg-muted/10 rounded-2xl"><History className="w-10 h-10 mx-auto mb-3 opacity-20" /><p className="text-sm font-medium">No hay resultados de búsqueda o historial.</p></div>
             ) : (
               <div className="flex flex-col border border-border/50 rounded-2xl bg-card overflow-hidden shadow-sm">
-                {portfolioPositions.filter(p => p.status === 'closed').map((pos, idx, arr) => {
+                {/* Cabecera de Tabla (Sólo Desktop) */}
+                <div className="hidden sm:flex items-center justify-between p-4 px-5 border-b border-border/30 bg-muted/20 text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
+                  <div className="flex-1">Mercado</div>
+                  <div className="flex items-center gap-6 sm:gap-8 pr-1">
+                    <div className="w-[90px] text-right">Inversión</div>
+                    <div className="w-[110px] text-right">Retorno Final</div>
+                  </div>
+                </div>
+
+                {filteredAndSortedPositions.filter(p => p.status === 'closed').map((pos, idx, arr) => {
                   const totalInvestment = pos.shares * pos.avg_price;
                   const finalAmount = totalInvestment + pos.realized_pnl;
                   const pnlPct = totalInvestment > 0 ? (pos.realized_pnl / totalInvestment) * 100 : 0;
@@ -808,20 +909,20 @@ export default function ProfilePage() {
                         </div>
                       </div>
 
-                      {/* Columna 3: Total Traded */}
-                      <div className="flex flex-col items-start sm:items-end min-w-[90px] shrink-0 border-t sm:border-t-0 border-border/30 pt-3 sm:pt-0 w-full sm:w-auto mt-2 sm:mt-0">
-                        <div className="flex sm:flex-col justify-between sm:justify-start items-center sm:items-end w-full">
-                          <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5">Inversión</p>
+                      {/* Columnas de Datos */}
+                      <div className="flex flex-row items-center justify-between sm:justify-end gap-6 sm:gap-8 border-t sm:border-t-0 border-border/30 pt-3 sm:pt-0 w-full sm:w-auto mt-3 sm:mt-0 sm:ml-auto">
+                        
+                        {/* Columna 3: Inversión */}
+                        <div className="flex flex-col items-start sm:items-end w-full sm:w-[90px]">
+                          <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 block sm:hidden">Inversión</p>
                           <p className="font-bold text-sm text-foreground">{totalInvestment.toLocaleString(undefined, {maximumFractionDigits: 0})} pts</p>
                         </div>
-                      </div>
 
-                      {/* Columna 4: Retorno y PnL */}
-                      <div className="flex flex-col items-end min-w-[110px] shrink-0 border-t sm:border-t-0 border-border/30 pt-3 sm:pt-0 w-full sm:w-auto mt-2 sm:mt-0">
-                        <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 text-left w-full sm:text-right">Retorno Final</p>
-                        <div className="flex sm:flex-col justify-between sm:justify-start items-center sm:items-end w-full">
+                        {/* Columna 4: Retorno y PnL */}
+                        <div className="flex flex-col items-end min-w-[90px] sm:w-[110px]">
+                          <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 block sm:hidden">Retorno Final</p>
                           <p className="font-black text-sm sm:text-base text-foreground">{finalAmount.toLocaleString(undefined, {maximumFractionDigits: 0})} pts</p>
-                          <p className={cn("text-xs font-bold", isProfit ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
+                          <p className={cn("text-[11px] font-bold mt-0.5", isProfit ? "text-green-600 dark:text-[#00FF00]" : isLoss ? "text-red-600 dark:text-[#FF0000]" : "text-muted-foreground")}>
                             {isProfit ? '+' : ''}{pos.realized_pnl.toLocaleString(undefined, {maximumFractionDigits: 0})} ({isProfit ? '+' : ''}{pnlPct.toFixed(1)}%)
                           </p>
                         </div>
@@ -844,24 +945,99 @@ export default function ProfilePage() {
               </div>
             ) : (
               <div className="rounded-xl border border-border/50 bg-card overflow-hidden shadow-sm">
+                {/* Cabecera de Tabla (Sólo Desktop) */}
+                <div className="hidden sm:flex items-center justify-between p-4 px-5 border-b border-border/30 bg-muted/20 text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
+                  <div className="flex-1 pl-[52px]">Descripción</div>
+                  <div className="flex items-center gap-6 sm:gap-8 pr-1">
+                    <div className="w-[80px] text-right">Acciones</div>
+                    <div className="w-[100px] text-right">Valor</div>
+                  </div>
+                </div>
                 <div className="divide-y divide-border/30 max-h-[500px] overflow-y-auto scrollbar-none">
                   {processedTransactions.map((tx) => {
                     const isPositive = tx.amount > 0;
                     const formattedDate = new Date(tx.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: 'short' });
 
                     return (
-                      <div key={tx.id} className="flex items-center justify-between p-3 sm:p-4 hover:bg-muted/10 transition-colors gap-3">
-                        <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center shrink-0">
-                          {isPositive ? <ArrowDownRight className="w-5 h-5 text-green-500" /> : <ArrowUpRight className="w-5 h-5 text-foreground" />}
+                      <div key={tx.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 hover:bg-muted/10 transition-colors gap-3 sm:gap-4">
+                        
+                        <div className="flex items-center gap-3 flex-1 min-w-0 w-full sm:w-auto">
+                          <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center shrink-0">
+                            {isPositive ? <ArrowUpRight className="w-5 h-5 text-green-500" /> : <ArrowDownRight className="w-5 h-5 text-muted-foreground" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            {(() => {
+                              const amount = Number(tx.amount || 0);
+                              const isBuy = amount < 0;
+                              const isSell = amount > 0;
+                              
+                              const marketTitle = tx.market_title || tx.market_name || tx.metadata?.market_title;
+
+                              // Formateo Tabular Simplificado
+                              if (marketTitle) {
+                                if (isBuy) {
+                                  return (
+                                    <p className="text-sm text-muted-foreground truncate">
+                                      Compra de acciones en el mercado <span className="font-semibold text-foreground">&quot;{marketTitle}&quot;</span>
+                                    </p>
+                                  );
+                                } else if (isSell) {
+                                  return (
+                                    <p className="text-sm text-muted-foreground truncate">
+                                      Venta de acciones en el mercado <span className="font-semibold text-foreground">&quot;{marketTitle}&quot;</span>
+                                    </p>
+                                  );
+                                }
+                              }
+
+                              // Fallback Inteligente (Parseo de Historial Viejo)
+                              const desc = tx.description || "";
+                              const buyMatch = desc.match(/(?:Apuesta|Compra)\s+en\s+(.+)/i);
+                              if (isBuy && buyMatch) {
+                                const extMarket = buyMatch[1];
+                                return (
+                                  <p className="text-sm text-muted-foreground truncate">
+                                    Compra de acciones en el mercado <span className="font-semibold text-foreground">&quot;{extMarket}&quot;</span>
+                                  </p>
+                                );
+                              }
+
+                              // Limpiamos la palabra "Apuesta" para el fallback total
+                              const safeDesc = desc.replace(/Apuesta/gi, "Compra").replace(/apuesta/gi, "compra");
+                              return <p className="text-sm text-muted-foreground truncate"><span className="font-semibold text-foreground">{safeDesc}</span></p>;
+                            })()}
+                            <p className="text-[10px] font-medium text-muted-foreground mt-0.5">{formattedDate} • Saldo: {tx.balanceAfter.toLocaleString()} pts</p>
+                          </div>
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-bold text-foreground truncate">{tx.description}</p>
-                          <p className="text-[10px] font-medium text-muted-foreground mt-0.5">{formattedDate} • Saldo: {tx.balanceAfter.toLocaleString()}</p>
-                        </div>
-                        <div className="text-right shrink-0">
-                          <span className={cn("font-black text-sm sm:text-base", isPositive ? "text-green-600 dark:text-[#00FF00]" : "text-foreground")}>
-                            {isPositive ? '+' : ''}{tx.amount.toLocaleString()}
-                          </span>
+
+                        {/* Columnas de Datos */}
+                        <div className="flex flex-row items-center justify-between sm:justify-end gap-6 sm:gap-8 border-t sm:border-t-0 border-border/30 pt-3 sm:pt-0 w-full sm:w-auto mt-2 sm:mt-0 sm:ml-auto shrink-0">
+                          
+                          {/* Columna: Acciones */}
+                          <div className="flex flex-col items-start sm:items-end sm:w-[80px]">
+                            <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 block sm:hidden">Acciones</p>
+                            {(() => {
+                              const shares = tx.shares || tx.metadata?.shares;
+                              if (shares) {
+                                return <p className="text-sm font-bold text-foreground">{Number(shares).toLocaleString('es-AR')}</p>;
+                              }
+                              // Intentar extraer shares del viejo desc
+                              const desc = tx.description || "";
+                              const sellMatch = desc.match(/Venta de ([\d\.,]+) acciones/i);
+                              if (sellMatch) {
+                                return <p className="text-sm font-bold text-foreground">{sellMatch[1]}</p>;
+                              }
+                              return <p className="text-sm font-bold text-muted-foreground">-</p>;
+                            })()}
+                          </div>
+
+                          {/* Columna: Valor */}
+                          <div className="flex flex-col items-end min-w-[90px] sm:w-[100px]">
+                            <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 block sm:hidden">Valor</p>
+                            <span className={cn("font-black text-sm sm:text-base", isPositive ? "text-green-600 dark:text-[#00FF00]" : "text-foreground")}>
+                              {isPositive ? '+' : ''}{tx.amount.toLocaleString()}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     );
