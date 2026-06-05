@@ -600,76 +600,111 @@ export default function ProfilePage() {
       <NavHeader points={profile.points ?? 10000} isDarkMode={isDarkMode} onToggleDarkMode={toggleDarkMode} onPointsUpdate={() => { }} userId={profile.id} userEmail={profile.email ?? null} onOpenAuthModal={() => router.push("/")} onSignOut={async () => { await createClient().auth.signOut(); router.replace("/"); }} isAdmin={profile.role === "admin"} username={profile.username ?? null} avatarUrl={profile.avatar_url ?? null} />
 
       <main className="w-full max-w-[1440px] mx-auto px-4 md:px-8 py-6 flex-1">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-10">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-8 mb-3 md:mb-10">
           
           {/* COLUMNA IZQUIERDA (Perfil y Estadísticas) */}
-          <div className="lg:col-span-4 flex flex-col gap-6">
+          <div className="lg:col-span-4 flex flex-col gap-4 md:gap-6">
             
-            {/* ENCABEZADO COMPACTO */}
-            <div className="flex justify-between items-start gap-4 bg-card border border-border/50 rounded-2xl p-5 shadow-sm">
-              <div className="flex items-center gap-4">
-                <Avatar className="w-16 h-16 sm:w-20 sm:h-20 border-2 sm:border-4 border-background bg-primary/10 shadow-md shrink-0">
-                  {profile.avatar_url ? <AvatarImage src={profile.avatar_url} className="object-cover" /> : <AvatarFallback><UserIcon className="w-8 h-8 text-primary opacity-50" /></AvatarFallback>}
+            {/* ENCABEZADO Y TARJETAS (DESKTOP) */}
+            <div className="hidden md:flex flex-col gap-6">
+              <div className="flex justify-between items-start gap-4 bg-card border border-border/50 rounded-2xl p-5 shadow-sm">
+                <div className="flex items-center gap-4">
+                  <Avatar className="w-20 h-20 border-4 border-background bg-primary/10 shadow-md shrink-0">
+                    {profile.avatar_url ? <AvatarImage src={profile.avatar_url} className="object-cover" /> : <AvatarFallback><UserIcon className="w-8 h-8 text-primary opacity-50" /></AvatarFallback>}
+                  </Avatar>
+                  <div className="flex flex-col justify-center pt-1">
+                    <h1 className="text-3xl font-black text-foreground truncate tracking-tighter mb-1">{displayName}</h1>
+                    <p className="text-sm text-muted-foreground font-medium flex items-center gap-1.5 opacity-80">
+                      <CalendarDays className="w-3.5 h-3.5" /> Miembro desde {new Date(profile.created_at || new Date()).getFullYear()}
+                    </p>
+                  </div>
+                </div>
+                <div>
+                  <Button variant="outline" size="sm" className="flex items-center" onClick={() => { setNewUsername(profile.username || ""); setPreviewUrl(profile.avatar_url || null); setSelectedImage(null); setIsEditModalOpen(true); }}>
+                    <Pencil className="w-4 h-4 mr-2" /> Editar
+                  </Button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2 bg-card border border-border/50 rounded-2xl p-5 shadow-sm flex flex-col justify-between">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Portfolio Total</p>
+                    <Wallet className="w-5 h-5 text-primary opacity-80" />
+                  </div>
+                  <p className="text-3xl font-black text-foreground">{portfolioStats.totalPortfolioValue.toLocaleString()} pts</p>
+                </div>
+
+                <div className="bg-card border border-border/50 rounded-2xl p-5 shadow-sm flex flex-col justify-between">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest leading-tight">Activo</p>
+                    <TrendingUp className="w-4 h-4 text-blue-500 opacity-80" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-foreground">{portfolioStats.lockedValueOffset.toLocaleString(undefined, {maximumFractionDigits: 0})} pts</p>
+                    <p className="text-[10px] font-semibold text-muted-foreground">{portfolioPositions.filter(p => p.status === 'active').length} mercados</p>
+                  </div>
+                </div>
+
+                <div className="bg-card border border-border/50 rounded-2xl p-5 shadow-sm flex flex-col justify-between">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest leading-tight">Líquido</p>
+                    <Coins className="w-4 h-4 text-orange-500 opacity-80" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-foreground">{(profile.points ?? 0).toLocaleString()}</p>
+                    <p className="text-[10px] font-semibold text-muted-foreground">Disponibles</p>
+                  </div>
+                </div>
+
+                <div className="col-span-2 bg-card border border-border/50 rounded-2xl p-5 shadow-sm flex flex-col gap-2 justify-center">
+                  <div className="flex justify-between items-center border-b border-border/30 pb-1">
+                    <span className="text-xs font-bold text-muted-foreground">Mejor Predicción</span>
+                    <span className="text-base font-black text-green-600 dark:text-[#00FF00]">+4,500 pts</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-bold text-muted-foreground">Predicciones Jugadas</span>
+                    <span className="text-base font-black text-foreground">27</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* ENCABEZADO COMPACTO (Mobile) */}
+            <div className="flex flex-col gap-1 md:hidden">
+              <div className="flex items-center gap-3 py-2">
+                <Avatar className="w-12 h-12 bg-primary/10 shrink-0">
+                  {profile.avatar_url ? <AvatarImage src={profile.avatar_url} className="object-cover" /> : <AvatarFallback><UserIcon className="w-6 h-6 text-primary opacity-50" /></AvatarFallback>}
                 </Avatar>
-                <div className="flex flex-col justify-center pt-1">
-                  <h1 className="text-2xl sm:text-3xl font-black text-foreground truncate tracking-tighter mb-0.5 sm:mb-1">{displayName}</h1>
-                  <p className="text-xs sm:text-sm text-muted-foreground font-medium flex items-center gap-1.5 opacity-80">
-                    <CalendarDays className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> Miembro desde {new Date(profile.created_at || new Date()).getFullYear()}
-                  </p>
-                </div>
-              </div>
-              <div>
-                <Button variant="ghost" size="icon" className="shrink-0 h-10 w-10 sm:hidden border border-border/50 bg-background shadow-sm rounded-full" onClick={() => { setNewUsername(profile.username || ""); setPreviewUrl(profile.avatar_url || null); setSelectedImage(null); setIsEditModalOpen(true); }}>
-                  <Pencil className="w-4 h-4 text-muted-foreground" />
-                </Button>
-                <Button variant="outline" size="sm" className="hidden sm:flex items-center" onClick={() => { setNewUsername(profile.username || ""); setPreviewUrl(profile.avatar_url || null); setSelectedImage(null); setIsEditModalOpen(true); }}>
-                  <Pencil className="w-4 h-4 mr-2" /> Editar
-                </Button>
-              </div>
-            </div>
-
-            {/* MÉTRICAS FINANCIERAS */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-              <div className="col-span-1 sm:col-span-2 bg-card border border-border/50 rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col justify-between">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-[10px] sm:text-xs font-bold text-muted-foreground uppercase tracking-widest">Portfolio Total</p>
-                  <Wallet className="w-4 h-4 sm:w-5 sm:h-5 text-primary opacity-80" />
-                </div>
-                <p className="text-2xl sm:text-3xl font-black text-foreground">{portfolioStats.totalPortfolioValue.toLocaleString()} pts</p>
-              </div>
-
-              <div className="bg-card border border-border/50 rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col justify-between">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-[10px] sm:text-xs font-bold text-muted-foreground uppercase tracking-widest leading-tight">Activo</p>
-                  <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-blue-500 opacity-80" />
-                </div>
-                <div>
-                  <p className="text-lg sm:text-2xl font-black text-foreground">{portfolioStats.lockedValueOffset.toLocaleString(undefined, {maximumFractionDigits: 0})} pts</p>
-                  <p className="text-[10px] font-semibold text-muted-foreground">{portfolioPositions.filter(p => p.status === 'active').length} mercados</p>
+                <div className="flex-1 flex items-center justify-between min-w-0">
+                  <div className="flex flex-col justify-center">
+                    <h1 className="text-xl font-black text-foreground truncate tracking-tighter leading-none">{displayName}</h1>
+                    <p className="text-xs text-muted-foreground font-medium mt-1">
+                      Miembro desde {new Date(profile.created_at || new Date()).getFullYear()}
+                    </p>
+                  </div>
+                  <div>
+                    <Button variant="ghost" size="icon" className="shrink-0 h-8 w-8 text-muted-foreground hover:bg-transparent" onClick={() => { setNewUsername(profile.username || ""); setPreviewUrl(profile.avatar_url || null); setSelectedImage(null); setIsEditModalOpen(true); }}>
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                  </div>
                 </div>
               </div>
 
-              <div className="bg-card border border-border/50 rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col justify-between">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-[10px] sm:text-xs font-bold text-muted-foreground uppercase tracking-widest leading-tight">Líquido</p>
-                  <Coins className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500 opacity-80" />
+              {/* STATS SECUNDARIOS EN LÍNEA (Mobile) */}
+              <div className="grid grid-cols-3 divide-x divide-border mt-2 mb-4">
+                <div className="flex flex-col items-center px-2">
+                  <span className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider mb-0.5">Líquido</span>
+                  <span className="text-sm font-bold text-foreground">{(profile.points ?? 0).toLocaleString()}</span>
                 </div>
-                <div>
-                  <p className="text-lg sm:text-2xl font-black text-foreground">{(profile.points ?? 0).toLocaleString()}</p>
-                  <p className="text-[10px] font-semibold text-muted-foreground">Disponibles</p>
+                <div className="flex flex-col items-center px-2">
+                  <span className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider mb-0.5">Activo</span>
+                  <span className="text-sm font-bold text-foreground">{portfolioStats.lockedValueOffset.toLocaleString(undefined, {maximumFractionDigits: 0})}</span>
                 </div>
-              </div>
-            </div>
-
-            {/* ESTADÍSTICAS MOCK */}
-            <div className="bg-card border border-border/50 rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col gap-4">
-              <div className="flex justify-between items-center border-b border-border/30 pb-3">
-                <span className="text-sm font-bold text-muted-foreground">Mejor Predicción</span>
-                <span className="text-base font-black text-green-600 dark:text-[#00FF00]">+4,500 pts</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm font-bold text-muted-foreground">Predicciones Jugadas</span>
-                <span className="text-base font-black text-foreground">27</span>
+                <div className="flex flex-col items-center px-2">
+                  <span className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider mb-0.5">Jugadas</span>
+                  <span className="text-sm font-bold text-foreground">27</span>
+                </div>
               </div>
             </div>
           </div>
@@ -678,33 +713,59 @@ export default function ProfilePage() {
           <div className="lg:col-span-8 flex flex-col gap-4">
             
             {/* GRÁFICO DE RENDIMIENTO (OPTIMIZADO) */}
-            <Card className="bg-card border border-border/50 shadow-sm rounded-2xl overflow-hidden h-full flex flex-col">
+            <Card className="bg-card border border-border/50 shadow-sm rounded-2xl overflow-hidden h-full flex flex-col mb-2 md:mb-0">
               <CardContent className="p-0 flex-1 flex flex-col">
-                <div className="p-4 sm:p-6 md:p-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-4 border-b border-border/20">
-                  <div>
-                    <div className="flex items-center gap-2 font-bold text-muted-foreground mb-1 text-sm sm:text-base">
-                      <TrendingUp className="w-4 h-4" /> Variación
+                <div className="px-4 pt-3 pb-4 md:p-8 flex flex-col gap-3 md:gap-4 border-b border-border/20">
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-3 md:gap-4">
+                    
+                    {/* ENCABEZADO GRAFICO (MOBILE) */}
+                    <div className="md:hidden w-full">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 font-bold text-muted-foreground text-[11px] uppercase tracking-widest">
+                          <Wallet className="w-3.5 h-3.5 text-primary" /> PORTFOLIO
+                        </div>
+                        <div className="text-2xl leading-none font-black tracking-tighter text-foreground text-right">
+                          {portfolioStats.totalPortfolioValue.toLocaleString()} <span className="text-xs font-bold opacity-50 tracking-tight">pts</span>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-baseline gap-1.5 mt-1">
+                        <TrendingUp className={cn("w-3.5 h-3.5", isProfit ? "text-green-500" : "text-red-500")} />
+                        <span className={cn("text-sm font-bold", isProfit ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
+                          {isProfit ? '+' : ''}{dynamicPnl.value.toLocaleString()} pts ({isProfit ? '+' : ''}{dynamicPnl.percentage.toFixed(2)}%)
+                        </span>
+                        <span className="text-[10px] font-bold text-muted-foreground ml-1">
+                          {timeframeLabels[timeframe]}
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex items-baseline gap-2 sm:gap-3 flex-wrap mt-1">
-                      <span className={cn("text-3xl sm:text-4xl md:text-5xl font-black tracking-tight", isProfit ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
-                        {isProfit ? '+' : ''}{dynamicPnl.value.toLocaleString()} <span className="text-lg sm:text-2xl opacity-80">pts</span>
-                      </span>
-                      <Badge variant="outline" className={cn("text-xs sm:text-sm md:text-base px-2 py-0.5 font-bold border-2", isProfit ? "bg-green-500/10 text-green-600 dark:text-[#00FF00] border-green-500/30" : "bg-red-500/10 text-red-600 dark:text-[#FF0000] border-red-500/30")}>
-                        {isProfit ? '+' : ''}{dynamicPnl.percentage.toFixed(2)}%
-                      </Badge>
-                    </div>
-                  </div>
 
-                  <div className="flex bg-muted/50 p-1 rounded-xl backdrop-blur-md border border-border/30 w-full md:w-auto overflow-x-auto scrollbar-none">
-                    {(['1D', '1W', '1M', '6M', '1Y', 'ALL'] as TimeframeType[]).map((tf) => (
-                      <button key={tf} onClick={() => setTimeframe(tf)} className={cn("px-3 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-xs font-bold rounded-lg transition-all whitespace-nowrap flex-1 md:flex-none", timeframe === tf ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>
-                        {tf}
-                      </button>
-                    ))}
+                    {/* ENCABEZADO GRAFICO (DESKTOP) */}
+                    <div className="hidden md:block">
+                      <div className="flex items-center gap-2 font-bold text-muted-foreground mb-1 text-base">
+                        <TrendingUp className="w-4 h-4" /> Variación
+                      </div>
+                      <div className="flex items-baseline gap-3 flex-wrap mt-1">
+                        <span className={cn("text-5xl font-black tracking-tight", isProfit ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
+                          {isProfit ? '+' : ''}{dynamicPnl.value.toLocaleString()} <span className="text-2xl opacity-80">pts</span>
+                        </span>
+                        <Badge variant="outline" className={cn("text-base px-2 py-0.5 font-bold border-2", isProfit ? "bg-green-500/10 text-green-600 dark:text-[#00FF00] border-green-500/30" : "bg-red-500/10 text-red-600 dark:text-[#FF0000] border-red-500/30")}>
+                          {isProfit ? '+' : ''}{dynamicPnl.percentage.toFixed(2)}%
+                        </Badge>
+                      </div>
+                    </div>
+
+                    <div className="flex bg-muted/50 p-1 rounded-xl backdrop-blur-md border border-border/30 w-full md:w-auto overflow-x-auto scrollbar-none">
+                      {(['1D', '1W', '1M', '6M', '1Y', 'ALL'] as TimeframeType[]).map((tf) => (
+                        <button key={tf} onClick={() => setTimeframe(tf)} className={cn("px-3 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-xs font-bold rounded-lg transition-all whitespace-nowrap flex-1 md:flex-none", timeframe === tf ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>
+                          {tf}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
 
-                <div className="w-full flex-1 min-h-[300px] max-h-[350px] p-2 sm:p-4 md:p-6 pt-6">
+                <div className="h-[200px] md:h-[300px] w-full p-2 sm:p-4 md:p-6 shrink-0">
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={chartData} margin={{ top: 5, right: 0, left: 0, bottom: 0 }}>
                       <defs>
@@ -727,32 +788,32 @@ export default function ProfilePage() {
         </div>
 
         {/* TABS DE HISTORIAL */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full mb-8">
-          <TabsList className="grid w-full grid-cols-3 h-12 mb-6 bg-muted/30 rounded-xl p-1 border border-border/50">
-            <TabsTrigger value="active" className="flex items-center gap-1.5 text-[11px] sm:text-sm font-bold rounded-lg"><LineChart className="w-3.5 h-3.5 hidden sm:block" />Activas <Badge variant="secondary" className="font-black h-4 px-1 ml-0.5 text-[9px]">{portfolioPositions.filter(p => p.status === 'active').length}</Badge></TabsTrigger>
-            <TabsTrigger value="finished" className="flex items-center gap-1.5 text-[11px] sm:text-sm font-bold rounded-lg"><History className="w-3.5 h-3.5 hidden sm:block" />Cerradas</TabsTrigger>
-            <TabsTrigger value="bank" className="flex items-center gap-1.5 text-[11px] sm:text-sm font-bold rounded-lg"><Landmark className="w-3.5 h-3.5 hidden sm:block" />Billetera</TabsTrigger>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full mb-4 md:mb-8">
+          <TabsList className="flex w-full h-12 mb-3 md:mb-6 bg-muted/30 rounded-xl p-1 border border-border/50 overflow-x-auto whitespace-nowrap scrollbar-none justify-start sm:justify-center shrink-0 hide-scrollbar">
+            <TabsTrigger value="active" className="flex items-center gap-1.5 text-[11px] sm:text-sm font-bold rounded-lg px-4 sm:px-6"><LineChart className="w-3.5 h-3.5 hidden sm:block" />Activas <Badge variant="secondary" className="font-black h-4 px-1 ml-0.5 text-[9px]">{portfolioPositions.filter(p => p.status === 'active').length}</Badge></TabsTrigger>
+            <TabsTrigger value="finished" className="flex items-center gap-1.5 text-[11px] sm:text-sm font-bold rounded-lg px-4 sm:px-6"><History className="w-3.5 h-3.5 hidden sm:block" />Cerradas</TabsTrigger>
+            <TabsTrigger value="bank" className="flex items-center gap-1.5 text-[11px] sm:text-sm font-bold rounded-lg px-4 sm:px-6"><Landmark className="w-3.5 h-3.5 hidden sm:block" />Billetera</TabsTrigger>
           </TabsList>
 
           {activeTab !== 'bank' && (
-            <div className="flex flex-col sm:flex-row items-center gap-4 mb-6">
-              <div className="relative w-full sm:flex-1">
-                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <div className="flex flex-row items-center gap-2 mb-3 md:mb-6 w-full">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input 
-                  placeholder="Buscar posiciones..." 
-                  className="pl-10 bg-background hover:bg-muted/30 border-border text-sm h-11 w-full rounded-full focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:border-primary/50 shadow-sm transition-all"
+                  placeholder="Buscar..." 
+                  className="pl-9 bg-card hover:bg-muted/30 border-border/50 text-sm h-10 w-full rounded-xl focus-visible:ring-2 focus-visible:ring-primary/20 shadow-sm transition-all"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
-              <div className="w-full sm:w-auto relative">
+              <div className="relative w-[130px] sm:w-[160px] shrink-0">
                 <select 
-                  className="appearance-none bg-background border border-border rounded-xl px-4 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer w-full sm:w-auto transition-colors hover:bg-muted/50"
+                  className="appearance-none bg-card border border-border/50 rounded-xl px-3 py-2 pr-8 text-xs sm:text-sm h-10 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer w-full shadow-sm transition-all hover:bg-muted/30 font-medium"
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value as any)}
                 >
-                  <option value="recent">Más recientes</option>
-                  <option value="oldest">Menos reciente</option>
+                  <option value="recent">Recientes</option>
+                  <option value="oldest">Antiguas</option>
                   <option value="highest_value">Mayor valor</option>
                   <option value="lowest_value">Menor valor</option>
                 </select>
@@ -773,7 +834,7 @@ export default function ProfilePage() {
             ) : (
               <div className="flex flex-col border border-border/50 rounded-2xl bg-card overflow-hidden shadow-sm">
                 {/* Cabecera de Tabla (Sólo Desktop) */}
-                <div className="hidden sm:flex items-center justify-between p-4 px-5 border-b border-border/30 bg-muted/20 text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
+                <div className="hidden md:flex items-center justify-between p-4 px-5 border-b border-border/30 bg-muted/20 text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
                   <div className="flex-1">Mercado</div>
                   <div className="flex items-center gap-6 sm:gap-8 pr-1">
                     <div className="flex items-center gap-4 sm:gap-6">
@@ -802,52 +863,49 @@ export default function ProfilePage() {
                     : pos.direction === 'no';
 
                   return (
-                    <div key={`${pos.market_id}-${pos.outcome}-${idx}`} className={cn("p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:bg-muted/10 transition-colors", idx !== arr.length - 1 && "border-b border-border/30")}>
+                    <div key={`${pos.market_id}-${pos.outcome}-${idx}`} className={cn("p-4 md:p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 hover:bg-muted/10 transition-colors", idx !== arr.length - 1 && "border-b border-border/30")}>
                       
-                      {/* Columna 1: Mercado */}
-                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                      {/* Fila Superior (Móvil) / Columna 1 (Desktop) */}
+                      <div className="flex items-center gap-3 w-full md:flex-1 min-w-0">
                         {pos.market_image_url ? (
-                          <img src={pos.market_image_url} alt="market" className="w-10 h-10 rounded-full object-cover border border-border/50 shrink-0 hidden sm:block" />
+                          <img src={pos.market_image_url} alt="market" className="w-10 h-10 rounded-full object-cover border border-border/50 shrink-0" />
                         ) : (
-                          <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center shrink-0 hidden sm:block">
+                          <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center shrink-0">
                             <LineChart className="w-5 h-5 text-muted-foreground" />
                           </div>
                         )}
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <Link href={`/market/${pos.market_id}`} className="block hover:underline">
-                            <p className="font-bold text-sm text-foreground truncate">{pos.market_title}</p>
+                            <p className="font-bold text-sm text-foreground leading-snug">{pos.market_title}</p>
                           </Link>
-                          <div className="flex items-center gap-1.5 mt-1">
-                            <Badge variant="outline" className={cn("text-[9px] font-bold h-4 px-1 border", isRedBadge ? "bg-red-500/10 text-red-600 dark:text-red-500 border-red-500/30" : "bg-green-500/10 text-green-600 dark:text-green-500 border-green-500/30")}>
+                          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                            <Badge variant="outline" className={cn("text-[10px] font-bold h-4 px-1 border", isRedBadge ? "bg-red-500/10 text-red-600 dark:text-red-500 border-red-500/30" : "bg-green-500/10 text-green-600 dark:text-green-500 border-green-500/30")}>
                               {badgeText}
                             </Badge>
                             <span className="text-[10px] font-medium text-muted-foreground">
-                              | {Number(pos.shares).toLocaleString('es-AR')} acciones a ${(Number(pos.avg_price) || 0).toFixed(2)}
+                              | {Number(pos.shares).toLocaleString('es-AR')} acciones
                             </span>
                           </div>
                         </div>
                       </div>
 
-                      {/* Columnas de Datos */}
-                      <div className="flex flex-row items-center justify-between sm:justify-end gap-6 sm:gap-8 border-t sm:border-t-0 border-border/30 pt-3 sm:pt-0 w-full sm:w-auto mt-3 sm:mt-0 sm:ml-auto">
-                        
-                        {/* Columna 2: Precios (Promedio / Actual agrupados) */}
-                        <div className="flex items-center gap-4 sm:gap-6">
-                          <div className="flex flex-col items-start sm:items-end sm:w-[60px]">
-                            <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 block sm:hidden">Promedio</p>
-                            <p className="text-sm font-bold text-foreground">${pos.avg_price.toFixed(2)}</p>
+                      {/* Abajo: Métricas en gris (Mobile) / Columnas (Desktop) */}
+                      <div className="mt-3 md:mt-0 flex justify-between md:justify-end items-center bg-muted/20 md:bg-transparent rounded-lg p-3 md:p-0 w-full md:w-auto border border-border/30 md:border-none gap-4 md:gap-8 pr-1">
+                        <div className="flex gap-4 md:gap-6 text-sm">
+                          <div className="flex flex-col md:w-[60px] md:items-end">
+                            <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider md:hidden">Promedio</p>
+                            <p className="font-bold text-foreground md:font-medium">${pos.avg_price.toFixed(2)}</p>
                           </div>
-                          <div className="flex flex-col items-start sm:items-end sm:w-[50px]">
-                            <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 block sm:hidden">Actual</p>
-                            <p className="text-sm font-bold text-foreground">${currentPrice.toFixed(2)}</p>
+                          <div className="flex flex-col md:w-[50px] md:items-end">
+                            <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider md:hidden">Actual</p>
+                            <p className="font-bold text-foreground md:font-medium">${currentPrice.toFixed(2)}</p>
                           </div>
                         </div>
 
-                        {/* Columna 3: Valor y PnL */}
-                        <div className="flex flex-col items-end min-w-[90px] sm:w-[90px]">
-                          <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 block sm:hidden">Valor</p>
-                          <p className="font-black text-sm sm:text-base text-foreground">{currentValue.toLocaleString(undefined, {maximumFractionDigits: 0})} pts</p>
-                          <p className={cn("text-[11px] font-bold mt-0.5", isProfit ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
+                        <div className="flex flex-col items-end min-w-[90px] md:w-[90px]">
+                          <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 md:hidden">Valor</p>
+                          <p className="font-black text-base text-foreground">{currentValue.toLocaleString(undefined, {maximumFractionDigits: 0})} pts</p>
+                          <p className={cn("text-[11px] font-bold mt-0.5 md:font-medium", isProfit ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
                             {isProfit ? '+' : ''}{floatingPnl.toLocaleString(undefined, {maximumFractionDigits: 0})} ({isProfit ? '+' : ''}{floatingPnlPct.toFixed(1)}%)
                           </p>
                         </div>
@@ -867,7 +925,7 @@ export default function ProfilePage() {
             ) : (
               <div className="flex flex-col border border-border/50 rounded-2xl bg-card overflow-hidden shadow-sm">
                 {/* Cabecera de Tabla (Sólo Desktop) */}
-                <div className="hidden sm:flex items-center justify-between p-4 px-5 border-b border-border/30 bg-muted/20 text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
+                <div className="hidden md:flex items-center justify-between p-4 px-5 border-b border-border/30 bg-muted/20 text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
                   <div className="flex-1">Mercado</div>
                   <div className="flex items-center gap-6 sm:gap-8 pr-1">
                     <div className="w-[90px] text-right">Inversión</div>
@@ -893,11 +951,11 @@ export default function ProfilePage() {
                     : pos.direction === 'no';
 
                   return (
-                    <div key={`${pos.market_id}-${pos.outcome}-${idx}`} className={cn("p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:bg-muted/10 transition-colors", idx !== arr.length - 1 && "border-b border-border/30")}>
+                    <div key={`${pos.market_id}-${pos.outcome}-${idx}`} className="flex flex-col md:flex-row md:items-center border-b border-border/60 md:border-border/30 py-5 px-4 md:py-4 md:px-5 last:border-0 hover:bg-muted/5 md:hover:bg-muted/10 transition-colors gap-4">
                       
-                      {/* Columna 1 y 2: Indicador y Mercado */}
-                      <div className="flex items-center gap-3 flex-1 min-w-0">
-                        <div className={cn("w-8 h-8 rounded-full flex items-center justify-center shrink-0 border hidden sm:flex", 
+                      {/* Arriba: Imagen y Título */}
+                      <div className="flex items-start gap-3 w-full md:flex-1 md:items-center">
+                        <div className={cn("w-8 h-8 rounded-full flex items-center justify-center shrink-0 border hidden md:flex", 
                           isProfit ? "bg-green-500/10 border-green-500/30" : 
                           isLoss ? "bg-red-500/10 border-red-500/30" : 
                           "bg-muted/50 border-border/50"
@@ -907,18 +965,30 @@ export default function ProfilePage() {
                           {isTie && <MinusCircle className="w-4 h-4 text-muted-foreground" />}
                         </div>
                         {pos.market_image_url ? (
-                          <img src={pos.market_image_url} alt="market" className="w-10 h-10 rounded-full object-cover border border-border/50 shrink-0 hidden sm:block" />
+                          <img src={pos.market_image_url} alt="market" className="w-10 h-10 rounded-full object-cover border border-border/50 shrink-0 mt-0.5 md:mt-0" />
                         ) : (
-                          <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center shrink-0 hidden sm:block">
+                          <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center shrink-0 mt-0.5 md:mt-0">
                             <History className="w-5 h-5 text-muted-foreground" />
                           </div>
                         )}
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <Link href={`/market/${pos.market_id}`} className="block hover:underline">
-                            <p className="font-bold text-sm text-foreground truncate">{pos.market_title}</p>
+                            <p className="font-semibold text-sm leading-tight text-foreground md:truncate">{pos.market_title}</p>
                           </Link>
-                          <div className="flex items-center gap-1.5 mt-1">
-                            <Badge variant="outline" className={cn("text-[9px] font-bold h-4 px-1 border", isRedBadge ? "bg-red-500/10 text-red-600 dark:text-red-500 border-red-500/30" : "bg-green-500/10 text-green-600 dark:text-green-500 border-green-500/30")}>
+                          
+                          {/* Centro: Insignia Ganado/Perdido debajo del título */}
+                          {isProfit ? (
+                            <div className="flex items-center gap-1 text-green-500 font-semibold text-xs mt-1 md:hidden">
+                              <CheckCircle2 className="w-3 h-3" /> Ganado
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1 text-muted-foreground text-xs mt-1 font-semibold md:hidden">
+                              <XCircle className="w-3 h-3" /> Perdido
+                            </div>
+                          )}
+
+                          <div className="flex items-center gap-1.5 mt-2 md:mt-1 flex-wrap">
+                            <Badge variant="outline" className={cn("text-[10px] font-bold h-4 px-1 border", isRedBadge ? "bg-red-500/10 text-red-600 dark:text-red-500 border-red-500/30" : "bg-green-500/10 text-green-600 dark:text-green-500 border-green-500/30")}>
                               {badgeText}
                             </Badge>
                             <span className="text-[10px] font-medium text-muted-foreground">
@@ -928,20 +998,17 @@ export default function ProfilePage() {
                         </div>
                       </div>
 
-                      {/* Columnas de Datos */}
-                      <div className="flex flex-row items-center justify-between sm:justify-end gap-6 sm:gap-8 border-t sm:border-t-0 border-border/30 pt-3 sm:pt-0 w-full sm:w-auto mt-3 sm:mt-0 sm:ml-auto">
-                        
-                        {/* Columna 3: Inversión */}
-                        <div className="flex flex-col items-start sm:items-end w-full sm:w-[90px]">
-                          <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 block sm:hidden">Inversión</p>
-                          <p className="font-bold text-sm text-foreground">{totalInvestment.toLocaleString(undefined, {maximumFractionDigits: 0})} pts</p>
+                      {/* Abajo: Métricas en gris (Mobile) / Columnas (Desktop) */}
+                      <div className="mt-3 md:mt-0 flex justify-between md:justify-end items-center bg-muted/20 md:bg-transparent rounded-lg p-3 md:p-0 w-full md:w-auto border border-border/30 md:border-none gap-4 md:gap-8 pr-1">
+                        <div className="flex flex-col md:w-[90px] md:items-end">
+                          <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider md:hidden">Inversión</p>
+                          <p className="font-bold text-foreground md:font-medium">{totalInvestment.toLocaleString(undefined, {maximumFractionDigits: 0})} pts</p>
                         </div>
 
-                        {/* Columna 4: Retorno y PnL */}
-                        <div className="flex flex-col items-end min-w-[90px] sm:w-[110px]">
-                          <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 block sm:hidden">Retorno Final</p>
-                          <p className="font-black text-sm sm:text-base text-foreground">{finalAmount.toLocaleString(undefined, {maximumFractionDigits: 0})} pts</p>
-                          <p className={cn("text-[11px] font-bold mt-0.5", isProfit ? "text-green-600 dark:text-[#00FF00]" : isLoss ? "text-red-600 dark:text-[#FF0000]" : "text-muted-foreground")}>
+                        <div className="flex flex-col items-end min-w-[90px] md:w-[110px]">
+                          <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 md:hidden">Retorno Final</p>
+                          <p className="font-black text-base text-foreground">{finalAmount.toLocaleString(undefined, {maximumFractionDigits: 0})} pts</p>
+                          <p className={cn("text-[11px] font-bold mt-0.5 md:font-medium", isProfit ? "text-green-600 dark:text-[#00FF00]" : isLoss ? "text-red-600 dark:text-[#FF0000]" : "text-muted-foreground")}>
                             {isProfit ? '+' : ''}{pos.realized_pnl.toLocaleString(undefined, {maximumFractionDigits: 0})} ({isProfit ? '+' : ''}{pnlPct.toFixed(1)}%)
                           </p>
                         </div>
@@ -965,7 +1032,7 @@ export default function ProfilePage() {
             ) : (
               <div className="rounded-xl border border-border/50 bg-card overflow-hidden shadow-sm">
                 {/* Cabecera de Tabla (Sólo Desktop) */}
-                <div className="hidden sm:flex items-center justify-between p-4 px-5 border-b border-border/30 bg-muted/20 text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
+                <div className="hidden md:flex items-center justify-between p-4 px-5 border-b border-border/30 bg-muted/20 text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
                   <div className="flex-1 pl-[52px]">Descripción</div>
                   <div className="flex items-center gap-6 sm:gap-8 pr-1">
                     <div className="w-[80px] text-right">Precio</div>
@@ -990,11 +1057,12 @@ export default function ProfilePage() {
                     const price = sharesAmount > 0 ? (Math.abs(tx.amount) / sharesAmount).toFixed(2) : '-';
 
                     return (
-                      <div key={tx.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 hover:bg-muted/10 transition-colors gap-3 sm:gap-4">
+                      <div key={tx.id} className="flex flex-col md:flex-row justify-between border-b border-border/50 py-4 px-4 hover:bg-muted/10 transition-colors last:border-0 w-full">
                         
-                        <div className="flex items-center gap-3 flex-1 min-w-0 w-full sm:w-auto">
-                          <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center shrink-0">
-                            {isPositive ? <ArrowUpRight className="w-5 h-5 text-green-500" /> : <ArrowDownRight className="w-5 h-5 text-muted-foreground" />}
+                        {/* Fila Superior (Descripción) */}
+                        <div className="flex items-center gap-3 w-full md:w-auto md:flex-1 min-w-0">
+                          <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-muted flex items-center justify-center shrink-0">
+                            {isPositive ? <ArrowUpRight className="w-4 h-4 md:w-5 md:h-5 text-green-500" /> : <ArrowDownRight className="w-4 h-4 md:w-5 md:h-5 text-muted-foreground" />}
                           </div>
                           <div className="flex-1 min-w-0">
                             {(() => {
@@ -1019,11 +1087,11 @@ export default function ProfilePage() {
                               let finalDesc = desc;
                               if (marketTitle) {
                                 const actionText = amount < 0 ? "Compra" : "Venta";
-                                finalDesc = `${actionText} de acciones en el mercado "${marketTitle}"`;
+                                finalDesc = `${actionText} de acciones en "${marketTitle}"`;
                               }
 
                               return (
-                                <p className="text-sm text-muted-foreground truncate">
+                                <p className="text-sm text-foreground font-medium leading-snug">
                                   {renderStyledDescription(finalDesc)}
                                 </p>
                               );
@@ -1032,27 +1100,28 @@ export default function ProfilePage() {
                           </div>
                         </div>
 
-                        {/* Columnas de Datos */}
-                        <div className="flex flex-row items-center justify-between sm:justify-end gap-6 sm:gap-8 border-t sm:border-t-0 border-border/30 pt-3 sm:pt-0 w-full sm:w-auto mt-2 sm:mt-0 sm:ml-auto shrink-0">
+                        {/* Fila Inferior (Datos agrupaditos en móvil) */}
+                        <div className="mt-3 md:mt-0 flex justify-between items-center w-full md:w-auto md:ml-auto gap-4 md:gap-8 shrink-0">
                           
-                          {/* Columna: Precio */}
-                          <div className="flex flex-col items-start sm:items-end sm:w-[80px]">
-                            <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 block sm:hidden">Precio</p>
-                            <p className="text-sm font-bold text-foreground text-right">{price !== '-' ? `$${price}` : '-'}</p>
-                          </div>
+                          <div className="flex items-center gap-6 md:gap-8">
+                            {/* Columna: Precio */}
+                            <div className="flex flex-col items-start md:items-end w-auto md:w-[80px] justify-center">
+                              <p className="text-xs md:text-sm font-bold text-muted-foreground md:text-foreground">
+                                <span className="text-xs md:hidden font-medium text-muted-foreground mr-1">Precio:</span>{price !== '-' ? `$${price}` : '-'}
+                              </p>
+                            </div>
 
-                          {/* Columna: Acciones */}
-                          <div className="flex flex-col items-start sm:items-end sm:w-[80px]">
-                            <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 block sm:hidden">Acciones</p>
-                            <p className="text-sm font-bold text-foreground text-right">
-                              {sharesAmount > 0 ? sharesAmount.toLocaleString('es-AR') : '-'}
-                            </p>
+                            {/* Columna: Acciones */}
+                            <div className="flex flex-col items-start md:items-end w-auto md:w-[80px] justify-center">
+                              <p className="text-xs md:text-sm font-bold text-muted-foreground md:text-foreground">
+                                <span className="text-xs md:hidden font-medium text-muted-foreground mr-1">Acc:</span>{sharesAmount > 0 ? sharesAmount.toLocaleString('es-AR') : '-'}
+                              </p>
+                            </div>
                           </div>
 
                           {/* Columna: Valor */}
-                          <div className="flex flex-col items-end min-w-[90px] sm:w-[100px]">
-                            <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 block sm:hidden">Valor</p>
-                            <span className={cn("font-black text-sm sm:text-base text-right", isPositive ? "text-green-600 dark:text-[#00FF00]" : "text-foreground")}>
+                          <div className="flex flex-col items-end min-w-[80px] md:w-[100px] justify-center">
+                            <span className={cn("font-black text-sm md:text-base text-right", isPositive ? "text-green-600 dark:text-[#00FF00]" : "text-foreground")}>
                               {isPositive ? '+' : ''}{tx.amount.toLocaleString()}
                             </span>
                           </div>
