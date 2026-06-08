@@ -74,6 +74,7 @@ export function ProfileView({ userId }: { userId?: string }) {
   const supabase = createClient();
   const [profile, setProfile] = useState<any>(null);
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [loggedInProfile, setLoggedInProfile] = useState<any>(null);
   const isOwner = !userId || currentUser?.id === userId;
   const [bets, setBets] = useState<BetWithMarket[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
@@ -320,9 +321,15 @@ export function ProfileView({ userId }: { userId?: string }) {
   const fetchAuth = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     setCurrentUser(user);
+    
+    let authUserProf = null;
+    if (user) {
+      authUserProf = await getProfile();
+      if (authUserProf) setLoggedInProfile(authUserProf);
+    }
+    
     if (user && !userId) {
-      const p = await getProfile();
-      if (p) setProfile(p);
+      if (authUserProf) setProfile(authUserProf);
     } else if (userId) {
       const { data } = await supabase.from("profiles").select("*").eq("id", userId).single();
       if (data) setProfile(data);
@@ -334,9 +341,15 @@ export function ProfileView({ userId }: { userId?: string }) {
       const { data: { user } } = await supabase.auth.getUser();
       setCurrentUser(user);
 
+      let authUserProf = null;
+      if (user) {
+        authUserProf = await getProfile();
+        if (authUserProf) setLoggedInProfile(authUserProf);
+      }
+
       let p = null;
       if (!userId) {
-        p = await getProfile();
+        p = authUserProf;
         if (!p) { router.replace("/"); return; }
       } else {
         const { data } = await supabase.from("profiles").select("*").eq("id", userId).single();
@@ -614,6 +627,9 @@ export function ProfileView({ userId }: { userId?: string }) {
     else { 
       toast({ title: "Perfil actualizado" }); 
       setProfile({ ...profile, username: newUsername.trim(), avatar_url: finalAvatarUrl }); 
+      if (isOwner) {
+        setLoggedInProfile((prev: any) => prev ? { ...prev, username: newUsername.trim(), avatar_url: finalAvatarUrl } : prev);
+      }
       setIsEditModalOpen(false); 
       setSelectedImage(null); 
       setNewPassword(""); 
@@ -683,7 +699,7 @@ export function ProfileView({ userId }: { userId?: string }) {
 
   return (
     <div className="min-h-screen bg-muted/10 flex flex-col pb-20 lg:pb-0">
-      <NavHeader points={profile.points ?? 10000} isDarkMode={isDarkMode} onToggleDarkMode={toggleDarkMode} onPointsUpdate={() => { }} userId={profile.id} userEmail={profile.email ?? null} onOpenAuthModal={() => router.push("/")} onSignOut={async () => { await createClient().auth.signOut(); router.replace("/"); }} isAdmin={profile.role === "admin"} username={profile.username ?? null} avatarUrl={profile.avatar_url ?? null} />
+      <NavHeader points={loggedInProfile?.points ?? 0} isDarkMode={isDarkMode} onToggleDarkMode={toggleDarkMode} onPointsUpdate={() => { }} userId={loggedInProfile?.id ?? null} userEmail={loggedInProfile?.email ?? null} onOpenAuthModal={() => router.push("/")} onSignOut={async () => { await createClient().auth.signOut(); router.replace("/"); }} isAdmin={loggedInProfile?.role === "admin"} username={loggedInProfile?.username ?? null} avatarUrl={loggedInProfile?.avatar_url ?? null} />
 
       <main className="w-full max-w-[1440px] mx-auto px-4 md:px-8 py-6 flex-1">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-8 mb-3 md:mb-10">
