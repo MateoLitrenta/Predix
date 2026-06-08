@@ -108,15 +108,48 @@ export function ProfileView({ userId }: { userId?: string }) {
     const sortedPositions = [...result];
     
     const getPosDate = (pos: any) => {
-      // Buscar la fecha de la apuesta más reciente asociada a esta posición
+      let finalDate = 0;
+      
       const relatedBets = bets.filter(b => b.market_id === pos.market_id && b.outcome === pos.outcome);
-      if (relatedBets.length > 0) {
-        return Math.max(...relatedBets.map(b => new Date(b.created_at || 0).getTime()));
+      
+      if (pos.status === 'closed') {
+        const market = relatedBets.length > 0 ? getMarket(relatedBets[0]) : null;
+        let marketClosedTime = 0;
+        let optionEliminatedTime = 0;
+        
+        if (market && (String(market.status).toLowerCase() === 'resolved' || String(market.status).toLowerCase() === 'rejected')) {
+           marketClosedTime = new Date((market as any).updated_at || market.end_date || 0).getTime();
+        }
+        
+        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(pos.outcome);
+        if (isUUID && marketOptions && marketOptions.length > 0) {
+           const option = marketOptions.find(o => o.id === pos.outcome);
+           if (option && option.is_eliminated && option.eliminated_at) {
+              optionEliminatedTime = new Date(option.eliminated_at).getTime();
+           }
+        }
+        
+        const cashoutTime = pos.shares === 0 && pos.last_activity ? new Date(pos.last_activity).getTime() : 0;
+        
+        if (cashoutTime > 0) {
+           finalDate = cashoutTime;
+        } else if (optionEliminatedTime > 0) {
+           finalDate = optionEliminatedTime;
+        } else if (marketClosedTime > 0) {
+           finalDate = marketClosedTime;
+        }
       }
       
-      // Fallback a las propiedades directas en caso de existir
-      const dateStr = pos.last_activity || pos.updated_at || pos.created_at || pos.timestamp || pos.date;
-      return dateStr ? new Date(dateStr).getTime() : 0;
+      if (finalDate === 0) {
+        if (relatedBets.length > 0) {
+          finalDate = Math.max(...relatedBets.map(b => new Date(b.created_at || 0).getTime()));
+        } else {
+          const dateStr = pos.last_activity || pos.updated_at || pos.created_at || pos.timestamp || pos.date;
+          finalDate = dateStr ? new Date(dateStr).getTime() : 0;
+        }
+      }
+      
+      return finalDate;
     };
     
     switch (sortBy) {
@@ -136,7 +169,7 @@ export function ProfileView({ userId }: { userId?: string }) {
     }
     
     return sortedPositions;
-  }, [portfolioPositions, searchTerm, sortBy, bets]);
+  }, [portfolioPositions, searchTerm, sortBy, bets, marketOptions]);
 
   const [isChecking, setIsChecking] = useState(true);
   const [isLoadingBets, setIsLoadingBets] = useState(true);
@@ -687,7 +720,7 @@ export function ProfileView({ userId }: { userId?: string }) {
                     <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Portfolio Total</p>
                     <Wallet className="w-5 h-5 text-primary opacity-80" />
                   </div>
-                  <p className="text-3xl font-black text-foreground">{portfolioStats.totalPortfolioValue.toLocaleString()} pts</p>
+                  <p className="text-3xl font-black text-foreground">{portfolioStats.totalPortfolioValue.toLocaleString(undefined, {maximumFractionDigits: 0})} pts</p>
                 </div>
 
                 <div className="bg-card border border-border/50 rounded-2xl p-5 shadow-sm flex flex-col justify-between">
@@ -782,7 +815,7 @@ export function ProfileView({ userId }: { userId?: string }) {
                           <Wallet className="w-3.5 h-3.5 text-primary" /> PORTFOLIO
                         </div>
                         <div className="text-2xl leading-none font-black tracking-tighter text-foreground text-right">
-                          {portfolioStats.totalPortfolioValue.toLocaleString()} <span className="text-xs font-bold opacity-50 tracking-tight">pts</span>
+                          {portfolioStats.totalPortfolioValue.toLocaleString(undefined, {maximumFractionDigits: 0})} <span className="text-xs font-bold opacity-50 tracking-tight">pts</span>
                         </div>
                       </div>
                       
@@ -992,11 +1025,47 @@ export function ProfileView({ userId }: { userId?: string }) {
 
                 {filteredAndSortedPositions.filter(p => p.status === 'closed').map((pos, idx, arr) => {
                   const totalInvestment = pos.shares * pos.avg_price;
-                  const finalAmount = totalInvestment + pos.realized_pnl;
-                  const pnlPct = totalInvestment > 0 ? (pos.realized_pnl / totalInvestment) * 100 : 0;
-                  const isLoss = pos.realized_pnl < 0;
-                  const isProfit = pos.realized_pnl > 0;
-                  const isTie = pos.realized_pnl === 0;
+                  let realized_pnl = pos.realized_pnl;
+
+                  // Corregir realized_pnl si el usuario mantuvo las acciones hasta la resolución
+                  if (pos.shares > 0) {
+                     const relatedBet = bets.find(b => b.market_id === pos.market_id && b.outcome === pos.outcome);
+                     const market = relatedBet ? getMarket(relatedBet) : null;
+                     
+                     if (market && (String(market.status).toLowerCase() === 'resolved' || String(market.status).toLowerCase() === 'rejected')) {
+                         if (String(market.status).toLowerCase() === 'rejected') {
+                             realized_pnl = 0; 
+                         } else {
+                             const outcomeNameStr = String(pos.outcome_name || pos.option_display_name || pos.outcome);
+                             const isOldBinary = ['sí', 'si', 'no', 'yes'].includes(outcomeNameStr.toLowerCase().trim());
+                             
+                             let won = false;
+                             if (isOldBinary) {
+                                won = market.winning_outcome === pos.outcome;
+                             } else {
+                                if (pos.direction === 'yes') {
+                                   won = market.winning_outcome === pos.outcome;
+                                } else if (pos.direction === 'no') {
+                                   won = market.winning_outcome !== pos.outcome && market.winning_outcome !== null;
+                                } else {
+                                   won = market.winning_outcome === pos.outcome;
+                                }
+                             }
+
+                             if (won) {
+                                realized_pnl = pos.shares - totalInvestment;
+                             } else {
+                                realized_pnl = -totalInvestment;
+                             }
+                         }
+                     }
+                  }
+
+                  const finalAmount = totalInvestment + realized_pnl;
+                  const pnlPct = totalInvestment > 0 ? (realized_pnl / totalInvestment) * 100 : 0;
+                  const isLoss = realized_pnl < 0;
+                  const isProfit = realized_pnl > 0;
+                  const isTie = realized_pnl === 0;
 
                   const outcomeName = String(pos.outcome_name || pos.option_display_name || pos.outcome);
                   const isBinary = ['sí', 'si', 'no', 'yes'].includes(outcomeName.toLowerCase().trim());
@@ -1066,7 +1135,7 @@ export function ProfileView({ userId }: { userId?: string }) {
                           <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 md:hidden">Retorno Final</p>
                           <p className="font-black text-base text-foreground">{finalAmount.toLocaleString(undefined, {maximumFractionDigits: 0})} pts</p>
                           <p className={cn("text-[11px] font-bold mt-0.5 md:font-medium", isProfit ? "text-green-600 dark:text-[#00FF00]" : isLoss ? "text-red-600 dark:text-[#FF0000]" : "text-muted-foreground")}>
-                            {isProfit ? '+' : ''}{pos.realized_pnl.toLocaleString(undefined, {maximumFractionDigits: 0})} ({isProfit ? '+' : ''}{pnlPct.toFixed(1)}%)
+                            {isProfit ? '+' : ''}{realized_pnl.toLocaleString(undefined, {maximumFractionDigits: 0})} ({isProfit ? '+' : ''}{pnlPct.toFixed(1)}%)
                           </p>
                         </div>
                       </div>
