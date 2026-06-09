@@ -294,6 +294,13 @@ export function NavHeader({
           </Link>
 
           <div className="hidden md:flex items-center gap-3">
+            <Button variant="ghost" asChild className="rounded-xl border border-primary/20 bg-primary/5 hover:bg-primary/10 hover:text-primary transition-colors text-primary font-bold">
+              <Link href="/mundial">
+                <Trophy className="w-4 h-4 mr-2" />
+                <span>🏆 Mundial 2026</span>
+              </Link>
+            </Button>
+
             {userId && (
               <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-secondary/20 border border-secondary/30">
                 <Coins className="w-5 h-5 text-secondary-foreground" />
@@ -444,11 +451,18 @@ export function NavHeader({
                 </Button>
               )}
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-2">
+                <Button variant="outline" className="h-16 flex flex-col items-center justify-center gap-1 border-border/50 hover:bg-muted/50 rounded-xl bg-card" asChild>
+                  <Link href="/mundial" onClick={() => setShowMobileMenu(false)}>
+                    <Trophy className="w-5 h-5 text-primary animate-pulse" />
+                    <span className="text-[10px] font-bold mt-1 text-primary">Mundial 2026</span>
+                  </Link>
+                </Button>
+
                 <Button variant="outline" className="h-16 flex flex-col items-center justify-center gap-1 border-border/50 hover:bg-muted/50 rounded-xl bg-card" asChild>
                   <Link href="/ranking" onClick={() => setShowMobileMenu(false)}>
                     <Trophy className="w-5 h-5 text-amber-500" />
-                    <span className="text-xs font-semibold mt-1">Ranking Global</span>
+                    <span className="text-xs font-semibold mt-1">Ranking</span>
                   </Link>
                 </Button>
 
