@@ -162,14 +162,16 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     const userIds = [...new Set([...rawBets.map(b => b.user_id), ...rawCashouts.map(c => c.user_id)])];
     const profileMap: Record<string, any> = {};
     if (userIds.length > 0) {
-      const { data: profilesData } = await supabase.from("profiles").select("id, username, avatar_url").in("id", userIds);
+      const { data: profilesData } = await supabase.from("profiles").select("id, username, avatar_url, is_market_maker").in("id", userIds);
       if (profilesData) profilesData.forEach(p => { profileMap[p.id] = p; });
     }
 
-    const mappedBets = rawBets.map(bet => ({ ...bet, activityType: 'bet', profiles: { username: profileMap[bet.user_id]?.username || "Usuario Anónimo", avatar_url: profileMap[bet.user_id]?.avatar_url } }));
-    const mappedCashouts = rawCashouts.map(c => ({ ...c, activityType: 'cashout', profiles: { username: profileMap[c.user_id]?.username || "Usuario Anónimo", avatar_url: profileMap[c.user_id]?.avatar_url } }));
+    const mappedBets = rawBets.map(bet => ({ ...bet, activityType: 'bet', profiles: { username: profileMap[bet.user_id]?.username || "Usuario Anónimo", avatar_url: profileMap[bet.user_id]?.avatar_url, is_market_maker: profileMap[bet.user_id]?.is_market_maker } }));
+    const mappedCashouts = rawCashouts.map(c => ({ ...c, activityType: 'cashout', profiles: { username: profileMap[c.user_id]?.username || "Usuario Anónimo", avatar_url: profileMap[c.user_id]?.avatar_url, is_market_maker: profileMap[c.user_id]?.is_market_maker } }));
 
-    const combinedFeed = [...mappedBets, ...mappedCashouts].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const combinedFeed = [...mappedBets, ...mappedCashouts]
+      .filter(item => !item.profiles.is_market_maker)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     setActivityFeed(combinedFeed);
 
     const { data: commentsData } = await supabase.from("comments").select("*, profiles(username, avatar_url)").eq("market_id", marketId).order("created_at", { ascending: true });
