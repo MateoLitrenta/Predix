@@ -582,6 +582,12 @@ export function ProfileView({ userId }: { userId?: string }) {
     return { value: val, percentage: pct };
   }, [chartData, portfolioStats.totalPortfolioValue]);
 
+  const predictionsPlayed = portfolioPositions.length;
+  const bestPredictionValue = useMemo(() => {
+    if (!portfolioPositions || portfolioPositions.length === 0) return 0;
+    return portfolioPositions.reduce((max, p) => Math.max(max, Number(p.realized_pnl) || 0), 0);
+  }, [portfolioPositions]);
+
   const confirmSell = async () => {
     if (!betToSell) return;
     setSellingBetId(betToSell.id);
@@ -764,11 +770,11 @@ export function ProfileView({ userId }: { userId?: string }) {
                 <div className="col-span-2 bg-card border border-border/50 rounded-2xl p-5 shadow-sm flex flex-col gap-2 justify-center">
                   <div className="flex justify-between items-center border-b border-border/30 pb-1">
                     <span className="text-xs font-bold text-muted-foreground">Mejor Predicción</span>
-                    <span className="text-base font-black text-green-600 dark:text-[#00FF00]">+4,500 pts</span>
+                    <span className={cn("text-base font-black", bestPredictionValue > 0 ? "text-green-600 dark:text-[#00FF00]" : "text-foreground")}>{bestPredictionValue > 0 ? '+' : ''}{bestPredictionValue.toLocaleString(undefined, {maximumFractionDigits: 0})} pts</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-xs font-bold text-muted-foreground">Predicciones Jugadas</span>
-                    <span className="text-base font-black text-foreground">27</span>
+                    <span className="text-base font-black text-foreground">{predictionsPlayed}</span>
                   </div>
                 </div>
               </div>
@@ -809,7 +815,7 @@ export function ProfileView({ userId }: { userId?: string }) {
                 </div>
                 <div className="flex flex-col items-center px-2">
                   <span className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider mb-0.5">Jugadas</span>
-                  <span className="text-sm font-bold text-foreground">27</span>
+                  <span className="text-sm font-bold text-foreground">{predictionsPlayed}</span>
                 </div>
               </div>
             </div>
