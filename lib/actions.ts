@@ -10,6 +10,8 @@ export type ProfileResult = {
   email?: string | null;
   full_name?: string | null;
   date_of_birth?: string | null;
+  avatar_url?: string | null;
+  is_market_maker?: boolean | null;
 } | null;
 
 // --- NUEVA FUNCIÓN GLOBAL DE NOTIFICACIONES ---
@@ -217,7 +219,7 @@ export async function resolveMarket(marketId: string, outcome: string) {
   return { ok: true, error: null };
 }
 
-export async function updateMarket(marketId: string, params: { title: string; description: string | null; category: string; end_date: string; image_url?: string | null }) {
+export async function updateMarket(marketId: string, params: { title: string; description: string | null; category: string; end_date: string; image_url?: string | null; is_world_cup?: boolean }) {
   const supabase = await createClient();
   const categoryNormalized = params.category.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
@@ -227,13 +229,14 @@ export async function updateMarket(marketId: string, params: { title: string; de
     category: categoryNormalized,
     end_date: params.end_date,
     image_url: params.image_url,
+    is_world_cup: params.is_world_cup,
   }).eq("id", marketId);
 
   if (error) return { ok: false, error: error.message };
   return { ok: true, error: null };
 }
 
-export async function createMarket(params: { title: string; description: string | null; category: string; end_date: string; created_by: string; options?: string[]; }) {
+export async function createMarket(params: { title: string; description: string | null; category: string; end_date: string; created_by: string; options?: string[]; is_world_cup?: boolean }) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user || user.id !== params.created_by) return { ok: false, error: "No autorizado" };
@@ -251,6 +254,7 @@ export async function createMarket(params: { title: string; description: string 
     no_votes: 0,
     total_volume: 0,
     yes_percentage: 50,
+    is_world_cup: params.is_world_cup ?? false,
   }).select("id").single();
 
   if (marketError) return { ok: false, error: marketError.message };
@@ -266,7 +270,7 @@ export async function createMarket(params: { title: string; description: string 
   return { ok: true, error: null };
 }
 
-export async function createAdminMarket(params: { title: string; description: string | null; category: string; end_date: string; image_url?: string | null; options?: string[]; }) {
+export async function createAdminMarket(params: { title: string; description: string | null; category: string; end_date: string; image_url?: string | null; options?: string[]; is_world_cup?: boolean }) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -289,6 +293,7 @@ export async function createAdminMarket(params: { title: string; description: st
     no_votes: 0,
     total_volume: 0,
     yes_percentage: 50,
+    is_world_cup: params.is_world_cup ?? false,
   }).select("id").single();
 
   if (marketError) return { ok: false, error: marketError.message };

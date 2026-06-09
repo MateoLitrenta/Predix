@@ -540,14 +540,14 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     return result.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   }, [market, options, history, getOptionPrice]);
 
-  const dynamicStrokeWidth = (chartTimeframe === 'ALL' || chartTimeframe === '1Y' || chartTimeframe === '6M') ? 2 : 3;
+  const dynamicStrokeWidth = chartTimeframe === 'ALL' ? 2 : 3;
 
   const axisTextColor = isDarkMode ? '#a1a1aa' : '#64748b';
   const axisLineColor = isDarkMode ? '#334155' : '#e2e8f0';
 
   const formatXAxis = (tick: number) => {
     const date = new Date(tick);
-    if (chartTimeframe === '1H' || chartTimeframe === '6H' || chartTimeframe === '1D') {
+    if (chartTimeframe === '1D') {
       return date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
     }
     if (chartTimeframe === '1W' || chartTimeframe === '1M') {

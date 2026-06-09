@@ -132,7 +132,7 @@ export default function MundialHubPage() {
         market_options (id, option_name, color, total_votes, is_eliminated)
       `)
       .in("status", ["active", "resolved"])
-      .or("title.ilike.%Mundial%,description.ilike.%Mundial%,title.ilike.%FIFA 2026%,description.ilike.%FIFA 2026%,category.eq.mundial,category.eq.mundial 2026");
+      .eq("is_world_cup", true);
 
     if (error) {
       console.log("Error fetching Mundial markets:", error.message);

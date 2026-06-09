@@ -74,15 +74,15 @@ export default function AdminDashboardClient() {
 
   const [editingMarket, setEditingMarket] = useState<Market | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [editForm, setEditForm] = useState<{ title: string; description: string; category: string; end_date: string; image_url: string; options: MarketOption[] }>({ title: "", description: "", category: "", end_date: "", image_url: "", options: [] });
+  const [editForm, setEditForm] = useState<{ title: string; description: string; category: string; end_date: string; image_url: string; options: MarketOption[]; is_world_cup: boolean }>({ title: "", description: "", category: "", end_date: "", image_url: "", options: [], is_world_cup: false });
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
 
   const [createForm, setCreateForm] = useState<{
-    title: string; description: string; category: string; end_date: string; image_url: string; marketType: "binary" | "multiple"; options: string[];
+    title: string; description: string; category: string; end_date: string; image_url: string; marketType: "binary" | "multiple"; options: string[]; is_world_cup: boolean;
   }>({
-    title: "", description: "", category: "politica", end_date: "", image_url: "", marketType: "binary", options: ["", ""]
+    title: "", description: "", category: "politica", end_date: "", image_url: "", marketType: "binary", options: ["", ""], is_world_cup: false
   });
 
   const [resolvingMarket, setResolvingMarket] = useState<Market | null>(null);
@@ -147,7 +147,8 @@ export default function AdminDashboardClient() {
         category: categoryNormalized || "politica",
         end_date: endDate,
         image_url: String(editingMarket.image_url ?? ""),
-        options: editingMarket.market_options ? [...editingMarket.market_options] : []
+        options: editingMarket.market_options ? [...editingMarket.market_options] : [],
+        is_world_cup: !!editingMarket.is_world_cup
       });
     }
   }, [editingMarket]);
@@ -163,6 +164,7 @@ export default function AdminDashboardClient() {
       category: editForm.category,
       end_date: editForm.end_date,
       image_url: editForm.image_url.trim() || null,
+      is_world_cup: editForm.is_world_cup,
     });
 
     if (!error && editForm.options.length > 0) {
@@ -209,7 +211,7 @@ export default function AdminDashboardClient() {
 
     setIsCreating(true);
     const { error } = await createAdminMarket({
-      title: createForm.title.trim(), description: createForm.description.trim() || null, category: createForm.category, end_date: createForm.end_date, image_url: createForm.image_url.trim() || null, options: finalOptions
+      title: createForm.title.trim(), description: createForm.description.trim() || null, category: createForm.category, end_date: createForm.end_date, image_url: createForm.image_url.trim() || null, options: finalOptions, is_world_cup: createForm.is_world_cup
     });
     setIsCreating(false);
 
@@ -218,7 +220,7 @@ export default function AdminDashboardClient() {
     } else {
       toast({ title: "Mercado Activo", description: "El mercado se creó y ya está público." });
       setIsCreateModalOpen(false);
-      setCreateForm({ title: "", description: "", category: "politica", end_date: "", image_url: "", marketType: "binary", options: ["", ""] });
+      setCreateForm({ title: "", description: "", category: "politica", end_date: "", image_url: "", marketType: "binary", options: ["", ""], is_world_cup: false });
       await fetchMarkets();
     }
   };
@@ -755,6 +757,34 @@ export default function AdminDashboardClient() {
                 )}
               </div>
 
+              {/* World Cup Toggle */}
+              <div className="flex items-center justify-between p-4 bg-muted/30 rounded-xl border border-border/50">
+                <div className="space-y-0.5">
+                  <Label className="font-bold">¿Predicción del Mundial 2026?</Label>
+                  <p className="text-xs text-muted-foreground">Marcar si este mercado pertenece al Mundial.</p>
+                </div>
+                <div className="flex bg-muted p-1 rounded-lg border border-border shrink-0">
+                  <Button 
+                    type="button" 
+                    variant={createForm.is_world_cup ? "default" : "ghost"}
+                    size="sm"
+                    onClick={() => setCreateForm(f => ({ ...f, is_world_cup: true }))}
+                    className="h-8 px-3 text-xs font-bold"
+                  >
+                    Sí
+                  </Button>
+                  <Button 
+                    type="button" 
+                    variant={!createForm.is_world_cup ? "default" : "ghost"}
+                    size="sm"
+                    onClick={() => setCreateForm(f => ({ ...f, is_world_cup: false }))}
+                    className="h-8 px-3 text-xs font-bold"
+                  >
+                    No
+                  </Button>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label className="font-bold">Categoría</Label>
@@ -824,6 +854,34 @@ export default function AdminDashboardClient() {
                     />
                   </div>
                 ))}
+              </div>
+
+              {/* World Cup Toggle */}
+              <div className="flex items-center justify-between p-4 bg-muted/30 rounded-xl border border-border/50">
+                <div className="space-y-0.5">
+                  <Label className="font-bold">¿Predicción del Mundial 2026?</Label>
+                  <p className="text-xs text-muted-foreground">Marcar si este mercado pertenece al Mundial.</p>
+                </div>
+                <div className="flex bg-muted p-1 rounded-lg border border-border shrink-0">
+                  <Button 
+                    type="button" 
+                    variant={editForm.is_world_cup ? "default" : "ghost"}
+                    size="sm"
+                    onClick={() => setEditForm(f => ({ ...f, is_world_cup: true }))}
+                    className="h-8 px-3 text-xs font-bold"
+                  >
+                    Sí
+                  </Button>
+                  <Button 
+                    type="button" 
+                    variant={!editForm.is_world_cup ? "default" : "ghost"}
+                    size="sm"
+                    onClick={() => setEditForm(f => ({ ...f, is_world_cup: false }))}
+                    className="h-8 px-3 text-xs font-bold"
+                  >
+                    No
+                  </Button>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

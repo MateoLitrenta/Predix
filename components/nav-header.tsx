@@ -413,6 +413,12 @@ export function NavHeader({
                 </PopoverContent>
               </Popover>
             )}
+            <Button variant="ghost" size="icon" asChild className="h-9 w-9 text-primary hover:bg-primary/10 mr-1 shrink-0">
+              <Link href="/mundial" title="Mundial 2026">
+                <Trophy className="w-5 h-5 text-primary animate-pulse" />
+              </Link>
+            </Button>
+
             <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => setShowMobileMenu(!showMobileMenu)}>
               {showMobileMenu ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
             </Button>

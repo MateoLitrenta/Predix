@@ -76,9 +76,6 @@ export function LightweightChart({ data, options, marketCreatedAt, chartTimefram
         mouseWheel: false,
         pinch: true,
       },
-      watermark: {
-        visible: false,
-      },
     });
 
     chartRef.current = chart;
@@ -104,7 +101,7 @@ export function LightweightChart({ data, options, marketCreatedAt, chartTimefram
       const series = chart.addSeries(LineSeries, {
         color: color,
         lineWidth: 3,
-        lineType: LineType.Step,
+        lineType: LineType.WithSteps,
         priceFormat: {
           type: 'custom',
           formatter: (price: number) => {
