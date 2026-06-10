@@ -57,6 +57,7 @@ export type PortfolioPosition = {
   market_image_url?: string | null;
   option_display_name?: string;
   outcome_name?: string;
+  closed_at?: string;
   direction?: string;
   current_price?: number;
   created_at?: string;
@@ -274,7 +275,8 @@ export function ProfileView({ userId }: { userId?: string }) {
     setTransactions(txsResData);
     
     if (portfolioResError) {
-      console.error("ERROR CRÍTICO RPC:", portfolioResError);
+      console.error("ERROR CRÍTICO RPC:", JSON.stringify(portfolioResError, null, 2));
+      console.error("DETALLE ERROR:", portfolioResError.message, portfolioResError.details, portfolioResError.hint, portfolioResError.code);
     }
     
     let positions: PortfolioPosition[] = [];
@@ -1146,6 +1148,7 @@ export function ProfileView({ userId }: { userId?: string }) {
                             </Badge>
                             <span className="text-[10px] font-medium text-muted-foreground">
                               | {Number(pos.shares).toLocaleString('es-AR')} acciones a ${(Number(pos.avg_price) || 0).toFixed(2)}
+                              {pos.closed_at ? ` • ${new Date(pos.closed_at).toLocaleString('es-AR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}
                             </span>
                           </div>
                         </div>
@@ -1205,8 +1208,17 @@ export function ProfileView({ userId }: { userId?: string }) {
 
                     const marketTitle = tx.markets?.title || tx.market?.title;
 
-                    // Leer estrictamente del objeto de la transacción
-                    const sharesAmount = Number(tx.shares || tx.metadata?.shares || 0);
+                    // Intentar extraer shares del texto o de las apuestas relacionadas
+                    let parsedShares = 0;
+                    if (amount < 0) {
+                      const relatedBet = bets.find(b => b.market_id === (tx.markets?.id || tx.market_id) && Math.abs(b.amount) === Math.abs(amount) && Math.abs(new Date(b.created_at).getTime() - new Date(tx.created_at).getTime()) < 60000);
+                      if (relatedBet) parsedShares = relatedBet.shares;
+                    } else if (desc.toLowerCase().includes('venta parcial')) {
+                      const match = desc.match(/venta parcial de ([\d.,]+) acciones/i);
+                      if (match) parsedShares = parseFloat(match[1].replace(/\./g, '').replace(/,/g, '.'));
+                    }
+
+                    const sharesAmount = Number(tx.shares || tx.metadata?.shares || parsedShares || 0);
                     const price = sharesAmount > 0 ? (Math.abs(tx.amount) / sharesAmount).toFixed(2) : '-';
 
                     return (

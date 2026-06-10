@@ -105,7 +105,11 @@ BEGIN
   -- 7. Acreditar los puntos al usuario
   UPDATE public.profiles SET points = points + v_cashout_value WHERE id = p_user_id;
 
-  -- 8. Retornar el valor de liquidación
+  -- 8. Insertar el historial en transactions para la billetera
+  INSERT INTO public.transactions (user_id, market_id, type, amount, description)
+  VALUES (p_user_id, p_market_id, 'cashout', v_cashout_value, 'Venta parcial de ' || ROUND(v_actual_shares_to_sell) || ' acciones');
+
+  -- 9. Retornar el valor de liquidación
   RETURN v_cashout_value;
 END;
 $$;

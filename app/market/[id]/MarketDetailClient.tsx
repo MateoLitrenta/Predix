@@ -167,10 +167,11 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       if (profilesData) profilesData.forEach(p => { profileMap[p.id] = p; });
     }
 
-    const mappedBets = rawBets.map(bet => ({ ...bet, activityType: 'bet', profiles: { username: profileMap[bet.user_id]?.username || "Usuario Anónimo", avatar_url: profileMap[bet.user_id]?.avatar_url, is_market_maker: profileMap[bet.user_id]?.is_market_maker } }));
-    const mappedCashouts = rawCashouts.map(c => ({ ...c, activityType: 'cashout', profiles: { username: profileMap[c.user_id]?.username || "Usuario Anónimo", avatar_url: profileMap[c.user_id]?.avatar_url, is_market_maker: profileMap[c.user_id]?.is_market_maker } }));
+    const mappedBets = rawBets
+      .filter(bet => !(bet.status === 'active' && bet.amount < 0))
+      .map(bet => ({ ...bet, activityType: 'bet', profiles: { username: profileMap[bet.user_id]?.username || "Usuario Anónimo", avatar_url: profileMap[bet.user_id]?.avatar_url, is_market_maker: profileMap[bet.user_id]?.is_market_maker } }));
 
-    const combinedFeed = [...mappedBets, ...mappedCashouts]
+    const combinedFeed = [...mappedBets]
       .filter(item => !item.profiles.is_market_maker)
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     setActivityFeed(combinedFeed);
@@ -1033,7 +1034,9 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                         }
 
                         const hasShares = item.shares && item.shares > 0;
-                        const impliedPrice = hasShares ? (item.amount / item.shares) * 100 : null;
+                        const impliedPrice = hasShares ? (Math.abs(item.amount) / item.shares) * 100 : null;
+                        const sellValue = item.amount + (item.realized_pnl || 0);
+                        const sellImpliedPrice = hasShares ? (sellValue / item.shares) * 100 : null;
 
                         return (
                           <div key={`bet-${item.id}`} className="flex items-center justify-between p-4 hover:bg-muted/10 transition-colors group">
@@ -1044,12 +1047,12 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                               <div className="flex flex-col">
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   <span className="font-semibold text-sm cursor-pointer hover:text-primary transition-colors text-foreground" onClick={() => openUserProfile(item.user_id, item.profiles?.username || "Usuario")}>{item.profiles?.username || "Usuario"}</span>
-                                  <span className="text-sm font-medium text-muted-foreground">compró</span>
+                                  <span className="text-sm font-medium text-muted-foreground">{item.status === 'sold' ? 'vendió' : 'compró'}</span>
                                   <span className="text-sm font-bold uppercase" style={{ color: optColor }}>{displayOutcome || 'Opción'}</span>
                                 </div>
                                 {hasShares ? (
                                   <span className="text-xs font-medium text-muted-foreground mt-0.5">
-                                    {Math.round(item.shares).toLocaleString()} acciones ({Math.round(impliedPrice || 0)}¢)
+                                    {Math.round(item.shares).toLocaleString()} acciones {item.status === 'sold' ? `(${Math.round(sellImpliedPrice || 0)}¢)` : `(${Math.round(impliedPrice || 0)}¢)`}
                                   </span>
                                 ) : (
                                   <span className="text-xs font-medium text-muted-foreground mt-0.5">
