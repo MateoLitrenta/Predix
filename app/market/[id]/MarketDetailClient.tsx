@@ -793,8 +793,8 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       <NavHeader points={profile?.points ?? 10000} isDarkMode={isDarkMode} onToggleDarkMode={toggleDarkMode} onPointsUpdate={() => fetchUserAndProfile()} userId={user?.id ?? null} userEmail={user?.email ?? null} onOpenAuthModal={() => setIsAuthModalOpen(true)} onSignOut={async () => { await supabase.auth.signOut(); fetchUserAndProfile(); }} isAdmin={profile?.role === "admin"} username={profile?.username} avatarUrl={profile?.avatar_url ?? null} />
 
       <main className="w-full max-w-[1440px] mx-auto px-4 md:px-8 py-8 flex-1">
-        <Button variant="ghost" size="sm" asChild className="mb-6 -ml-2 text-muted-foreground hover:text-foreground">
-          <Link href="/"><ArrowLeft className="w-4 h-4 mr-2" />Volver a Mercados</Link>
+        <Button variant="ghost" size="sm" onClick={() => router.back()} className="mb-6 -ml-2 text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="w-4 h-4 mr-2" />Volver a Mercados
         </Button>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 relative items-start">

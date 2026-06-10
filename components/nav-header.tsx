@@ -296,8 +296,8 @@ export function NavHeader({
           <div className="hidden md:flex items-center gap-3">
             <Button variant="ghost" asChild className="rounded-xl border border-primary/20 bg-primary/5 hover:bg-primary/10 hover:text-primary transition-colors text-primary font-bold">
               <Link href="/mundial">
-                <Trophy className="w-4 h-4 mr-2" />
-                <span>🏆 Mundial 2026</span>
+                <span className="text-xl mr-2">⚽</span>
+                <span>Mundial 2026</span>
               </Link>
             </Button>
 
@@ -415,7 +415,7 @@ export function NavHeader({
             )}
             <Button variant="ghost" size="icon" asChild className="h-9 w-9 text-primary hover:bg-primary/10 mr-1 shrink-0">
               <Link href="/mundial" title="Mundial 2026">
-                <Trophy className="w-5 h-5 text-primary animate-pulse" />
+                <span className="text-xl animate-pulse">⚽</span>
               </Link>
             </Button>
 
@@ -460,7 +460,7 @@ export function NavHeader({
               <div className="grid grid-cols-3 gap-2">
                 <Button variant="outline" className="h-16 flex flex-col items-center justify-center gap-1 border-border/50 hover:bg-muted/50 rounded-xl bg-card" asChild>
                   <Link href="/mundial" onClick={() => setShowMobileMenu(false)}>
-                    <Trophy className="w-5 h-5 text-primary animate-pulse" />
+                    <span className="text-xl animate-pulse">⚽</span>
                     <span className="text-[10px] font-bold mt-1 text-primary">Mundial 2026</span>
                   </Link>
                 </Button>
