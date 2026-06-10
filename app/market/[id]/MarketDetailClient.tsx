@@ -19,12 +19,13 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { createClient } from "@/lib/supabase/client";
-import { sellBet } from "@/lib/actions";
+import { sellBet, sellPartialShares } from "@/lib/actions";
 import { Loader2, ArrowLeft, Clock, Coins, X, User as UserIcon, MessageSquare, Reply, ChevronDown, ChevronUp, Trash2, TrendingUp, LineChart as LineChartIcon, Share2, Twitter, MessageCircle, Copy, Check, Lock, CheckCircle2, Trophy, Scale, AlertCircle, Wallet, Layers } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { LightweightChart } from "@/components/lightweight-chart";
 import { useTheme } from "@/components/theme-provider";
+import { Slider } from "@/components/ui/slider";
 
 const XIcon = ({ className }: { className?: string }) => (
   <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="currentColor">
@@ -336,16 +337,23 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
 
     const [optId, dir] = selectedSellPosition.split('|');
     
-    // Buscamos el ticket activo en userBets para esta posición
-    const activeBet = userBets.find(b => b.outcome === optId && b.direction === dir && b.amount > 0 && b.shares > 0);
+    const activeBets = userBets.filter(b => b.outcome === optId && b.direction === dir && b.amount > 0 && b.shares > 0 && b.status !== 'sold');
+    const maxShares = activeBets.reduce((acc, b) => acc + Number(b.shares), 0);
     
-    if (!activeBet) {
-      toast({ title: "No se encontró el ticket", variant: "destructive" });
+    if (maxShares <= 0) {
+      toast({ title: "No se encontraron acciones activas", variant: "destructive" });
+      return;
+    }
+
+    const sharesToSell = parseFloat(sellSharesInput) || maxShares;
+    
+    if (sharesToSell <= 0 || sharesToSell > maxShares) {
+      toast({ title: "Cantidad inválida", variant: "destructive" });
       return;
     }
 
     setIsSelling(true);
-    const { ok, error, cashoutValue } = await sellBet(activeBet.id);
+    const { ok, error, cashoutValue } = await sellPartialShares(marketId, optId, dir, sharesToSell);
     setIsSelling(false);
 
     if (!ok) {
@@ -1426,7 +1434,8 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                                 const pos = consolidatedPositions.find(p => p.outcome === optId && p.direction === dir);
                                 if (!pos) return null;
 
-                                const sharesToSell = pos.totalShares;
+                                const maxShares = Math.floor(pos.totalShares);
+                                const sharesToSell = parseFloat(sellSharesInput) || maxShares;
                                 const expectedReturn = calculatePartialCashout(optId, dir, sharesToSell);
                                 const isRed = dir === 'no' || (isBinaryYesNo && opt?.option_name.toLowerCase() === 'no');
 
@@ -1439,7 +1448,39 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
 
                                     <div className={cn("p-4 rounded-xl border", !isRed ? 'border-green-500/30 bg-green-500/5' : 'border-red-500/30 bg-red-500/5')}>
                                       <p className="text-sm font-black text-foreground">{isBinaryYesNo ? opt?.option_name : `${dir === 'yes' ? 'Sí' : 'No'} a ${opt?.option_name}`}</p>
-                                      <p className="text-xs font-medium text-muted-foreground mt-1">Se liquidará el 100% de la posición: <span className="font-bold text-foreground">{Math.round(pos.totalShares).toLocaleString()} acciones</span></p>
+                                      <p className="text-xs font-medium text-muted-foreground mt-1">Posición total: <span className="font-bold text-foreground">{maxShares.toLocaleString()} acciones</span></p>
+                                    </div>
+
+                                    <div className="mt-4 mb-2 border border-border/50 rounded-xl p-4 bg-muted/10">
+                                      <div className="flex justify-between items-center mb-2">
+                                        <Label className="text-muted-foreground text-xs font-bold">Cantidad a vender</Label>
+                                        <button
+                                          onClick={() => setSellSharesInput(maxShares.toString())}
+                                          className="text-[10px] font-bold uppercase tracking-wider text-primary hover:text-primary/80 transition-colors bg-primary/10 px-2 py-0.5 rounded-full"
+                                        >
+                                          MAX
+                                        </button>
+                                      </div>
+                                      <div className="relative mb-5">
+                                        <Input type="number" placeholder="0" min="1" max={maxShares} value={sellSharesInput === "" ? maxShares.toString() : sellSharesInput} onChange={(e) => {
+                                          const val = parseInt(e.target.value);
+                                          if (!isNaN(val) && val >= 1 && val <= maxShares) {
+                                            setSellSharesInput(val.toString());
+                                          } else if (e.target.value === "") {
+                                            setSellSharesInput("");
+                                          }
+                                        }} disabled={isMarketClosed} className="pl-4 pr-20 h-14 text-xl font-bold bg-background border-border/50 focus-visible:ring-1 focus-visible:ring-primary/50 disabled:opacity-50" />
+                                        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground font-bold text-sm">acciones</span>
+                                      </div>
+                                      <Slider
+                                        value={[sellSharesInput === "" ? maxShares : parseInt(sellSharesInput) || 0]}
+                                        min={1}
+                                        max={maxShares}
+                                        step={1}
+                                        onValueChange={(vals) => setSellSharesInput(vals[0].toString())}
+                                        disabled={isMarketClosed}
+                                        className="py-1"
+                                      />
                                     </div>
 
                                     <div className="p-4 rounded-xl bg-background border border-border/50">

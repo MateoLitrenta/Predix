@@ -1032,7 +1032,7 @@ export function ProfileView({ userId }: { userId?: string }) {
           <TabsContent value="finished" className="m-0 space-y-3">
             {isLoadingBets ? (
               <div className="flex items-center justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-primary opacity-60" /></div>
-            ) : filteredAndSortedPositions.filter(p => p.status === 'closed').length === 0 ? (
+            ) : filteredAndSortedPositions.filter(p => p.status === 'closed' || p.status === 'sold').length === 0 ? (
               <div className="p-12 text-center text-muted-foreground bg-muted/10 rounded-2xl"><History className="w-10 h-10 mx-auto mb-3 opacity-20" /><p className="text-sm font-medium">No hay resultados de búsqueda o historial.</p></div>
             ) : (
               <div className="flex flex-col border border-border/50 rounded-2xl bg-card overflow-hidden shadow-sm">
@@ -1045,7 +1045,7 @@ export function ProfileView({ userId }: { userId?: string }) {
                   </div>
                 </div>
 
-                {filteredAndSortedPositions.filter(p => p.status === 'closed').map((pos, idx, arr) => {
+                {filteredAndSortedPositions.filter(p => p.status === 'closed' || p.status === 'sold').map((pos, idx, arr) => {
                   const totalInvestment = pos.shares * pos.avg_price;
                   let realized_pnl = pos.realized_pnl;
 
@@ -1061,7 +1061,11 @@ export function ProfileView({ userId }: { userId?: string }) {
                              const outcomeNameStr = String(pos.outcome_name || pos.option_display_name || pos.outcome);
                              const isOldBinary = ['sí', 'si', 'no', 'yes'].includes(outcomeNameStr.toLowerCase().trim());
                              
-                             let won = false;
+                             // If position is sold early, use the stored realized_pnl value instead of calculating based on resolution
+                             if (pos.status === 'sold') {
+                                realized_pnl = pos.realized_pnl;
+                             } else {
+                               let won = false;
                              if (isOldBinary) {
                                 won = market.winning_outcome === pos.outcome;
                              } else {
@@ -1079,6 +1083,7 @@ export function ProfileView({ userId }: { userId?: string }) {
                              } else {
                                 realized_pnl = -totalInvestment;
                              }
+                           }
                          }
                      }
                   }
