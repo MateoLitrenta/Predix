@@ -9,6 +9,8 @@ import { createClient } from "@/lib/supabase/client";
 import { NavHeader } from "@/components/nav-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { ProdeAdminTab } from "@/components/admin/ProdeAdminTab";
 import {
   Table,
   TableBody,
@@ -369,7 +371,14 @@ export default function AdminDashboardClient() {
           <Button onClick={() => setIsCreateModalOpen(true)} className="shrink-0 bg-primary hover:bg-primary/90 h-12 w-full md:w-auto font-bold text-base shadow-md hover:scale-[1.02] active:scale-[0.98] transition-all"><Plus className="w-5 h-5 mr-2" /> Crear Mercado Rápido</Button>
         </div>
 
-        <div className="mb-8 flex flex-col lg:flex-row gap-4 p-2 bg-card/40 border border-border/50 rounded-2xl shadow-sm backdrop-blur-xl">
+        <Tabs defaultValue="mercados" className="w-full">
+          <TabsList className="mb-6 grid w-full max-w-[400px] grid-cols-2">
+            <TabsTrigger value="mercados" className="font-bold">Mercados Zéilo</TabsTrigger>
+            <TabsTrigger value="prode" className="font-bold text-yellow-500 data-[state=active]:bg-yellow-500/10">Prode Mundial</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="mercados" className="space-y-6 mt-0">
+            <div className="mb-8 flex flex-col lg:flex-row gap-4 p-2 bg-card/40 border border-border/50 rounded-2xl shadow-sm backdrop-blur-xl">
           <div className="relative flex-1">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
             <Input
@@ -613,6 +622,12 @@ export default function AdminDashboardClient() {
             </div>
           </>
         )}
+          </TabsContent>
+
+          <TabsContent value="prode" className="mt-0">
+            <ProdeAdminTab />
+          </TabsContent>
+        </Tabs>
 
         {/* MODAL NUEVO: GESTIONAR OPCIONES (ELIMINACIONES PARCIALES) */}
         <Dialog open={!!managingMarket} onOpenChange={(open) => !open && setManagingMarket(null)}>

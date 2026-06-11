@@ -514,6 +514,114 @@ export async function eliminateMarketOption(optionId: string) {
     // 4. Insertar la foto histórica EXACTA
     await supabase.from("market_option_history").insert(historyInserts);
   }
-
+  
   return { success: true };
+}
+
+export async function resolveProdeMatch(matchId: string, homeScore: number, awayScore: number) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) return { ok: false, error: "No autorizado" };
+
+  const { data: adminProfile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+  if (adminProfile?.role !== "admin") return { ok: false, error: "Acceso denegado." };
+
+  // 1. Marcar partido como finalizado
+  const { error: matchError } = await supabase
+    .from("prode_matches")
+    .update({ 
+      actual_score_home: homeScore, 
+      actual_score_away: awayScore, 
+      status: 'finished' 
+    })
+    .eq("id", matchId);
+
+  if (matchError) return { ok: false, error: matchError.message };
+
+  // 2. Traer predicciones
+  const { data: predictions } = await supabase
+    .from("prode_predictions")
+    .select("*")
+    .eq("match_id", matchId);
+
+  if (!predictions || predictions.length === 0) {
+    return { ok: true, message: "No hubo predicciones para este partido." };
+  }
+
+  // 3. Traer totales actuales de profiles y leagues para calcular incrementos
+  const userIds = [...new Set(predictions.map(p => p.user_id))];
+  
+  const { data: profilesData } = await supabase
+    .from("profiles")
+    .select("id, prode_global_points, prode_global_exact_hits")
+    .in("id", userIds);
+    
+  const { data: leaguesData } = await supabase
+    .from("prode_league_members")
+    .select("id, user_id, league_points, league_exact_hits")
+    .in("user_id", userIds);
+
+  const profilesMap = new Map((profilesData || []).map(p => [p.id, p]));
+  // Un usuario puede estar en múltiples ligas, por lo que agrupamos por user_id
+  const leaguesByUser = new Map<string, any[]>();
+  (leaguesData || []).forEach(l => {
+    if (!leaguesByUser.has(l.user_id)) leaguesByUser.set(l.user_id, []);
+    leaguesByUser.get(l.user_id)!.push(l);
+  });
+
+  const promises: Promise<any>[] = [];
+
+  for (const pred of predictions) {
+    const pHome = pred.pred_score_home;
+    const pAway = pred.pred_score_away;
+    if (pHome === null || pAway === null) continue;
+
+    const isExact = (homeScore === pHome) && (awayScore === pAway);
+    const trendActual = Math.sign(homeScore - awayScore);
+    const trendPred = Math.sign(pHome - pAway);
+    const isTrend = trendActual === trendPred;
+
+    const points = isExact ? 3 : (isTrend ? 1 : 0);
+    const exactHitsIncrement = isExact ? 1 : 0;
+
+    // Actualizar Predicción (points_earned)
+    promises.push(
+      supabase.from("prode_predictions")
+        .update({ points_earned: points })
+        .eq("id", pred.id)
+    );
+
+    // Si sacó 0 puntos, no hay nada que incrementar globalmente
+    if (points === 0) continue;
+
+    // Actualizar Profile
+    const profile = profilesMap.get(pred.user_id);
+    if (profile) {
+      const newPts = (profile.prode_global_points || 0) + points;
+      const newHits = (profile.prode_global_exact_hits || 0) + exactHitsIncrement;
+      promises.push(
+        supabase.from("profiles")
+          .update({ prode_global_points: newPts, prode_global_exact_hits: newHits })
+          .eq("id", pred.user_id)
+      );
+    }
+
+    // Actualizar Ligas Privadas (todas las del user)
+    const userLeagues = leaguesByUser.get(pred.user_id) || [];
+    for (const l of userLeagues) {
+      const newLgPts = (l.league_points || 0) + points;
+      const newLgHits = (l.league_exact_hits || 0) + exactHitsIncrement;
+      promises.push(
+        supabase.from("prode_league_members")
+          .update({ league_points: newLgPts, league_exact_hits: newLgHits })
+          .eq("id", l.id) // actualizar usando el PK the prode_league_members
+      );
+    }
+  }
+
+  // Ejecutar el lote masivo (MVP phase optimization)
+  await Promise.all(promises);
+
+  return { ok: true, message: `Se actualizaron ${predictions.length} predicciones.` };
 }
