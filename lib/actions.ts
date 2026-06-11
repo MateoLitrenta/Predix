@@ -549,29 +549,12 @@ export async function resolveProdeMatch(matchId: string, homeScore: number, away
     return { ok: true, message: "No hubo predicciones para este partido." };
   }
 
-  // 3. Traer totales actuales de profiles y leagues para calcular incrementos
+  // 3. Traer totales actuales de profiles para calcular incrementos
   const userIds = [...new Set(predictions.map(p => p.user_id))];
-  
-  const { data: profilesData } = await supabase
-    .from("profiles")
-    .select("id, prode_global_points, prode_global_exact_hits")
-    .in("id", userIds);
-    
-  const { data: leaguesData } = await supabase
-    .from("prode_league_members")
-    .select("id, user_id, league_points, league_exact_hits")
-    .in("user_id", userIds);
-
-  const profilesMap = new Map((profilesData || []).map(p => [p.id, p]));
-  // Un usuario puede estar en múltiples ligas, por lo que agrupamos por user_id
-  const leaguesByUser = new Map<string, any[]>();
-  (leaguesData || []).forEach(l => {
-    if (!leaguesByUser.has(l.user_id)) leaguesByUser.set(l.user_id, []);
-    leaguesByUser.get(l.user_id)!.push(l);
-  });
 
   const promises: Promise<any>[] = [];
 
+  // Paso 3.1: Actualizar los puntos ganados en cada predicción para este partido
   for (const pred of predictions) {
     const pHome = pred.pred_score_home;
     const pAway = pred.pred_score_away;
@@ -583,45 +566,61 @@ export async function resolveProdeMatch(matchId: string, homeScore: number, away
     const isTrend = trendActual === trendPred;
 
     const points = isExact ? 3 : (isTrend ? 1 : 0);
-    const exactHitsIncrement = isExact ? 1 : 0;
 
-    // Actualizar Predicción (points_earned)
     promises.push(
       supabase.from("prode_predictions")
         .update({ points_earned: points })
         .eq("id", pred.id)
     );
+  }
 
-    // Si sacó 0 puntos, no hay nada que incrementar globalmente
-    if (points === 0) continue;
+  // Esperamos a que se guarden los puntos de este partido antes de recalcular
+  await Promise.all(promises);
+  promises.length = 0; // Limpiamos el array de promesas
 
-    // Actualizar Profile
-    const profile = profilesMap.get(pred.user_id);
-    if (profile) {
-      const newPts = (profile.prode_global_points || 0) + points;
-      const newHits = (profile.prode_global_exact_hits || 0) + exactHitsIncrement;
-      promises.push(
-        supabase.from("profiles")
-          .update({ prode_global_points: newPts, prode_global_exact_hits: newHits })
-          .eq("id", pred.user_id)
-      );
-    }
+  // Paso 3.2: Recalcular totales ABSOLUTOS para cada usuario y sobreescribir (Idempotente)
+  for (const userId of userIds) {
+    // Obtenemos todas las predicciones del usuario para recalcular desde cero
+    const { data: userPreds } = await supabase
+      .from("prode_predictions")
+      .select("points_earned")
+      .eq("user_id", userId);
 
-    // Actualizar Ligas Privadas (todas las del user)
-    const userLeagues = leaguesByUser.get(pred.user_id) || [];
-    for (const l of userLeagues) {
-      const newLgPts = (l.league_points || 0) + points;
-      const newLgHits = (l.league_exact_hits || 0) + exactHitsIncrement;
-      promises.push(
-        supabase.from("prode_league_members")
-          .update({ league_points: newLgPts, league_exact_hits: newLgHits })
-          .eq("id", l.id) // actualizar usando el PK the prode_league_members
-      );
+    if (!userPreds) continue;
+
+    const totalPoints = userPreds.reduce((sum, p) => sum + (p.points_earned || 0), 0);
+    const totalExacts = userPreds.reduce((sum, p) => sum + (p.points_earned === 3 ? 1 : 0), 0);
+
+    // Sobreescribir en Profile
+    promises.push(
+      supabase.from("profiles")
+        .update({ prode_global_points: totalPoints, prode_global_exact_hits: totalExacts })
+        .eq("id", userId)
+    );
+
+    // Sobreescribir en todas sus Ligas Privadas
+    const { data: memberships } = await supabase
+      .from('prode_league_members')
+      .select('*')
+      .eq('user_id', userId);
+      
+    if (memberships && memberships.length > 0) {
+      memberships.forEach(m => {
+        promises.push(
+          supabase.from('prode_league_members')
+            .update({ 
+              league_points: totalPoints,
+              league_exact_hits: totalExacts 
+            })
+            .eq('league_id', m.league_id)
+            .eq('user_id', userId)
+        );
+      });
     }
   }
 
-  // Ejecutar el lote masivo (MVP phase optimization)
+  // Ejecutar el lote de actualizaciones de totales
   await Promise.all(promises);
 
-  return { ok: true, message: `Se actualizaron ${predictions.length} predicciones.` };
+  return { ok: true, message: `Se actualizaron ${predictions.length} predicciones y se recalcularon los totales.` };
 }
