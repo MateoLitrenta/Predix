@@ -12,7 +12,7 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { createClient } from "@/lib/supabase/client";
 import {
   Loader2, ArrowLeft, User as UserIcon, History, CheckCircle2,
-  Clock, XCircle, TrendingUp, CalendarDays, Wallet, Coins, LineChart as LineChartIcon, Users, Trophy, Scale, Target
+  Clock, XCircle, TrendingUp, CalendarDays, Wallet, Coins, LineChart as LineChartIcon, Users, Trophy, Scale, Target, Layers
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
@@ -48,9 +48,8 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
   const [viewedProfile, setViewedProfile] = useState<any>(null);
-  const [userBets, setUserBets] = useState<any[]>([]);
+  const [userShares, setUserShares] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
-  const [marketOptions, setMarketOptions] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const [timeframe, setTimeframe] = useState<TimeframeType>('ALL');
@@ -78,19 +77,22 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
     }
     setViewedProfile(profileData);
 
-    const { data: betsData } = await supabase
-      .from("bets")
-      .select("*, markets(*)")
-      .eq("user_id", profileId)
-      .order("created_at", { ascending: false });
+    // NUEVO: Buscamos las acciones directamente (user_shares -> market_options -> markets)
+    const { data: sharesData } = await supabase
+      .from("user_shares")
+      .select(`
+        *,
+        market_options (
+          *,
+          markets (*)
+        )
+      `)
+      .eq("user_id", profileId);
 
     const { data: txData } = await supabase.rpc('get_public_transactions', { p_user_id: profileId });
 
-    const { data: optionsData } = await supabase.from("market_options").select("*");
-
-    setUserBets(betsData || []);
+    setUserShares(sharesData || []);
     setTransactions(txData || []);
-    setMarketOptions(optionsData || []);
     setIsLoading(false);
   }, [profileId, router, supabase]);
 
@@ -99,41 +101,76 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
     fetchViewedProfileData();
   }, [fetchAuth, fetchViewedProfileData]);
 
-  const calculateRealCashout = useCallback((bet: any, market: any, opt: any) => {
-    const shares = Number(bet.shares || 0);
-    if (shares <= 0) return Math.round(bet.amount * 0.95);
-    const direction = bet.direction || 'yes';
-    const optionVotes = Number(opt.total_votes || 0);
-    const totalVol = Number(market.total_volume || 0);
-    const totalOptions = marketOptions.filter(o => o.market_id === market.id).length || 2;
-    const startPriceYes = (optionVotes + 100.0) / (totalVol + (totalOptions * 100.0));
-    const estPayout = shares * (direction === 'yes' ? startPriceYes : (1 - startPriceYes));
-    let endPriceYes = 0;
-    if (direction === 'yes') { endPriceYes = Math.max(0.01, (optionVotes - estPayout + 100.0) / (Math.max(1, totalVol - estPayout) + (totalOptions * 100.0))); }
-    else { endPriceYes = Math.max(0.01, (optionVotes + 100.0) / (Math.max(1, totalVol - estPayout) + (totalOptions * 100.0))); }
-    let avgPriceYes = (startPriceYes + endPriceYes) / 2.0;
-    avgPriceYes = Math.max(0.01, Math.min(0.99, avgPriceYes));
-    const currentPrice = direction === 'yes' ? avgPriceYes : (1 - avgPriceYes);
-    return Math.round(shares * currentPrice);
-  }, [marketOptions]);
+  // NUEVO: Matemática de Retorno Cuadrático (AMM)
+  const calculateRealCashout = useCallback((opt: any, direction: string, sharesToSell: number) => {
+    if (!opt || sharesToSell <= 0 || !opt.pool_yes || !opt.pool_no) return 0;
+    const py = Number(opt.pool_yes);
+    const pn = Number(opt.pool_no);
+    let payout = 0;
+
+    if (direction === 'yes') {
+      const b = py + pn + sharesToSell;
+      const c = sharesToSell * pn;
+      payout = (b - Math.sqrt(b * b - 4 * c)) / 2;
+    } else {
+      const b = py + pn + sharesToSell;
+      const c = sharesToSell * py;
+      payout = (b - Math.sqrt(b * b - 4 * c)) / 2;
+    }
+
+    return Math.floor(payout);
+  }, []);
+
+  // Consolidar las posiciones activas en un formato amigable para la UI
+  const positions = useMemo(() => {
+    const posArray: any[] = [];
+    userShares.forEach(share => {
+      const opt = share.market_options;
+      const market = opt?.markets;
+      if (!market || !opt) return;
+
+      const sy = Number(share.shares_yes_owned || 0);
+      const sn = Number(share.shares_no_owned || 0);
+
+      if (sy > 0) {
+        posArray.push({
+          id: `${share.id}-yes`,
+          market: market,
+          market_id: market.id,
+          option: opt,
+          direction: 'yes',
+          shares: sy,
+          created_at: share.updated_at || market.created_at,
+        });
+      }
+      if (sn > 0) {
+        posArray.push({
+          id: `${share.id}-no`,
+          market: market,
+          market_id: market.id,
+          option: opt,
+          direction: 'no',
+          shares: sn,
+          created_at: share.updated_at || market.created_at,
+        });
+      }
+    });
+    return posArray.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }, [userShares]);
 
   const portfolioStats = useMemo(() => {
     const availableCapital = viewedProfile?.points ?? 0;
     let totalCurrentValueActive = 0;
 
-    userBets
-      .filter((b) => b.markets && ACTIVE_STATUSES.includes(String(b.markets.status).toLowerCase()))
-      .forEach((bet) => {
-        const market = bet.markets;
-        const opt = marketOptions.find(o => o.id === bet.outcome);
-        if (market && opt) {
-          totalCurrentValueActive += calculateRealCashout(bet, market, opt);
-        }
+    positions
+      .filter((p) => p.market && ACTIVE_STATUSES.includes(String(p.market.status).toLowerCase()))
+      .forEach((p) => {
+        totalCurrentValueActive += calculateRealCashout(p.option, p.direction, p.shares);
       });
 
     const totalPortfolioValue = availableCapital + totalCurrentValueActive;
     return { availableCapital, totalPortfolioValue, lockedValueOffset: totalCurrentValueActive };
-  }, [userBets, viewedProfile?.points, calculateRealCashout, marketOptions]);
+  }, [positions, viewedProfile?.points, calculateRealCashout]);
 
   const totalVolumeCalculated = useMemo(() => {
     let total = 0;
@@ -146,7 +183,7 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
   }, [transactions]);
 
 
-  // LÓGICA DEL GRÁFICO (RESTAURADA A LA VERSIÓN ROBUSTA DE "COSTO BASE")
+  // LÓGICA DEL GRÁFICO 
   const chartData = useMemo(() => {
     const chronologicalTxs = [...transactions].sort(
       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
@@ -212,35 +249,14 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
           break;
         }
       }
-
-      let activeInvestmentAtTs = 0;
-      userBets.forEach(bet => {
-        const betTime = new Date(bet.created_at || '').getTime();
-        if (betTime <= ts) {
-          const market = bet.markets;
-          // ACÁ ES DONDE SE ARREGLA EL "ACANTILADO": Usamos siempre bet.amount
-          if (market && ACTIVE_STATUSES.includes(String(market.status).toLowerCase())) {
-            activeInvestmentAtTs += Number(bet.amount || 0);
-          }
-        }
-      });
-
-      return { timestamp: ts, value: Math.max(0, liquidAtTs + activeInvestmentAtTs) };
+      return { timestamp: ts, value: Math.max(0, liquidAtTs) };
     });
 
     if (data.length > 0) {
       const currentLiquid = viewedProfile?.points ?? 0;
-      let currentActiveInvestment = 0;
-      userBets.forEach(bet => {
-        const market = bet.markets;
-        if (market && ACTIVE_STATUSES.includes(String(market.status).toLowerCase())) {
-          currentActiveInvestment += Number(bet.amount || 0);
-        }
-      });
-      data.push({ timestamp: now, value: Math.max(0, currentLiquid + currentActiveInvestment) });
+      data.push({ timestamp: now, value: Math.max(0, currentLiquid + portfolioStats.lockedValueOffset) });
     }
 
-    // EL ARREGLO PARA QUE 'ALL' ARRANQUE EN 0
     if (timeframe === 'ALL' && data.length > 0) {
       if (data[0].timestamp > startTimeForAll) {
         data.unshift({ timestamp: startTimeForAll, value: 0 });
@@ -250,13 +266,12 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
     }
 
     return data;
-  }, [transactions, timeframe, viewedProfile, userBets]);
+  }, [transactions, timeframe, viewedProfile, portfolioStats.lockedValueOffset]);
 
   const countActivePositions = useMemo(() => {
-    return userBets.filter(b => b.markets && ACTIVE_STATUSES.includes(String(b.markets.status).toLowerCase()) && Number(b.shares) > 0).length;
-  }, [userBets]);
+    return positions.filter(p => p.market && ACTIVE_STATUSES.includes(String(p.market.status).toLowerCase())).length;
+  }, [positions]);
 
-  // PnL para la tarjeta superior (Usa el valor real actual del portafolio)
   const totalMarketPnL = useMemo(() => {
     const startValue = INITIAL_BALANCE;
     const endValue = portfolioStats.totalPortfolioValue;
@@ -265,21 +280,13 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
     return { value: val, percentage: pct };
   }, [portfolioStats.totalPortfolioValue]);
 
-  // PnL DEL GRÁFICO (Usa estrictamente la diferencia entre el primer y último punto de la línea)
   const dynamicPnl = useMemo(() => {
     if (chartData.length < 2) return { value: 0, percentage: 0 };
-
     let startValue = chartData[0].value;
     const endValue = chartData[chartData.length - 1].value;
-
     const val = endValue - startValue;
-
-    // Si startValue es 0 (como pasa ahora en 'ALL'), el porcentaje daría Infinito.
-    // En ese caso, dividimos por el endValue para mostrar un crecimiento del 100% o usar el balance inicial
     let divisor = startValue === 0 ? INITIAL_BALANCE : startValue;
-
     const pct = (val / Math.abs(divisor)) * 100;
-
     return { value: val, percentage: pct };
   }, [chartData]);
 
@@ -362,7 +369,6 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
           <Badge className="bg-primary/10 text-primary border-primary/20 font-medium hidden sm:inline-flex">Perfil Público</Badge>
         </div>
 
-        {/* ENCABEZADO COMPACTO (Igual al perfil personal) */}
         <div className="flex items-center gap-4 mb-8">
           <Avatar className="w-16 h-16 sm:w-20 sm:h-20 border-2 sm:border-4 border-background bg-primary/10 shadow-md shrink-0">
             {viewedProfile.avatar_url ? <AvatarImage src={viewedProfile.avatar_url} className="object-cover" /> : <AvatarFallback><UserIcon className="w-8 h-8 text-primary opacity-50" /></AvatarFallback>}
@@ -378,7 +384,6 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
           </div>
         </div>
 
-        {/* MÉTRICAS FINANCIERAS (GRILLA MÓVIL) */}
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-6 mb-8">
           <div className="col-span-2 sm:col-span-1 bg-card border border-border/50 rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col justify-between">
             <div className="flex items-center justify-between mb-3">
@@ -418,7 +423,6 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
           </div>
         </div>
 
-        {/* GRÁFICO DE RENDIMIENTO (OPTIMIZADO) */}
         <Card className="bg-card border border-border/50 shadow-sm rounded-2xl overflow-hidden mb-8">
           <CardContent className="p-0">
             <div className="p-4 sm:p-6 md:p-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-4 border-b border-border/20">
@@ -445,7 +449,6 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
               </div>
             </div>
 
-            {/* ALTO LIMITADO EN MOBILE (h-[250px]) */}
             <div className="w-full h-[250px] md:h-[400px] p-2 sm:p-4 md:p-6 pt-6">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={chartData} margin={{ top: 5, right: 0, left: 0, bottom: 0 }}>
@@ -466,75 +469,64 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
           </CardContent>
         </Card>
 
-        {/* PREDICCIONES RECIENTES EN TARJETAS (MOBILE FIRST) */}
         <h2 className="text-xl sm:text-2xl font-bold mb-4 flex items-center gap-2 px-1">
-          <History className="w-5 h-5 text-primary" /> Predicciones Recientes
+          <Layers className="w-5 h-5 text-primary" /> Posiciones
         </h2>
 
-        {userBets.length === 0 ? (
+        {positions.length === 0 ? (
           <div className="p-10 sm:p-16 text-center text-muted-foreground bg-muted/10 border-2 border-dashed border-border/50 rounded-2xl">
             <History className="w-12 h-12 sm:w-16 sm:h-16 mx-auto mb-4 opacity-20" />
-            <p className="text-lg sm:text-xl font-bold mb-2 text-foreground">{isMe ? "No tenés predicciones recientes." : "Este usuario aún no ha operado."}</p>
+            <p className="text-lg sm:text-xl font-bold mb-2 text-foreground">{isMe ? "No tenés posiciones activas." : "Este usuario aún no ha operado."}</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {userBets.map((bet) => {
-              const market = bet.markets;
-              if (!market) return null;
+            {positions.map((pos) => {
+              const market = pos.market;
+              const opt = pos.option;
+              if (!market || !opt) return null;
 
-              const formattedDate = new Date(bet.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: 'short' });
+              const formattedDate = new Date(pos.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: 'short' });
               const isResolved = market.status === 'resolved';
-              const isOldBinary = bet.outcome === 'yes' || bet.outcome === 'no';
-              const opt = marketOptions.find(o => o.id === bet.outcome);
-              const displayOutcome = opt ? opt.option_name : (isOldBinary ? (bet.outcome === 'yes' ? "SÍ" : "NO") : "Opción");
-              const direction = bet.direction || 'yes';
-              const shares = Number(bet.shares || 0);
+              const direction = pos.direction;
+              const shares = pos.shares;
 
+              const displayOutcome = opt.option_name;
               const isOptBinary = ['sí', 'si', 'yes', 'no'].includes(displayOutcome.toLowerCase());
               let predictionText = isOptBinary ? (direction === 'no' ? (displayOutcome.toLowerCase().includes('s') ? 'No' : 'Sí') : displayOutcome) : `${direction === 'no' ? 'No' : 'Sí'} a ${displayOutcome}`;
               const isEffectivelyNo = direction === 'no' || (isOptBinary && displayOutcome.toLowerCase() === 'no' && direction === 'yes');
 
               let won = false;
               if (isResolved) {
-                won = isOldBinary ? market.winning_outcome === bet.outcome : ((direction === 'yes' && market.winning_outcome === bet.outcome) || (direction === 'no' && market.winning_outcome !== bet.outcome && market.winning_outcome !== null));
+                won = (direction === 'yes' && market.winning_outcome === opt.id) || (direction === 'no' && market.winning_outcome !== opt.id && market.winning_outcome !== null);
               }
 
               let cashoutValue = 0;
-              let pnlPct = 0;
-              let isPositive = false;
-
-              if (!isResolved && shares > 0) {
-                if (opt) cashoutValue = calculateRealCashout(bet, market, opt);
-                else cashoutValue = Math.round(bet.amount * 0.95);
-
-                const pnl = cashoutValue - bet.amount;
-                pnlPct = (pnl / bet.amount) * 100;
-                isPositive = pnl >= 0;
+              if (!isResolved) {
+                cashoutValue = calculateRealCashout(opt, direction, shares);
               }
 
               return (
-                <Link href={`/market/${bet.market_id}`} key={bet.id} className="block group">
+                <Link href={`/market/${pos.market_id}`} key={pos.id} className="block group">
                   <div className="rounded-2xl border border-border/50 bg-card hover:border-primary/50 transition-all p-4 shadow-sm flex flex-col h-full">
 
                     <div className="flex justify-between items-start mb-3 gap-2">
                       <p className="font-bold text-base sm:text-lg text-foreground leading-snug line-clamp-2 group-hover:text-primary transition-colors flex-1">
-                        {market.title || "Mercado no disponible"}
+                        {market.title}
                       </p>
                       <span className="text-[10px] font-bold text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded shrink-0">{formattedDate}</span>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3 mb-3 bg-muted/10 p-3 rounded-xl border border-border/30">
                       <div>
-                        <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1">Inversión</p>
-                        <p className="font-black text-foreground text-sm sm:text-base">{bet.amount.toLocaleString()} <span className="text-[10px] font-bold text-muted-foreground">pts</span></p>
+                        {/* NUEVO: Mostramos acciones en lugar de inversión fija para alinear con el AMM */}
+                        <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1">Acciones</p>
+                        <p className="font-black text-foreground text-sm sm:text-base">{Math.round(shares).toLocaleString()} <span className="text-[10px] font-bold text-muted-foreground">accs</span></p>
                       </div>
                       <div>
-                        <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1">Estado</p>
-                        {shares === 0 && !isResolved ? (
-                          <Badge variant="secondary" className="bg-muted/50 text-muted-foreground border-border/50 text-[10px]">VENDIDA</Badge>
-                        ) : !isResolved ? (
-                          <span className={cn("font-black text-sm sm:text-base leading-none", isPositive ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
-                            {isPositive ? "+" : ""}{pnlPct.toFixed(1)}%
+                        <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1">Valor Actual</p>
+                        {!isResolved ? (
+                          <span className="font-black text-sm sm:text-base leading-none text-primary">
+                            {cashoutValue.toLocaleString()} pts
                           </span>
                         ) : won ? (
                           <span className="font-black text-sm text-green-600 dark:text-[#00FF00] flex items-center gap-1"><CheckCircle2 className="w-4 h-4" /> Ganó</span>

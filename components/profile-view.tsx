@@ -68,7 +68,16 @@ export type PortfolioPosition = {
   [key: string]: any;
 };
 
+// NUEVO: Función para calcular el precio ACTUAL (Spot) según la curva del AMM
+const getActualAmmPrice = (opt: any, direction: string) => {
+  if (!opt || opt.pool_yes == null || opt.pool_no == null) return 0;
+  const py = Number(opt.pool_yes);
+  const pn = Number(opt.pool_no);
+  if (py + pn === 0) return 0.5; // Fallback
 
+  const priceYes = pn / (py + pn);
+  return direction === 'yes' ? priceYes : (1 - priceYes);
+};
 
 export function ProfileView({ userId }: { userId?: string }) {
   const router = useRouter();
@@ -86,12 +95,32 @@ export function ProfileView({ userId }: { userId?: string }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [sortBy, setSortBy] = useState<"recent" | "oldest" | "highest_value" | "lowest_value">("recent");
 
+  // NUEVO: Matemática Cuadrática (Cashout Real)
+  const calculateRealCashout = useCallback((opt: any, direction: string, sharesToSell: number) => {
+    if (!opt || sharesToSell <= 0 || !opt.pool_yes || !opt.pool_no) return 0;
+    const py = Number(opt.pool_yes);
+    const pn = Number(opt.pool_no);
+    let payout = 0;
+
+    if (direction === 'yes') {
+      const b = py + pn + sharesToSell;
+      const c = sharesToSell * pn;
+      payout = (b - Math.sqrt(b * b - 4 * c)) / 2;
+    } else {
+      const b = py + pn + sharesToSell;
+      const c = sharesToSell * py;
+      payout = (b - Math.sqrt(b * b - 4 * c)) / 2;
+    }
+
+    return Math.floor(payout);
+  }, []);
+
   const filteredAndSortedPositions = useMemo(() => {
     let result = [...portfolioPositions];
-    
+
     if (searchTerm.trim() !== '') {
       const lowerTerm = searchTerm.toLowerCase();
-      result = result.filter(p => 
+      result = result.filter(p =>
         (p.market_title?.toLowerCase().includes(lowerTerm)) ||
         (p.option_display_name?.toLowerCase().includes(lowerTerm)) ||
         (p.outcome_name?.toLowerCase().includes(lowerTerm))
@@ -100,48 +129,47 @@ export function ProfileView({ userId }: { userId?: string }) {
 
     const getValue = (pos: PortfolioPosition) => {
       if (pos.status === 'active') {
-        const cp = Number(pos.current_price) || 0;
-        return pos.shares * cp;
+        const opt = marketOptions.find(o => o.id === pos.outcome);
+        return calculateRealCashout(opt, pos.direction || 'yes', pos.shares);
       } else {
         return (pos.shares * pos.avg_price) + pos.realized_pnl;
       }
     };
-    
+
     const sortedPositions = [...result];
-    
+
     const getPosDate = (pos: any) => {
       let finalDate = 0;
-      
       const relatedBets = bets.filter(b => b.market_id === pos.market_id && b.outcome === pos.outcome);
-      
+
       if (pos.status === 'closed') {
         const market = relatedBets.length > 0 ? getMarket(relatedBets[0]) : null;
         let marketClosedTime = 0;
         let optionEliminatedTime = 0;
-        
+
         if (market && (String(market.status).toLowerCase() === 'resolved' || String(market.status).toLowerCase() === 'rejected')) {
-           marketClosedTime = new Date((market as any).updated_at || market.end_date || 0).getTime();
+          marketClosedTime = new Date((market as any).updated_at || market.end_date || 0).getTime();
         }
-        
+
         const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(pos.outcome);
         if (isUUID && marketOptions && marketOptions.length > 0) {
-           const option = marketOptions.find(o => o.id === pos.outcome);
-           if (option && option.is_eliminated && option.eliminated_at) {
-              optionEliminatedTime = new Date(option.eliminated_at).getTime();
-           }
+          const option = marketOptions.find(o => o.id === pos.outcome);
+          if (option && option.is_eliminated && option.eliminated_at) {
+            optionEliminatedTime = new Date(option.eliminated_at).getTime();
+          }
         }
-        
+
         const cashoutTime = pos.shares === 0 && pos.last_activity ? new Date(pos.last_activity).getTime() : 0;
-        
+
         if (cashoutTime > 0) {
-           finalDate = cashoutTime;
+          finalDate = cashoutTime;
         } else if (optionEliminatedTime > 0) {
-           finalDate = optionEliminatedTime;
+          finalDate = optionEliminatedTime;
         } else if (marketClosedTime > 0) {
-           finalDate = marketClosedTime;
+          finalDate = marketClosedTime;
         }
       }
-      
+
       if (finalDate === 0) {
         if (relatedBets.length > 0) {
           finalDate = Math.max(...relatedBets.map(b => new Date(b.created_at || 0).getTime()));
@@ -150,10 +178,10 @@ export function ProfileView({ userId }: { userId?: string }) {
           finalDate = dateStr ? new Date(dateStr).getTime() : 0;
         }
       }
-      
+
       return finalDate;
     };
-    
+
     switch (sortBy) {
       case 'oldest':
         sortedPositions.sort((a, b) => getPosDate(a) - getPosDate(b));
@@ -169,9 +197,9 @@ export function ProfileView({ userId }: { userId?: string }) {
         sortedPositions.sort((a, b) => getPosDate(b) - getPosDate(a));
         break;
     }
-    
+
     return sortedPositions;
-  }, [portfolioPositions, searchTerm, sortBy, bets, marketOptions]);
+  }, [portfolioPositions, searchTerm, sortBy, bets, marketOptions, calculateRealCashout]);
 
   const [isChecking, setIsChecking] = useState(true);
   const [isLoadingBets, setIsLoadingBets] = useState(true);
@@ -227,14 +255,11 @@ export function ProfileView({ userId }: { userId?: string }) {
     const { data, error } = await supabase.from("profiles").select("username").eq("referred_by", profile.id);
     if (!error && data) refUsers = data;
 
-    console.log("DEBUG: ID de usuario enviado a RPC:", profile?.id);
-
     let txsResData: any[] = [];
     let portfolioResData: any = null;
     let portfolioResError: any = null;
     let optionsData: any = null;
 
-    // Lógica condicional: Dueño vs Visitante
     if (isOwner) {
       const [betsRes, txRes, optionsRes, portfolioRes] = await Promise.all([
         getMyBets(),
@@ -249,11 +274,10 @@ export function ProfileView({ userId }: { userId?: string }) {
         setMarketOptions(optionsRes.data);
         optionsData = optionsRes.data;
       }
-      
+
       portfolioResData = portfolioRes.data;
       portfolioResError = portfolioRes.error;
     } else {
-      // Visitante: Buscar datos públicos
       const [betsRes, txRes, optionsRes, portfolioRes] = await Promise.all([
         supabase.from("bets").select("*, markets(*)").eq("user_id", profile.id).order("created_at", { ascending: false }),
         supabase.rpc('get_public_transactions', { p_user_id: profile.id }),
@@ -267,31 +291,26 @@ export function ProfileView({ userId }: { userId?: string }) {
         setMarketOptions(optionsRes.data);
         optionsData = optionsRes.data;
       }
-      
+
       portfolioResData = portfolioRes.data;
       portfolioResError = portfolioRes.error;
     }
 
     setTransactions(txsResData);
-    
-    if (portfolioResError) {
-      console.error("ERROR CRÍTICO RPC:", JSON.stringify(portfolioResError, null, 2));
-      console.error("DETALLE ERROR:", portfolioResError.message, portfolioResError.details, portfolioResError.hint, portfolioResError.code);
-    }
-    
+
     let positions: PortfolioPosition[] = [];
     if (!portfolioResError && portfolioResData) {
       positions = portfolioResData;
       const marketIds = Array.from(new Set(positions.map((p: any) => p.market_id)));
       if (marketIds.length > 0) {
         const { data: marketsData, error: marketsError } = await supabase.from('markets').select('id, title, image_url').in('id', marketIds);
-        
+
         const marketMap = marketsData ? new Map(marketsData.map(m => [m.id, m])) : new Map();
 
         positions = positions.map((p: any) => {
           let option_display_name = p.outcome;
           const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(p.outcome);
-          
+
           if (isUUID && optionsData) {
             const option = optionsData.find((o: any) => o.id === p.outcome);
             if (option && option.option_name) {
@@ -310,26 +329,24 @@ export function ProfileView({ userId }: { userId?: string }) {
         });
       }
     }
-    
-    console.log("DEBUG: Cantidad de posiciones activas encontradas:", positions.filter(p => p.status === 'active').length);
 
     setPortfolioPositions(positions);
     setReferredUsers(refUsers);
 
     setIsLoadingBets(false);
     setIsLoadingTransactions(false);
-  }, [profile?.id, supabase]);
+  }, [profile?.id, supabase, isOwner]);
 
   const fetchAuth = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     setCurrentUser(user);
-    
+
     let authUserProf = null;
     if (user) {
       authUserProf = await getProfile();
       if (authUserProf) setLoggedInProfile(authUserProf);
     }
-    
+
     if (user && !userId) {
       if (authUserProf) setProfile(authUserProf);
     } else if (userId) {
@@ -377,48 +394,21 @@ export function ProfileView({ userId }: { userId?: string }) {
     setTimeout(() => setIsCopied(false), 2000);
   };
 
-  const calculatePositionValue = useCallback((bet: any, market: any, opt: any) => {
-    if (opt?.is_eliminated) return 0;
-
-    const shares = Number(bet.shares || 0);
-    if (shares <= 0) return bet.amount;
-    const direction = bet.direction || 'yes';
-
-    const optionVotes = Number(opt.total_votes || 0);
-    const marketOpts = marketOptions.filter(o => o.market_id === market.id);
-    const totalOptions = marketOpts.length || 2;
-    const realTotalVotes = marketOpts.reduce((acc, o) => acc + Number(o.total_votes || 0), 0);
-
-    const startPriceYes = (optionVotes + 100.0) / (realTotalVotes + (totalOptions * 100.0));
-    const estPayout = shares * (direction === 'yes' ? startPriceYes : (1 - startPriceYes));
-
-    let endPriceYes = 0;
-    if (direction === 'yes') {
-      endPriceYes = Math.max(0.01, (optionVotes - estPayout + 100.0) / (Math.max(1, realTotalVotes - estPayout) + (totalOptions * 100.0)));
-    } else {
-      endPriceYes = Math.max(0.01, (optionVotes + 100.0) / (Math.max(1, realTotalVotes - estPayout) + (totalOptions * 100.0)));
-    }
-
-    let avgPriceYes = (startPriceYes + endPriceYes) / 2.0;
-    avgPriceYes = Math.max(0.01, Math.min(0.99, avgPriceYes));
-
-    const currentPrice = direction === 'yes' ? avgPriceYes : (1 - avgPriceYes);
-    return Math.round(shares * currentPrice);
-  }, [marketOptions]);
-
+  // NUEVO: Portfolio Stats optimizado con Matemática AMM
   const portfolioStats = useMemo(() => {
     const availableCapital = profile?.points ?? 0;
-    
+
     const totalCurrentValueActive = portfolioPositions
       .filter(p => p.status === 'active')
       .reduce((acc, pos) => {
-        const currentPrice = Number(pos.current_price) || 0;
-        return acc + (pos.shares * currentPrice);
+        const opt = marketOptions.find(o => o.id === pos.outcome);
+        const val = calculateRealCashout(opt, pos.direction || 'yes', pos.shares);
+        return acc + val;
       }, 0);
 
     const totalPortfolioValue = availableCapital + totalCurrentValueActive;
     return { availableCapital, totalPortfolioValue, lockedValueOffset: totalCurrentValueActive };
-  }, [portfolioPositions, profile?.points]);
+  }, [portfolioPositions, profile?.points, marketOptions, calculateRealCashout]);
 
   const processedTransactions = useMemo(() => {
     if (!transactions.length) return [];
@@ -431,6 +421,7 @@ export function ProfileView({ userId }: { userId?: string }) {
     });
   }, [transactions, profile?.points]);
 
+  // LÓGICA DEL GRÁFICO 
   const chartData = useMemo(() => {
     const chronologicalTxs = [...transactions].sort(
       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
@@ -507,12 +498,12 @@ export function ProfileView({ userId }: { userId?: string }) {
         const betTime = new Date(bet.created_at || '').getTime();
         if (betTime <= ts) {
           const market = getMarket(bet);
-          const opt = (bet as any).option_details;
-          
+          const opt = marketOptions.find(o => o.id === bet.outcome) || (bet as any).option_details;
+
           let isActiveTimeline = false;
           const betStatus = String((bet as any).status).toLowerCase();
           const marketStatus = String(market?.status).toLowerCase();
-          
+
           if (opt?.is_eliminated) {
             if (opt.eliminated_at) {
               const elimTime = new Date(opt.eliminated_at).getTime();
@@ -525,36 +516,24 @@ export function ProfileView({ userId }: { userId?: string }) {
           } else if (ACTIVE_STATUSES.includes(betStatus) && ACTIVE_STATUSES.includes(marketStatus)) {
             isActiveTimeline = true;
           } else {
-            // Sincronización Estricta: Buscar la transacción correspondiente en la billetera
             const approxClosedTime = new Date((bet as any).updated_at || (market as any).updated_at || (bet as any).created_at).getTime();
-            
-            // Buscar una transacción cercana en tiempo (cashout o resolución)
             const correspondingTx = chronologicalTxs.find(tx => Math.abs(new Date(tx.created_at).getTime() - approxClosedTime) < 5000);
-            
-            // Si hay una transacción, usamos EXACTAMENTE su timestamp
-            // Si no hay transacción (ej. perdió la apuesta), el fin lo dicta el approxClosedTime
             const finalClosedAtTime = correspondingTx ? new Date(correspondingTx.created_at).getTime() : approxClosedTime;
-            
+
             if (ts < finalClosedAtTime) {
               isActiveTimeline = true;
             }
           }
 
           if (isActiveTimeline) {
-            const betStatus = String((bet as any).status).toLowerCase();
-            const marketStatus = String(market?.status).toLowerCase();
-            
-            // Usamos investment (o points_invested como fallback si la db tiene ese nombre) 
             const originalInvestment = Number((bet as any).investment || (bet as any).points_invested || bet.amount || 0);
 
             if (!ACTIVE_STATUSES.includes(betStatus) || !ACTIVE_STATUSES.includes(marketStatus)) {
-              // Tasación Histórica: Apuesta cerrada. Usamos estrictamente el costo original en puntos.
               activeInvestmentAtTs += originalInvestment;
             } else {
-              // Apuesta activa hoy: Usamos valor de mercado actual (Unrealized PnL)
               if (market && opt) {
-                const mockOpt = { ...opt, is_eliminated: false };
-                activeInvestmentAtTs += calculatePositionValue(bet, market, mockOpt);
+                // NUEVO: Usamos el cálculo real del AMM para el historial
+                activeInvestmentAtTs += calculateRealCashout(opt, bet.direction || 'yes', bet.shares);
               } else {
                 activeInvestmentAtTs += originalInvestment;
               }
@@ -567,7 +546,7 @@ export function ProfileView({ userId }: { userId?: string }) {
     });
 
     return data;
-  }, [transactions, timeframe, profile, bets, isBetActive, calculatePositionValue]);
+  }, [transactions, timeframe, profile, bets, calculateRealCashout, marketOptions]);
 
   const dynamicPnl = useMemo(() => {
     if (chartData.length < 2) return { value: 0, percentage: 0 };
@@ -600,8 +579,8 @@ export function ProfileView({ userId }: { userId?: string }) {
   };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
-    e.preventDefault(); 
-    if (!newUsername.trim()) return; 
+    e.preventDefault();
+    if (!newUsername.trim()) return;
 
     if (newPassword || confirmPassword) {
       if (newPassword !== confirmPassword) {
@@ -623,7 +602,7 @@ export function ProfileView({ userId }: { userId?: string }) {
       const { data } = supabase.storage.from("avatars").getPublicUrl(filePath); finalAvatarUrl = data.publicUrl;
     }
     const { ok, error } = await updateProfileSettings(newUsername.trim(), finalAvatarUrl);
-    
+
     let pwError = null;
     if (newPassword) {
       const res = await updateUserPassword(newPassword);
@@ -632,17 +611,17 @@ export function ProfileView({ userId }: { userId?: string }) {
 
     setIsSaving(false);
     if (error || pwError) { toast({ title: "Error", description: error || pwError, variant: "destructive" }); }
-    else { 
-      toast({ title: "Perfil actualizado" }); 
-      setProfile({ ...profile, username: newUsername.trim(), avatar_url: finalAvatarUrl }); 
+    else {
+      toast({ title: "Perfil actualizado" });
+      setProfile({ ...profile, username: newUsername.trim(), avatar_url: finalAvatarUrl });
       if (isOwner) {
         setLoggedInProfile((prev: any) => prev ? { ...prev, username: newUsername.trim(), avatar_url: finalAvatarUrl } : prev);
       }
-      setIsEditModalOpen(false); 
-      setSelectedImage(null); 
-      setNewPassword(""); 
-      setConfirmPassword(""); 
-      router.refresh(); 
+      setIsEditModalOpen(false);
+      setSelectedImage(null);
+      setNewPassword("");
+      setConfirmPassword("");
+      router.refresh();
     }
   };
 
@@ -711,10 +690,10 @@ export function ProfileView({ userId }: { userId?: string }) {
 
       <main className="w-full max-w-[1440px] mx-auto px-4 md:px-8 py-6 flex-1">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-8 mb-3 md:mb-10">
-          
+
           {/* COLUMNA IZQUIERDA (Perfil y Estadísticas) */}
           <div className="lg:col-span-4 flex flex-col gap-4 md:gap-6">
-            
+
             {/* ENCABEZADO Y TARJETAS (DESKTOP) */}
             <div className="hidden md:flex flex-col gap-6">
               <div className="flex justify-between items-start gap-4 bg-card border border-border/50 rounded-2xl p-5 shadow-sm">
@@ -744,7 +723,7 @@ export function ProfileView({ userId }: { userId?: string }) {
                     <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Portfolio Total</p>
                     <Wallet className="w-5 h-5 text-primary opacity-80" />
                   </div>
-                  <p className="text-3xl font-black text-foreground">{portfolioStats.totalPortfolioValue.toLocaleString(undefined, {maximumFractionDigits: 0})} pts</p>
+                  <p className="text-3xl font-black text-foreground">{portfolioStats.totalPortfolioValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} pts</p>
                 </div>
 
                 <div className="bg-card border border-border/50 rounded-2xl p-5 shadow-sm flex flex-col justify-between">
@@ -753,7 +732,7 @@ export function ProfileView({ userId }: { userId?: string }) {
                     <TrendingUp className="w-4 h-4 text-blue-500 opacity-80" />
                   </div>
                   <div>
-                    <p className="text-2xl font-bold text-foreground">{portfolioStats.lockedValueOffset.toLocaleString(undefined, {maximumFractionDigits: 0})} pts</p>
+                    <p className="text-2xl font-bold text-foreground">{portfolioStats.lockedValueOffset.toLocaleString(undefined, { maximumFractionDigits: 0 })} pts</p>
                     <p className="text-[10px] font-semibold text-muted-foreground">{portfolioPositions.filter(p => p.status === 'active').length} mercados</p>
                   </div>
                 </div>
@@ -772,7 +751,7 @@ export function ProfileView({ userId }: { userId?: string }) {
                 <div className="col-span-2 bg-card border border-border/50 rounded-2xl p-5 shadow-sm flex flex-col gap-2 justify-center">
                   <div className="flex justify-between items-center border-b border-border/30 pb-1">
                     <span className="text-xs font-bold text-muted-foreground">Mejor Predicción</span>
-                    <span className={cn("text-base font-black", bestPredictionValue > 0 ? "text-green-600 dark:text-[#00FF00]" : "text-foreground")}>{bestPredictionValue > 0 ? '+' : ''}{bestPredictionValue.toLocaleString(undefined, {maximumFractionDigits: 0})} pts</span>
+                    <span className={cn("text-base font-black", bestPredictionValue > 0 ? "text-green-600 dark:text-[#00FF00]" : "text-foreground")}>{bestPredictionValue > 0 ? '+' : ''}{bestPredictionValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} pts</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-xs font-bold text-muted-foreground">Predicciones Jugadas</span>
@@ -813,7 +792,7 @@ export function ProfileView({ userId }: { userId?: string }) {
                 </div>
                 <div className="flex flex-col items-center px-2">
                   <span className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider mb-0.5">Activo</span>
-                  <span className="text-sm font-bold text-foreground">{portfolioStats.lockedValueOffset.toLocaleString(undefined, {maximumFractionDigits: 0})}</span>
+                  <span className="text-sm font-bold text-foreground">{portfolioStats.lockedValueOffset.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                 </div>
                 <div className="flex flex-col items-center px-2">
                   <span className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider mb-0.5">Jugadas</span>
@@ -825,13 +804,13 @@ export function ProfileView({ userId }: { userId?: string }) {
 
           {/* COLUMNA DERECHA (Gráfico y Acciones) */}
           <div className="lg:col-span-8 flex flex-col gap-4">
-            
+
             {/* GRÁFICO DE RENDIMIENTO (OPTIMIZADO) */}
             <Card className="bg-card border border-border/50 shadow-sm rounded-2xl overflow-hidden h-full flex flex-col mb-2 md:mb-0">
               <CardContent className="p-0 flex-1 flex flex-col">
                 <div className="px-4 pt-3 pb-4 md:p-8 flex flex-col gap-3 md:gap-4 border-b border-border/20">
                   <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-3 md:gap-4">
-                    
+
                     {/* ENCABEZADO GRAFICO (MOBILE) */}
                     <div className="md:hidden w-full">
                       <div className="flex items-center justify-between gap-2">
@@ -839,10 +818,10 @@ export function ProfileView({ userId }: { userId?: string }) {
                           <Wallet className="w-3.5 h-3.5 text-primary" /> PORTFOLIO
                         </div>
                         <div className="text-2xl leading-none font-black tracking-tighter text-foreground text-right">
-                          {portfolioStats.totalPortfolioValue.toLocaleString(undefined, {maximumFractionDigits: 0})} <span className="text-xs font-bold opacity-50 tracking-tight">pts</span>
+                          {portfolioStats.totalPortfolioValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} <span className="text-xs font-bold opacity-50 tracking-tight">pts</span>
                         </div>
                       </div>
-                      
+
                       <div className="flex items-baseline gap-1.5 mt-1">
                         <TrendingUp className={cn("w-3.5 h-3.5", isProfit ? "text-green-500" : "text-red-500")} />
                         <span className={cn("text-sm font-bold", isProfit ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
@@ -913,15 +892,15 @@ export function ProfileView({ userId }: { userId?: string }) {
             <div className="flex flex-row items-center gap-2 mb-3 md:mb-6 w-full">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input 
-                  placeholder="Buscar..." 
+                <Input
+                  placeholder="Buscar..."
                   className="pl-9 bg-card hover:bg-muted/30 border-border/50 text-sm h-10 w-full rounded-xl focus-visible:ring-2 focus-visible:ring-primary/20 shadow-sm transition-all"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
               <div className="relative w-[130px] sm:w-[160px] shrink-0">
-                <select 
+                <select
                   className="appearance-none bg-card border border-border/50 rounded-xl px-3 py-2 pr-8 text-xs sm:text-sm h-10 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer w-full shadow-sm transition-all hover:bg-muted/30 font-medium"
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value as any)}
@@ -960,8 +939,12 @@ export function ProfileView({ userId }: { userId?: string }) {
                 </div>
 
                 {filteredAndSortedPositions.filter(p => p.status === 'active').map((pos, idx, arr) => {
-                  const currentPrice = Number(pos.current_price) || 0;
-                  const currentValue = pos.shares * currentPrice;
+
+                  // NUEVO: Matemática AMM Inyectada para la Tabla!
+                  const opt = marketOptions.find(o => o.id === pos.outcome);
+                  const currentPrice = getActualAmmPrice(opt, pos.direction || 'yes');
+                  const currentValue = calculateRealCashout(opt, pos.direction || 'yes', pos.shares);
+
                   const totalInvestment = pos.shares * pos.avg_price;
                   const floatingPnl = currentValue - totalInvestment;
                   const floatingPnlPct = totalInvestment > 0 ? (floatingPnl / totalInvestment) * 100 : 0;
@@ -972,13 +955,13 @@ export function ProfileView({ userId }: { userId?: string }) {
                   const dirText = pos.direction === 'yes' ? 'SÍ' : 'NO';
                   const badgeText = isBinary ? outcomeName.toUpperCase() : `${dirText} - ${outcomeName}`;
 
-                  const isRedBadge = isBinary 
-                    ? ['no'].includes(outcomeName.toLowerCase().trim()) 
+                  const isRedBadge = isBinary
+                    ? ['no'].includes(outcomeName.toLowerCase().trim())
                     : pos.direction === 'no';
 
                   return (
                     <div key={`${pos.market_id}-${pos.outcome}-${idx}`} className={cn("p-4 md:p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 hover:bg-muted/10 transition-colors", idx !== arr.length - 1 && "border-b border-border/30")}>
-                      
+
                       {/* Fila Superior (Móvil) / Columna 1 (Desktop) */}
                       <div className="flex items-center gap-3 w-full md:flex-1 min-w-0">
                         {pos.market_image_url ? (
@@ -1018,9 +1001,9 @@ export function ProfileView({ userId }: { userId?: string }) {
 
                         <div className="flex flex-col items-end min-w-[90px] md:w-[90px]">
                           <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 md:hidden">Valor</p>
-                          <p className="font-black text-base text-foreground">{currentValue.toLocaleString(undefined, {maximumFractionDigits: 0})} pts</p>
+                          <p className="font-black text-base text-foreground">{currentValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} pts</p>
                           <p className={cn("text-[11px] font-bold mt-0.5 md:font-medium", isProfit ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
-                            {isProfit ? '+' : ''}{floatingPnl.toLocaleString(undefined, {maximumFractionDigits: 0})} ({isProfit ? '+' : ''}{floatingPnlPct.toFixed(1)}%)
+                            {isProfit ? '+' : ''}{floatingPnl.toLocaleString(undefined, { maximumFractionDigits: 0 })} ({isProfit ? '+' : ''}{floatingPnlPct.toFixed(1)}%)
                           </p>
                         </div>
                       </div>
@@ -1053,41 +1036,40 @@ export function ProfileView({ userId }: { userId?: string }) {
 
                   // Corregir realized_pnl si el usuario mantuvo las acciones hasta la resolución
                   if (pos.shares > 0) {
-                     const relatedBet = bets.find(b => b.market_id === pos.market_id && b.outcome === pos.outcome);
-                     const market = relatedBet ? getMarket(relatedBet) : null;
-                     
-                     if (market && (String(market.status).toLowerCase() === 'resolved' || String(market.status).toLowerCase() === 'rejected')) {
-                         if (String(market.status).toLowerCase() === 'rejected') {
-                             realized_pnl = 0; 
-                         } else {
-                             const outcomeNameStr = String(pos.outcome_name || pos.option_display_name || pos.outcome);
-                             const isOldBinary = ['sí', 'si', 'no', 'yes'].includes(outcomeNameStr.toLowerCase().trim());
-                             
-                             // If position is sold early, use the stored realized_pnl value instead of calculating based on resolution
-                             if (pos.status === 'sold') {
-                                realized_pnl = pos.realized_pnl;
-                             } else {
-                               let won = false;
-                             if (isOldBinary) {
-                                won = market.winning_outcome === pos.outcome;
-                             } else {
-                                if (pos.direction === 'yes') {
-                                   won = market.winning_outcome === pos.outcome;
-                                } else if (pos.direction === 'no') {
-                                   won = market.winning_outcome !== pos.outcome && market.winning_outcome !== null;
-                                } else {
-                                   won = market.winning_outcome === pos.outcome;
-                                }
-                             }
+                    const relatedBet = bets.find(b => b.market_id === pos.market_id && b.outcome === pos.outcome);
+                    const market = relatedBet ? getMarket(relatedBet) : null;
 
-                             if (won) {
-                                realized_pnl = pos.shares - totalInvestment;
-                             } else {
-                                realized_pnl = -totalInvestment;
-                             }
-                           }
-                         }
-                     }
+                    if (market && (String(market.status).toLowerCase() === 'resolved' || String(market.status).toLowerCase() === 'rejected')) {
+                      if (String(market.status).toLowerCase() === 'rejected') {
+                        realized_pnl = 0;
+                      } else {
+                        const outcomeNameStr = String(pos.outcome_name || pos.option_display_name || pos.outcome);
+                        const isOldBinary = ['sí', 'si', 'no', 'yes'].includes(outcomeNameStr.toLowerCase().trim());
+
+                        if (pos.status === 'sold') {
+                          realized_pnl = pos.realized_pnl;
+                        } else {
+                          let won = false;
+                          if (isOldBinary) {
+                            won = market.winning_outcome === pos.outcome;
+                          } else {
+                            if (pos.direction === 'yes') {
+                              won = market.winning_outcome === pos.outcome;
+                            } else if (pos.direction === 'no') {
+                              won = market.winning_outcome !== pos.outcome && market.winning_outcome !== null;
+                            } else {
+                              won = market.winning_outcome === pos.outcome;
+                            }
+                          }
+
+                          if (won) {
+                            realized_pnl = pos.shares - totalInvestment;
+                          } else {
+                            realized_pnl = -totalInvestment;
+                          }
+                        }
+                      }
+                    }
                   }
 
                   const finalAmount = totalInvestment + realized_pnl;
@@ -1101,19 +1083,19 @@ export function ProfileView({ userId }: { userId?: string }) {
                   const dirText = pos.direction === 'yes' ? 'SÍ' : 'NO';
                   const badgeText = isBinary ? outcomeName.toUpperCase() : `${dirText} - ${outcomeName}`;
 
-                  const isRedBadge = isBinary 
-                    ? ['no'].includes(outcomeName.toLowerCase().trim()) 
+                  const isRedBadge = isBinary
+                    ? ['no'].includes(outcomeName.toLowerCase().trim())
                     : pos.direction === 'no';
 
                   return (
                     <div key={`${pos.market_id}-${pos.outcome}-${idx}`} className="flex flex-col md:flex-row md:items-center border-b border-border/60 md:border-border/30 py-5 px-4 md:py-4 md:px-5 last:border-0 hover:bg-muted/5 md:hover:bg-muted/10 transition-colors gap-4">
-                      
+
                       {/* Arriba: Imagen y Título */}
                       <div className="flex items-start gap-3 w-full md:flex-1 md:items-center">
-                        <div className={cn("w-8 h-8 rounded-full flex items-center justify-center shrink-0 border hidden md:flex", 
-                          isProfit ? "bg-green-500/10 border-green-500/30" : 
-                          isLoss ? "bg-red-500/10 border-red-500/30" : 
-                          "bg-muted/50 border-border/50"
+                        <div className={cn("w-8 h-8 rounded-full flex items-center justify-center shrink-0 border hidden md:flex",
+                          isProfit ? "bg-green-500/10 border-green-500/30" :
+                            isLoss ? "bg-red-500/10 border-red-500/30" :
+                              "bg-muted/50 border-border/50"
                         )}>
                           {isProfit && <CheckCircle2 className="w-4 h-4 text-green-500" />}
                           {isLoss && <XCircle className="w-4 h-4 text-red-500" />}
@@ -1130,7 +1112,7 @@ export function ProfileView({ userId }: { userId?: string }) {
                           <Link href={`/market/${pos.market_id}`} className="block hover:underline">
                             <p className="font-semibold text-sm leading-tight text-foreground md:truncate">{pos.market_title}</p>
                           </Link>
-                          
+
                           {/* Centro: Insignia Ganado/Perdido debajo del título */}
                           {isProfit ? (
                             <div className="flex items-center gap-1 text-green-500 font-semibold text-xs mt-1 md:hidden">
@@ -1158,14 +1140,14 @@ export function ProfileView({ userId }: { userId?: string }) {
                       <div className="mt-3 md:mt-0 flex justify-between md:justify-end items-center bg-muted/20 md:bg-transparent rounded-lg p-3 md:p-0 w-full md:w-auto border border-border/30 md:border-none gap-4 md:gap-8 pr-1">
                         <div className="flex flex-col md:w-[90px] md:items-end">
                           <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider md:hidden">Inversión</p>
-                          <p className="font-bold text-foreground md:font-medium">{totalInvestment.toLocaleString(undefined, {maximumFractionDigits: 0})} pts</p>
+                          <p className="font-bold text-foreground md:font-medium">{totalInvestment.toLocaleString(undefined, { maximumFractionDigits: 0 })} pts</p>
                         </div>
 
                         <div className="flex flex-col items-end min-w-[90px] md:w-[110px]">
                           <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 md:hidden">Retorno Final</p>
-                          <p className="font-black text-base text-foreground">{finalAmount.toLocaleString(undefined, {maximumFractionDigits: 0})} pts</p>
+                          <p className="font-black text-base text-foreground">{finalAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })} pts</p>
                           <p className={cn("text-[11px] font-bold mt-0.5 md:font-medium", isProfit ? "text-green-600 dark:text-[#00FF00]" : isLoss ? "text-red-600 dark:text-[#FF0000]" : "text-muted-foreground")}>
-                            {isProfit ? '+' : ''}{realized_pnl.toLocaleString(undefined, {maximumFractionDigits: 0})} ({isProfit ? '+' : ''}{pnlPct.toFixed(1)}%)
+                            {isProfit ? '+' : ''}{realized_pnl.toLocaleString(undefined, { maximumFractionDigits: 0 })} ({isProfit ? '+' : ''}{pnlPct.toFixed(1)}%)
                           </p>
                         </div>
                       </div>
@@ -1208,7 +1190,6 @@ export function ProfileView({ userId }: { userId?: string }) {
 
                     const marketTitle = tx.markets?.title || tx.market?.title;
 
-                    // Intentar extraer shares del texto o de las apuestas relacionadas
                     let parsedShares = 0;
                     if (amount < 0) {
                       const relatedBet = bets.find(b => b.market_id === (tx.markets?.id || tx.market_id) && Math.abs(b.amount) === Math.abs(amount) && Math.abs(new Date(b.created_at).getTime() - new Date(tx.created_at).getTime()) < 60000);
@@ -1223,7 +1204,7 @@ export function ProfileView({ userId }: { userId?: string }) {
 
                     return (
                       <div key={tx.id} className="flex flex-col md:flex-row justify-between border-b border-border/50 py-4 px-4 hover:bg-muted/10 transition-colors last:border-0 w-full">
-                        
+
                         {/* Fila Superior (Descripción) */}
                         <div className="flex items-center gap-3 w-full md:w-auto md:flex-1 min-w-0">
                           <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-muted flex items-center justify-center shrink-0">
@@ -1267,7 +1248,7 @@ export function ProfileView({ userId }: { userId?: string }) {
 
                         {/* Fila Inferior (Datos agrupaditos en móvil) */}
                         <div className="mt-3 md:mt-0 flex justify-between items-center w-full md:w-auto md:ml-auto gap-4 md:gap-8 shrink-0">
-                          
+
                           <div className="flex items-center gap-6 md:gap-8">
                             {/* Columna: Precio */}
                             <div className="flex flex-col items-start md:items-end w-auto md:w-[80px] justify-center">
@@ -1343,11 +1324,11 @@ export function ProfileView({ userId }: { userId?: string }) {
         <DialogContent className="sm:max-w-md w-[90vw] max-h-[90vh] overflow-y-auto rounded-2xl">
           <DialogHeader><DialogTitle>Configuración de Cuenta</DialogTitle></DialogHeader>
           <form onSubmit={handleSaveProfile} className="space-y-6 pt-4">
-            
+
             {/* SECCIÓN PERFIL */}
             <div className="space-y-4">
               <h3 className="text-sm font-bold text-muted-foreground border-b border-border/30 pb-2">Perfil Público</h3>
-              
+
               <div className="flex flex-col items-center gap-4 mb-2">
                 <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-primary/10 flex items-center justify-center border-2 border-border overflow-hidden">
                   {previewUrl ? <img src={previewUrl} alt="Avatar" className="w-full h-full object-cover" /> : <UserIcon className="w-10 h-10 text-primary opacity-50" />}
