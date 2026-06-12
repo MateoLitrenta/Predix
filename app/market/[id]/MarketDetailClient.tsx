@@ -19,7 +19,6 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { createClient } from "@/lib/supabase/client";
-import { sellBet, sellPartialShares } from "@/lib/actions";
 import { Loader2, ArrowLeft, Clock, Coins, X, User as UserIcon, MessageSquare, Reply, ChevronDown, ChevronUp, Trash2, TrendingUp, LineChart as LineChartIcon, Share2, Twitter, MessageCircle, Copy, Check, Lock, CheckCircle2, Trophy, Scale, AlertCircle, Wallet, Layers } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -38,8 +37,6 @@ interface MarketDetailClientProps {
 }
 
 type ChartTimeframe = '1D' | '1W' | '1M' | 'ALL';
-
-
 
 export default function MarketDetailClient({ marketId }: MarketDetailClientProps) {
   const router = useRouter();
@@ -67,7 +64,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
   const [betAmount, setBetAmount] = useState("");
   const [isPlacingBet, setIsPlacingBet] = useState(false);
 
-  const [userBets, setUserBets] = useState<any[]>([]);
+  const [userShares, setUserShares] = useState<any[]>([]);
   const [isSelling, setIsSelling] = useState(false);
 
   const [selectedSellPosition, setSelectedSellPosition] = useState<string | null>(null);
@@ -115,15 +112,15 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     }
   }, [supabase]);
 
-  const fetchUserBets = useCallback(async () => {
+  // NUEVO: Fetch desde user_shares en lugar de bets
+  const fetchUserShares = useCallback(async () => {
     if (!user) return;
-    const { data } = await supabase.from('bets')
-      .select('*')
-      .eq('market_id', marketId)
+    const { data } = await supabase.from('user_shares')
+      .select('*, market_options!inner(market_id)')
       .eq('user_id', user.id)
-      .eq('status', 'active');
+      .eq('market_options.market_id', marketId);
 
-    setUserBets(data || []);
+    setUserShares(data || []);
   }, [user, marketId, supabase]);
 
   const fetchData = useCallback(async () => {
@@ -139,7 +136,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     setOptions(optionsData || []);
 
     const { data: newHistoryData } = await supabase.from("market_option_history").select("*").eq("market_id", marketId).order("created_at", { ascending: true });
-    
+
     let formattedHistory: any[] = [];
     if (newHistoryData && newHistoryData.length > 0) {
       const historyMap = new Map();
@@ -154,27 +151,24 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     }
     setHistory(formattedHistory);
 
-    const { data: betsData } = await supabase.from("bets").select("*").eq("market_id", marketId).order("created_at", { ascending: false });
-    const { data: cashoutsData } = await supabase.from("transactions").select("*").eq("market_id", marketId).eq("type", "cashout").order("created_at", { ascending: false });
+    // Mantenemos la carga de transacciones para el Activity Feed
+    const { data: transactionsData } = await supabase.from("transactions").select("*").eq("market_id", marketId).order("created_at", { ascending: false });
 
-    const rawBets = betsData || [];
-    const rawCashouts = cashoutsData || [];
+    const rawFeed = transactionsData || [];
+    const userIds = [...new Set(rawFeed.map(t => t.user_id))];
 
-    const userIds = [...new Set([...rawBets.map(b => b.user_id), ...rawCashouts.map(c => c.user_id)])];
     const profileMap: Record<string, any> = {};
     if (userIds.length > 0) {
       const { data: profilesData } = await supabase.from("profiles").select("id, username, avatar_url, is_market_maker").in("id", userIds);
       if (profilesData) profilesData.forEach(p => { profileMap[p.id] = p; });
     }
 
-    const mappedBets = rawBets
-      .filter(bet => !(bet.status === 'active' && bet.amount < 0))
-      .map(bet => ({ ...bet, activityType: 'bet', profiles: { username: profileMap[bet.user_id]?.username || "Usuario Anónimo", avatar_url: profileMap[bet.user_id]?.avatar_url, is_market_maker: profileMap[bet.user_id]?.is_market_maker } }));
-
-    const combinedFeed = [...mappedBets]
+    const mappedFeed = rawFeed
+      .map(item => ({ ...item, profiles: { username: profileMap[item.user_id]?.username || "Usuario Anónimo", avatar_url: profileMap[item.user_id]?.avatar_url, is_market_maker: profileMap[item.user_id]?.is_market_maker } }))
       .filter(item => !item.profiles.is_market_maker)
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-    setActivityFeed(combinedFeed);
+
+    setActivityFeed(mappedFeed);
 
     const { data: commentsData } = await supabase.from("comments").select("*, profiles(username, avatar_url)").eq("market_id", marketId).order("created_at", { ascending: true });
     setComments(commentsData || []);
@@ -188,19 +182,19 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
   }, [fetchUserAndProfile, fetchData]);
 
   useEffect(() => {
-    if (user) fetchUserBets();
-  }, [user, fetchData, fetchUserBets]);
+    if (user) fetchUserShares();
+  }, [user, fetchData, fetchUserShares]);
 
   useEffect(() => {
     const channel = supabase.channel(`market-${marketId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "bets", filter: `market_id=eq.${marketId}` }, () => { fetchData(); fetchUserBets(); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "user_shares" }, () => { fetchUserShares(); })
       .on("postgres_changes", { event: "*", schema: "public", table: "transactions", filter: `market_id=eq.${marketId}` }, () => { fetchData(); })
       .on("postgres_changes", { event: "*", schema: "public", table: "comments", filter: `market_id=eq.${marketId}` }, () => { fetchData(); })
       .on("postgres_changes", { event: "*", schema: "public", table: "market_options", filter: `market_id=eq.${marketId}` }, () => { fetchData(); })
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [marketId, supabase, fetchData, fetchUserBets]);
+  }, [marketId, supabase, fetchData, fetchUserShares]);
 
   const handleCopyLink = () => {
     navigator.clipboard.writeText(marketUrl);
@@ -220,40 +214,43 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
   };
 
   const activeOptions = options.filter(o => !o.is_eliminated);
-  const activeTotalVotes = activeOptions.reduce((acc, opt) => acc + Number(opt.total_votes || 0), 0);
-  const realTotalVotes = options.reduce((acc, opt) => acc + Number(opt.total_votes || 0), 0);
+  const totalMarketCollateral = options.reduce((acc, opt) => acc + Number(opt.total_collateral || 0), 0);
 
-  const getOptionPrice = useCallback((optionVotes: number, isEliminated: boolean = false) => {
-    if (isEliminated) return 0;
-    const totalActiveOpts = activeOptions.length || 2;
-    let price = (Number(optionVotes) + 100.0) / (activeTotalVotes + (totalActiveOpts * 100.0));
-    return Math.max(0.01, Math.min(0.99, price));
-  }, [activeOptions.length, activeTotalVotes]);
+  // NUEVO: Cálculo de Precio AMM
+  const getOptionPrice = useCallback((opt: any) => {
+    if (!opt) return 0.5;
+    if (opt.is_eliminated) return 0;
 
-  const calculatePartialCashout = (optId: string, direction: string, sharesToSell: number) => {
+    const py = Number(opt.pool_yes || 0);
+    const pn = Number(opt.pool_no || 0);
+
+    if (py + pn === 0) return 0.5; // Fallback si no hay liquidez
+    return pn / (py + pn); // Precio de la acción "SÍ"
+  }, []);
+
+  // NUEVO: Cálculo de Retorno Cuadrático (AMM)
+  const calculatePartialCashout = useCallback((optId: string, direction: string, sharesToSell: number) => {
     const opt = options.find(o => o.id === optId);
-    if (!opt || sharesToSell <= 0) return 0;
+    if (!opt || sharesToSell <= 0 || !opt.pool_yes || !opt.pool_no) return 0;
 
-    const optionVotes = Number(opt.total_votes || 0);
-    const totalOptions = options.length || 2;
+    const py = Number(opt.pool_yes);
+    const pn = Number(opt.pool_no);
+    let payout = 0;
 
-    const startPriceYes = (optionVotes + 100.0) / (realTotalVotes + (totalOptions * 100.0));
-    const estPayout = sharesToSell * (direction === 'yes' ? startPriceYes : (1 - startPriceYes));
-
-    let endPriceYes = 0;
     if (direction === 'yes') {
-      endPriceYes = Math.max(0.01, (optionVotes - estPayout + 100.0) / (Math.max(1, realTotalVotes - estPayout) + (totalOptions * 100.0)));
+      const b = py + pn + sharesToSell;
+      const c = sharesToSell * pn;
+      payout = (b - Math.sqrt(b * b - 4 * c)) / 2;
     } else {
-      endPriceYes = Math.max(0.01, (optionVotes + 100.0) / (Math.max(1, realTotalVotes - estPayout) + (totalOptions * 100.0)));
+      const b = py + pn + sharesToSell;
+      const c = sharesToSell * py;
+      payout = (b - Math.sqrt(b * b - 4 * c)) / 2;
     }
 
-    let avgPriceYes = (startPriceYes + endPriceYes) / 2.0;
-    avgPriceYes = Math.max(0.01, Math.min(0.99, avgPriceYes));
+    return Math.floor(payout); // Redondeamos hacia abajo por seguridad del AMM
+  }, [options]);
 
-    const currentPrice = direction === 'yes' ? avgPriceYes : (1 - avgPriceYes);
-    return Math.round(sharesToSell * currentPrice);
-  };
-
+  // NUEVO: Motor de Compra RPC
   const handlePlaceBet = async () => {
     if (!user) { setIsAuthModalOpen(true); return; }
     if (!selectedOptionId || !betAmount) return;
@@ -272,52 +269,42 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
 
     setIsPlacingBet(true);
 
-    const sharesToBuy = orderSummary?.shares || 0;
-
-    const { error } = await supabase.rpc("realizar_apuesta", {
-      p_amount: numericAmount,
-      p_market_id: marketId,
-      p_outcome: selectedOptionId,
-      p_direction: selectedDirection,
-      p_shares: sharesToBuy
+    const { error } = await supabase.rpc("buy_shares_amm", {
+      p_user_id: user.id,
+      p_market_option_id: selectedOptionId,
+      p_investment_amount: numericAmount,
+      p_buy_yes: selectedDirection === 'yes'
     });
 
     setIsPlacingBet(false);
 
     if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+      toast({ title: "Error al operar", description: error.message, variant: "destructive" });
     } else {
       const optionName = options.find(o => o.id === selectedOptionId)?.option_name || "la opción";
       const directionText = selectedDirection === 'yes' ? 'a favor de' : 'en contra de';
 
-      await supabase.from("notifications").insert({
+      // 1. Guardar el recibo visual en la Actividad
+      await supabase.from("transactions").insert({
         user_id: user.id,
-        title: "Apuesta confirmada",
-        message: `Invertiste ${numericAmount} pts en la opción ${optionName}`,
-        type: "trade",
-        read: false,
         market_id: marketId,
+        type: 'buy',
+        amount: numericAmount, // Guardamos en positivo para el Top Inversores
+        description: `Compró ${directionText} ${optionName}`
       });
 
+      // 2. Tomar la foto del nuevo precio para el Gráfico
       const { data: updatedOptions } = await supabase.from("market_options").select("*").eq("market_id", marketId);
       if (updatedOptions && updatedOptions.length > 0) {
-        const activeOpts = updatedOptions.filter(o => !o.is_eliminated);
-        const newTotalActiveVotes = activeOpts.reduce((acc, opt) => acc + Number(opt.total_votes || 0), 0);
-        const totalOptsCount = activeOpts.length || 2;
-
         const historyInserts = updatedOptions.map(opt => {
           let percentage = 0;
           if (!opt.is_eliminated) {
-            let price = (Number(opt.total_votes || 0) + 100.0) / (newTotalActiveVotes + (totalOptsCount * 100.0));
-            percentage = Math.max(0.01, Math.min(0.99, price)) * 100;
+            const py = Number(opt.pool_yes || 0);
+            const pn = Number(opt.pool_no || 0);
+            percentage = (py + pn > 0) ? (pn / (py + pn)) * 100 : 50;
           }
-          return {
-            market_id: marketId,
-            option_id: opt.id,
-            percentage: percentage
-          };
+          return { market_id: marketId, option_id: opt.id, percentage };
         });
-
         await supabase.from("market_option_history").insert(historyInserts);
       }
 
@@ -328,46 +315,77 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       setSelectedSellPosition(null);
 
       fetchUserAndProfile();
-      fetchUserBets();
+      fetchUserShares();
       fetchData();
     }
   };
 
+  // NUEVO: Motor de Venta RPC
   const executeSellShares = async () => {
     if (!selectedSellPosition) return;
 
     const [optId, dir] = selectedSellPosition.split('|');
-    
-    const activeBets = userBets.filter(b => b.outcome === optId && b.direction === dir && b.amount > 0 && b.shares > 0 && b.status !== 'sold');
-    const maxShares = activeBets.reduce((acc, b) => acc + Number(b.shares), 0);
-    
-    if (maxShares <= 0) {
-      toast({ title: "No se encontraron acciones activas", variant: "destructive" });
+    const pos = consolidatedPositions.find(p => p.outcome === optId && p.direction === dir);
+
+    if (!pos || pos.totalShares <= 0) {
+      toast({ title: "Error", description: "No se encontraron acciones activas", variant: "destructive" });
       return;
     }
 
+    const maxShares = pos.totalShares;
     const sharesToSell = parseFloat(sellSharesInput) || maxShares;
-    
+
     if (sharesToSell <= 0 || sharesToSell > maxShares) {
-      toast({ title: "Cantidad inválida", variant: "destructive" });
+      toast({ title: "Error", description: "Cantidad inválida", variant: "destructive" });
       return;
     }
 
     setIsSelling(true);
-    const { ok, error, cashoutValue } = await sellPartialShares(marketId, optId, dir, sharesToSell);
+    const { error } = await supabase.rpc("sell_shares_amm", {
+      p_user_id: user.id,
+      p_market_option_id: optId,
+      p_shares_to_sell: sharesToSell,
+      p_sell_yes: dir === 'yes'
+    });
     setIsSelling(false);
 
-    if (!ok) {
-      toast({ title: "Error al vender", description: error || "Hubo un problema", variant: "destructive" });
+    if (error) {
+      toast({ title: "Error al vender", description: error.message, variant: "destructive" });
     } else {
-      toast({ title: "¡Venta exitosa!", description: `Recibiste +${cashoutValue?.toLocaleString()} pts.` });
+      const payout = calculatePartialCashout(optId, dir, sharesToSell);
+
+      // 1. Guardar el recibo visual en la Actividad
+      await supabase.from("transactions").insert({
+        user_id: user.id,
+        market_id: marketId,
+        type: 'sell',
+        amount: payout,
+        description: `Vendió ${Math.round(sharesToSell)} acciones`
+      });
+
+      // 2. Tomar la foto del precio tras la venta para el Gráfico
+      const { data: updatedOptions } = await supabase.from("market_options").select("*").eq("market_id", marketId);
+      if (updatedOptions && updatedOptions.length > 0) {
+        const historyInserts = updatedOptions.map(opt => {
+          let percentage = 0;
+          if (!opt.is_eliminated) {
+            const py = Number(opt.pool_yes || 0);
+            const pn = Number(opt.pool_no || 0);
+            percentage = (py + pn > 0) ? (pn / (py + pn)) * 100 : 50;
+          }
+          return { market_id: marketId, option_id: opt.id, percentage };
+        });
+        await supabase.from("market_option_history").insert(historyInserts);
+      }
+
+      toast({ title: "¡Venta exitosa!", description: `Recibiste +${payout.toLocaleString()} pts.` });
 
       setSellSharesInput("");
       setSelectedSellPosition(null);
       setSelectedOptionId(null);
 
       fetchUserAndProfile();
-      fetchUserBets();
+      fetchUserShares();
       fetchData();
     }
   };
@@ -400,170 +418,101 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
 
   const toggleThread = (commentId: string) => { setExpandedThreads(prev => ({ ...prev, [commentId]: !prev[commentId] })); };
 
+  // NUEVO: Agrupador de portfolio basado en la tabla user_shares
   const consolidatedPositions = useMemo(() => {
-    const activeBets = userBets.filter(b => b.amount > 0 && b.shares > 0);
-    if (activeBets.length === 0) return [];
-
     const positions: Record<string, { outcome: string; direction: string; totalShares: number; totalInvested: number }> = {};
 
-    activeBets.forEach(bet => {
-      const key = `${bet.outcome}|${bet.direction}`;
-      if (!positions[key]) {
-        positions[key] = { outcome: bet.outcome, direction: bet.direction || 'yes', totalShares: 0, totalInvested: 0 };
+    userShares.forEach(share => {
+      const py = Number(share.shares_yes_owned || 0);
+      const pn = Number(share.shares_no_owned || 0);
+
+      if (py > 0) {
+        const key = `${share.market_option_id}|yes`;
+        positions[key] = {
+          outcome: share.market_option_id,
+          direction: 'yes',
+          totalShares: py,
+          totalInvested: py * 0.5, // Tracker temporal de PnL base
+        };
       }
-      positions[key].totalShares += Number(bet.shares);
-      positions[key].totalInvested += Number(bet.amount);
+      if (pn > 0) {
+        const key = `${share.market_option_id}|no`;
+        positions[key] = {
+          outcome: share.market_option_id,
+          direction: 'no',
+          totalShares: pn,
+          totalInvested: pn * 0.5,
+        };
+      }
     });
 
     return Object.values(positions);
-  }, [userBets]);
+  }, [userShares]);
 
   const timeframes: ChartTimeframe[] = ['1D', '1W', '1M', 'ALL'];
 
-  // --- ARREGLO 2 y 3: Génesis y Proyección inamovibles ---
   const filteredHistory = useMemo(() => {
     if (!market || options.length === 0) return [];
 
     const now = Date.now();
     const marketCreatedAt = new Date(market.created_at).getTime();
 
-    // 1. PUNTO GÉNESIS
+    // 1. PUNTO GÉNESIS (Basado en el precio actual si no hay historia)
     const genesisPoint: any = { timestamp: marketCreatedAt };
-    const totalOptsCount = options.length || 2;
     options.forEach(opt => {
-      genesisPoint[opt.id] = (1 / totalOptsCount) * 100;
+      const py = Number(opt.pool_yes || 0);
+      const pn = Number(opt.pool_no || 0);
+      genesisPoint[opt.id] = (py + pn > 0) ? (pn / (py + pn)) * 100 : (1 / options.length) * 100;
     });
 
-    // 2. FORWARD FILL Y EVENTOS DE ELIMINACIÓN
+    // 2. FORWARD FILL
     const rawHistory = (history || [])
       .filter(h => h.timestamp > marketCreatedAt + 2000)
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-    const eliminations = options
-      .filter(o => o.is_eliminated && o.eliminated_at)
-      .map(o => ({ optId: o.id, elimTime: new Date(o.eliminated_at).getTime() }));
-
-    const events: { type: 'history' | 'elimination', timestamp: number, data?: any, optId?: string }[] = [];
+    const events: { type: 'history', timestamp: number, data?: any }[] = [];
     rawHistory.forEach(h => events.push({ type: 'history', timestamp: h.timestamp, data: h }));
-    eliminations.forEach(e => events.push({ type: 'elimination', timestamp: e.elimTime, optId: e.optId }));
-
-    events.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
     const timeline: any[] = [genesisPoint];
     let lastKnownState = { ...genesisPoint };
 
-    const normalizeState = (timestamp: number, baseValues: Record<string, number>) => {
-      let activePool = 0;
-      options.forEach(opt => {
-        if (opt.is_eliminated && opt.eliminated_at && timestamp >= new Date(opt.eliminated_at).getTime()) {
-          baseValues[opt.id] = 0;
-        } else {
-          activePool += baseValues[opt.id];
-        }
-      });
-      
-      const newState: any = { timestamp };
-      options.forEach(opt => {
-        if (baseValues[opt.id] === 0 || activePool === 0) {
-          newState[opt.id] = 0;
-        } else {
-          newState[opt.id] = (baseValues[opt.id] / activePool) * 100;
-        }
-      });
-      return newState;
-    };
-
     events.forEach(event => {
-      if (event.type === 'history') {
-        const point = event.data;
-        const baseValues: Record<string, number> = {};
-        options.forEach(opt => {
-          let val = lastKnownState[opt.id];
-          if (point[opt.id] !== undefined && !Number.isNaN(Number(point[opt.id]))) {
-            val = Number(point[opt.id]);
-          }
-          baseValues[opt.id] = val;
-        });
-        
-        const newState = normalizeState(point.timestamp, baseValues);
-        timeline.push(newState);
-        lastKnownState = { ...newState };
-      } else if (event.type === 'elimination') {
-        if (timeline[timeline.length - 1].timestamp < event.timestamp - 1) {
-          timeline.push({ ...lastKnownState, timestamp: event.timestamp - 1 });
-        }
-        
-        const baseValues: Record<string, number> = {};
-        options.forEach(opt => { baseValues[opt.id] = lastKnownState[opt.id]; });
-        baseValues[event.optId!] = 0;
-        
-        const newState = normalizeState(event.timestamp, baseValues);
-        timeline.push(newState);
-        lastKnownState = { ...newState };
-      }
+      const point = event.data;
+      const newState: any = { timestamp: point.timestamp };
+      options.forEach(opt => {
+        newState[opt.id] = point[opt.id] !== undefined ? Number(point[opt.id]) : lastKnownState[opt.id];
+      });
+      timeline.push(newState);
+      lastKnownState = { ...newState };
     });
 
-    // 3. ESTADO DE RESOLUCIÓN O EN VIVO
-    if (market.status === 'resolved') {
-      const resolvedAt = market.resolved_at 
-        ? new Date(market.resolved_at).getTime() 
-        : (timeline[timeline.length - 1].timestamp) + 1000;
-      
-      const resolutionPoint: any = { timestamp: resolvedAt };
-      options.forEach(opt => {
-        resolutionPoint[opt.id] = opt.id === market.winning_outcome ? 100 : 0;
-      });
-      timeline.push(resolutionPoint);
-      timeline.push({ ...resolutionPoint, timestamp: now }); 
-    } else {
-      timeline.push({ ...lastKnownState, timestamp: now });
-    }
+    timeline.push({ ...lastKnownState, timestamp: now });
 
-    // 4. USAR TIMELINE COMPLETO SIEMPRE
-    let result = timeline;
-
-    // 5. DENSIFY TIMELINE PARA TOOLTIP CONTINUO
+    // 3. DENSIFY TIMELINE (Evita que el gráfico quede en blanco)
     const denseResult = [];
-    if (result.length > 0) {
-      const minT = result[0].timestamp;
-      const maxT = result[result.length - 1].timestamp;
-      // Generamos puntos intermedios para que el mouse no salte en vacíos grandes
+    if (timeline.length > 0) {
+      const minT = timeline[0].timestamp;
+      const maxT = timeline[timeline.length - 1].timestamp;
       const step = Math.max(1000, (maxT - minT) / 150);
 
       let currentIndex = 0;
       for (let t = minT; t <= maxT; t += step) {
-        while (currentIndex < result.length - 1 && result[currentIndex + 1].timestamp <= t) {
-          denseResult.push(result[currentIndex]);
+        while (currentIndex < timeline.length - 1 && timeline[currentIndex + 1].timestamp <= t) {
+          denseResult.push(timeline[currentIndex]);
           currentIndex++;
         }
         if (denseResult.length === 0 || denseResult[denseResult.length - 1].timestamp !== t) {
-          denseResult.push({ ...result[currentIndex], timestamp: t });
+          denseResult.push({ ...timeline[currentIndex], timestamp: t });
         }
       }
       if (denseResult[denseResult.length - 1].timestamp !== maxT) {
-        denseResult.push(result[result.length - 1]);
+        denseResult.push(timeline[timeline.length - 1]);
       }
       return denseResult.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     }
 
-    return result.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  }, [market, options, history, getOptionPrice]);
-
-  const dynamicStrokeWidth = chartTimeframe === 'ALL' ? 2 : 3;
-
-  const axisTextColor = isDarkMode ? '#a1a1aa' : '#64748b';
-  const axisLineColor = isDarkMode ? '#334155' : '#e2e8f0';
-
-  const formatXAxis = (tick: number) => {
-    const date = new Date(tick);
-    if (chartTimeframe === '1D') {
-      return date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
-    }
-    if (chartTimeframe === '1W' || chartTimeframe === '1M') {
-      return date.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' });
-    }
-    return date.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: '2-digit' });
-  };
+    return timeline;
+  }, [market, options, history]);
 
   const marketPositionSummary = useMemo(() => {
     if (consolidatedPositions.length === 0) return null;
@@ -579,16 +528,13 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     const pnl = totalCurrentValue - totalInvested;
     const pnlPct = (pnl / totalInvested) * 100;
     return { totalInvested, totalCurrentValue, pnl, pnlPct };
-  }, [consolidatedPositions, options, realTotalVotes]);
+  }, [consolidatedPositions, calculatePartialCashout]);
 
   const topHolders = useMemo(() => {
     const holders: Record<string, { userId: string, username: string, avatarUrl: string | null, invested: number }> = {};
 
     activityFeed.forEach(item => {
-      if (item.activityType === 'bet' && item.status !== 'sold') {
-        const opt = options.find(o => o.id === item.outcome);
-        if (opt && opt.is_eliminated) return;
-
+      if (item.type === 'buy') {
         if (!holders[item.user_id]) {
           holders[item.user_id] = {
             userId: item.user_id,
@@ -597,44 +543,48 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
             invested: 0
           };
         }
-        holders[item.user_id].invested += Number(item.amount);
+        holders[item.user_id].invested += Math.abs(Number(item.amount));
       }
     });
 
     return Object.values(holders)
-      .filter(h => h.invested > 0)
       .sort((a, b) => b.invested - a.invested)
       .slice(0, 5);
-  }, [activityFeed, options]);
+  }, [activityFeed]);
 
+  // NUEVO: Simulador AMM en el Frontend
   const orderSummary = useMemo(() => {
     if (!selectedOptionId || !betAmount || isNaN(Number(betAmount)) || Number(betAmount) <= 0) return null;
     const amount = Number(betAmount);
     const opt = options.find(o => o.id === selectedOptionId);
-    if (!opt) return null;
+    if (!opt || !opt.pool_yes || !opt.pool_no || !opt.liquidity_k) return null;
 
-    const optionVotes = Number(opt.total_votes || 0);
-    const totalOptions = activeOptions.length || 2;
+    const py = Number(opt.pool_yes);
+    const pn = Number(opt.pool_no);
+    const k = Number(opt.liquidity_k);
+    const isYes = selectedDirection === 'yes';
 
-    const startPriceYes = (optionVotes + 100.0) / (activeTotalVotes + (totalOptions * 100.0));
-    let endPriceYes = startPriceYes;
-    if (selectedDirection === 'yes') {
-      endPriceYes = (optionVotes + amount + 100.0) / (activeTotalVotes + amount + (totalOptions * 100.0));
+    let startPrice = 0;
+    let shares = 0;
+
+    if (isYes) {
+      startPrice = pn / (py + pn);
+      const newPn = pn + amount;
+      const newPyTarget = k / newPn;
+      shares = (py + amount) - newPyTarget;
     } else {
-      endPriceYes = (optionVotes + 100.0) / (activeTotalVotes + amount + (totalOptions * 100.0));
+      startPrice = py / (py + pn);
+      const newPy = py + amount;
+      const newPnTarget = k / newPy;
+      shares = (pn + amount) - newPnTarget;
     }
 
-    let avgPriceYes = (startPriceYes + endPriceYes) / 2.0;
-    avgPriceYes = Math.max(0.01, Math.min(0.99, avgPriceYes));
+    const avgPrice = amount / shares;
+    const slippage = ((avgPrice - startPrice) / startPrice) * 100;
 
-    const avgPrice = selectedDirection === 'yes' ? avgPriceYes : (1 - avgPriceYes);
-    const startPrice = selectedDirection === 'yes' ? startPriceYes : (1 - startPriceYes);
-
-    const shares = amount / avgPrice;
     const potentialPayout = shares;
     const potentialProfit = potentialPayout - amount;
     const roi = (potentialProfit / amount) * 100;
-    const slippage = ((avgPrice - startPrice) / startPrice) * 100;
 
     return {
       avgPriceCents: Math.round(avgPrice * 100),
@@ -644,7 +594,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       roi,
       slippage
     };
-  }, [betAmount, selectedOptionId, selectedDirection, options, activeTotalVotes, activeOptions]);
+  }, [betAmount, selectedOptionId, selectedDirection, options]);
 
   if (isLoading) {
     return (
@@ -807,7 +757,6 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
         </Button>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 relative items-start">
-          {/* COLUMNA IZQUIERDA: 70% del ancho (Protagonista) */}
           <div className="lg:col-span-8 xl:col-span-9 flex flex-col gap-6 min-w-0">
             <div className="flex gap-4 sm:gap-6 items-start">
               {market.image_url && <img src={market.image_url} alt="Mercado" className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl object-cover shrink-0 shadow-md border border-border/50" />}
@@ -833,7 +782,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                 </div>
                 <h1 className="text-2xl sm:text-3xl font-bold text-foreground leading-tight mb-2">{market.title}</h1>
                 <div className="flex items-center gap-4 text-sm text-muted-foreground mt-3">
-                  <div className="flex items-center gap-1.5"><Coins className="w-4 h-4" />{realTotalVotes.toLocaleString()} pts Vol.</div>
+                  <div className="flex items-center gap-1.5"><Coins className="w-4 h-4" />{totalMarketCollateral.toLocaleString()} pts Colateral</div>
                   <div className={cn("flex items-center gap-1.5", isMarketResolved ? "text-primary font-medium" : isMarketClosed ? "text-red-500 font-medium" : "")}>
                     <Clock className="w-4 h-4" />
                     {isMarketResolved ? "Mercado finalizado" : isMarketClosed ? `Cerró el ${new Date(market.end_date).toLocaleDateString()}` : `Cierra: ${new Date(market.end_date).toLocaleDateString()}`}
@@ -865,7 +814,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
 
               {filteredHistory.length > 0 ? (
                 <div className="w-full h-[350px] relative min-w-0 overflow-hidden pr-2 lg:pr-8 mt-4 mb-2">
-                    <LightweightChart data={filteredHistory} options={options} marketCreatedAt={new Date(market.created_at).getTime()} chartTimeframe={chartTimeframe} />
+                  <LightweightChart data={filteredHistory} options={options} marketCreatedAt={new Date(market.created_at).getTime()} chartTimeframe={chartTimeframe} />
                 </div>
               ) : (
                 <div className="w-full h-[350px] relative min-w-0 overflow-hidden pr-2 lg:pr-8 mt-4 mb-2 flex items-center justify-center border-2 border-dashed border-border/50 rounded-xl bg-muted/10">
@@ -885,7 +834,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                   >
                     <div className="flex w-full items-center justify-between px-3 py-2">
                       <span className="text-xs font-semibold text-foreground">SÍ</span>
-                      <span className="text-sm font-black text-green-600 dark:text-green-400">{Math.round(getOptionPrice(yesOption.total_votes) * 100)}¢</span>
+                      <span className="text-sm font-black text-green-600 dark:text-green-400">{Math.round(getOptionPrice(yesOption) * 100)}¢</span>
                     </div>
                   </div>
                   <div
@@ -896,7 +845,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                   >
                     <div className="flex w-full items-center justify-between px-3 py-2">
                       <span className="text-xs font-semibold text-foreground">NO</span>
-                      <span className="text-sm font-black text-red-600 dark:text-red-400">{Math.round(getOptionPrice(noOption.total_votes) * 100)}¢</span>
+                      <span className="text-sm font-black text-red-600 dark:text-red-400">{Math.round(getOptionPrice(noOption) * 100)}¢</span>
                     </div>
                   </div>
                 </div>
@@ -912,11 +861,9 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                   {[...options].sort((a, b) => {
                     if (a.is_eliminated && !b.is_eliminated) return 1;
                     if (!a.is_eliminated && b.is_eliminated) return -1;
-                    const priceA = getOptionPrice(a.total_votes, a.is_eliminated);
-                    const priceB = getOptionPrice(b.total_votes, b.is_eliminated);
-                    return priceB - priceA;
+                    return getOptionPrice(b) - getOptionPrice(a);
                   }).map((opt) => {
-                    const yesPrice = getOptionPrice(opt.total_votes, opt.is_eliminated);
+                    const yesPrice = getOptionPrice(opt);
                     const yesCents = Math.round(yesPrice * 100);
                     const noCents = 100 - yesCents;
 
@@ -941,7 +888,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                               {isWinner && <Badge className="ml-2 bg-primary text-primary-foreground text-[10px] uppercase">Ganador</Badge>}
                             </span>
                           </div>
-                          
+
                           <div className="flex justify-end sm:justify-center w-16 sm:w-24 shrink-0 sm:mr-16">
                             <span className={cn("font-black text-lg sm:text-xl", isWinner ? "text-primary" : isEliminated ? "text-red-500 font-bold" : "text-foreground")}>
                               {isEliminated ? "No" : `${yesCents}%`}
@@ -988,58 +935,36 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
               )}
             </div>
 
-            {/* TABS (Actividad / Debate) */}
             <div className="w-full mt-2">
-            <Tabs defaultValue="activity" className="w-full">
-              <TabsList className="grid w-full grid-cols-2 h-14 p-1.5 bg-muted/50 rounded-xl mb-8 border border-border/50 shadow-sm">
-                <TabsTrigger
-                  value="activity"
-                  className="rounded-lg text-sm sm:text-base font-bold data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-md transition-all text-muted-foreground flex items-center justify-center gap-2"
-                >
-                  <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5" />
-                  <span className="truncate">Actividad</span>
-                </TabsTrigger>
-                <TabsTrigger
-                  value="debate"
-                  className="rounded-lg text-sm sm:text-base font-bold data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-md transition-all text-muted-foreground flex items-center justify-center gap-2"
-                >
-                  <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5" />
-                  <span className="truncate">Debate ({comments.length})</span>
-                </TabsTrigger>
-              </TabsList>
+              <Tabs defaultValue="activity" className="w-full">
+                <TabsList className="grid w-full grid-cols-2 h-14 p-1.5 bg-muted/50 rounded-xl mb-8 border border-border/50 shadow-sm">
+                  <TabsTrigger
+                    value="activity"
+                    className="rounded-lg text-sm sm:text-base font-bold data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-md transition-all text-muted-foreground flex items-center justify-center gap-2"
+                  >
+                    <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5" />
+                    <span className="truncate">Actividad</span>
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="debate"
+                    className="rounded-lg text-sm sm:text-base font-bold data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-md transition-all text-muted-foreground flex items-center justify-center gap-2"
+                  >
+                    <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5" />
+                    <span className="truncate">Debate ({comments.length})</span>
+                  </TabsTrigger>
+                </TabsList>
 
-            <TabsContent value="activity" className="m-0 focus-visible:outline-none">
-              <div className="rounded-xl border border-border/50 bg-card overflow-hidden shadow-sm">
-                {activityFeed.length === 0 ? (
-                  <div className="text-center py-12 border-2 border-dashed border-border/50 rounded-xl bg-muted/10 mx-4 my-4">
-                    <TrendingUp className="w-8 h-8 mx-auto mb-2 text-muted-foreground opacity-50" />
-                    <p className="text-sm font-medium text-muted-foreground">Aún no hay actividad en este mercado. ¡Sé el primero!</p>
-                  </div>
-                ) : (
-                  <div className="divide-y divide-border/30 max-h-[600px] overflow-y-auto scrollbar-thin scrollbar-thumb-border">
-                    {activityFeed.map((item) => {
-                      if (item.activityType === 'bet') {
-                        const opt = options.find(o => o.id === item.outcome);
-                        let displayOutcome = opt?.option_name || '';
-                        let optColor = opt?.color || '#0ea5e9';
-
-                        if (!opt && (item.outcome === 'yes' || item.outcome === 'no')) {
-                          displayOutcome = item.outcome === 'yes' ? 'SÍ' : 'NO';
-                          optColor = item.outcome === 'yes' ? '#22c55e' : '#ef4444';
-                        } else if (isBinaryYesNo) {
-                          optColor = displayOutcome.toLowerCase() === 'no' ? '#ef4444' : '#22c55e';
-                        } else if (item.direction === 'no') {
-                          displayOutcome = `No a ${opt?.option_name}`;
-                          optColor = '#ef4444';
-                        }
-
-                        const hasShares = item.shares && item.shares > 0;
-                        const impliedPrice = hasShares ? (Math.abs(item.amount) / item.shares) * 100 : null;
-                        const sellValue = item.amount + (item.realized_pnl || 0);
-                        const sellImpliedPrice = hasShares ? (sellValue / item.shares) * 100 : null;
-
-                        return (
-                          <div key={`bet-${item.id}`} className="flex items-center justify-between p-4 hover:bg-muted/10 transition-colors group">
+                <TabsContent value="activity" className="m-0 focus-visible:outline-none">
+                  <div className="rounded-xl border border-border/50 bg-card overflow-hidden shadow-sm">
+                    {activityFeed.length === 0 ? (
+                      <div className="text-center py-12 border-2 border-dashed border-border/50 rounded-xl bg-muted/10 mx-4 my-4">
+                        <TrendingUp className="w-8 h-8 mx-auto mb-2 text-muted-foreground opacity-50" />
+                        <p className="text-sm font-medium text-muted-foreground">Aún no hay actividad en este mercado. ¡Sé el primero!</p>
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-border/30 max-h-[600px] overflow-y-auto scrollbar-thin scrollbar-thumb-border">
+                        {activityFeed.map((item) => (
+                          <div key={item.id} className="flex items-center justify-between p-4 hover:bg-muted/10 transition-colors group">
                             <div className="flex items-center gap-3">
                               <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 border border-border/50 bg-background overflow-hidden cursor-pointer" onClick={() => openUserProfile(item.user_id, item.profiles?.username || "Usuario")}>
                                 {item.profiles?.avatar_url ? <img src={item.profiles.avatar_url} alt="av" className="w-full h-full object-cover" /> : <UserIcon className="w-4 h-4 text-muted-foreground opacity-50" />}
@@ -1047,81 +972,10 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                               <div className="flex flex-col">
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   <span className="font-semibold text-sm cursor-pointer hover:text-primary transition-colors text-foreground" onClick={() => openUserProfile(item.user_id, item.profiles?.username || "Usuario")}>{item.profiles?.username || "Usuario"}</span>
-                                  <span className="text-sm font-medium text-muted-foreground">{item.status === 'sold' ? 'vendió' : 'compró'}</span>
-                                  <span className="text-sm font-bold uppercase" style={{ color: optColor }}>{displayOutcome || 'Opción'}</span>
-                                </div>
-                                {hasShares ? (
-                                  <span className="text-xs font-medium text-muted-foreground mt-0.5">
-                                    {Math.round(item.shares).toLocaleString()} acciones {item.status === 'sold' ? `(${Math.round(sellImpliedPrice || 0)}¢)` : `(${Math.round(impliedPrice || 0)}¢)`}
-                                  </span>
-                                ) : (
-                                  <span className="text-xs font-medium text-muted-foreground mt-0.5">
-                                    {item.amount.toLocaleString()} pts invertidos
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                            <div className="text-right flex flex-col items-end shrink-0 pl-2">
-                              <p className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">
-                                {new Date(item.created_at).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })} • {new Date(item.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
-                              </p>
-                            </div>
-                          </div>
-                        );
-                      } else {
-                        let sharesSold = null;
-                        let priceSold = null;
-                        let soldOptionName = null;
-                        let soldDirection = null;
-
-                        if (item.description) {
-                          const matchShares = item.description.match(/Venta de ([\d.,]+) acciones/i);
-                          const matchPrice = item.description.match(/a ([\d.,]+)¢/i);
-                          const matchOption = item.description.match(/\((.*?)\)/);
-
-                          if (matchShares) sharesSold = parseFloat(matchShares[1].replace(/,/g, ''));
-                          if (matchPrice) priceSold = parseFloat(matchPrice[1].replace(/,/g, ''));
-                          if (matchOption) {
-                            const optText = matchOption[1];
-                            if (optText.toLowerCase().startsWith('no a ')) {
-                              soldDirection = 'no';
-                              soldOptionName = optText.substring(5);
-                            } else if (optText.toLowerCase().startsWith('si a ') || optText.toLowerCase().startsWith('sí a ')) {
-                              soldDirection = 'yes';
-                              soldOptionName = optText.substring(5);
-                            } else {
-                              soldOptionName = optText;
-                            }
-                          }
-                        }
-
-                        if (!sharesSold && item.shares && item.shares > 0) {
-                          sharesSold = item.shares;
-                          priceSold = (Math.abs(item.amount) / item.shares) * 100;
-                        }
-
-                        return (
-                          <div key={`cashout-${item.id}`} className="flex items-center justify-between p-4 bg-muted/5 hover:bg-muted/10 transition-colors border-l-2 border-l-muted group">
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 border border-border/50 bg-background overflow-hidden cursor-pointer" onClick={() => openUserProfile(item.user_id, item.profiles?.username || "Usuario")}>
-                                {item.profiles?.avatar_url ? <img src={item.profiles.avatar_url} alt="av" className="w-full h-full object-cover" /> : <UserIcon className="w-4 h-4 text-muted-foreground opacity-50" />}
-                              </div>
-                              <div className="flex flex-col">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="font-semibold text-sm cursor-pointer hover:text-primary transition-colors text-foreground" onClick={() => openUserProfile(item.user_id, item.profiles?.username || "Usuario")}>{item.profiles?.username || "Usuario"}</span>
-                                  <span className="text-sm font-medium text-muted-foreground">vendió</span>
-                                  {soldOptionName ? (
-                                    <span className="text-sm font-bold uppercase" style={{ color: soldDirection === 'no' ? '#ef4444' : '#22c55e' }}>
-                                      {soldDirection === 'no' ? `No a ${soldOptionName}` : soldOptionName}
-                                    </span>
-                                  ) : (
-                                    <span className="text-sm font-bold text-muted-foreground">su posición</span>
-                                  )}
+                                  <span className="text-sm font-medium text-muted-foreground">{item.type === 'buy' ? 'compró' : 'vendió'}</span>
                                 </div>
                                 <span className="text-xs font-medium text-muted-foreground mt-0.5">
-                                  {sharesSold && priceSold
-                                    ? `${Math.round(sharesSold).toLocaleString()} acciones (${Math.round(priceSold)}¢)`
-                                    : (item.description && item.description !== 'Cashout de predicción' ? item.description : `Liquidación por ${Math.abs(item.amount).toLocaleString()} pts`)}
+                                  {item.description}
                                 </span>
                               </div>
                             </div>
@@ -1131,39 +985,37 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                               </p>
                             </div>
                           </div>
-                        );
-                      }
-                    })}
+                        ))}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            </TabsContent>
+                </TabsContent>
 
-            <TabsContent value="debate" className="m-0 focus-visible:outline-none">
-              <div className="bg-card rounded-xl border border-border/50 p-4 sm:p-6 shadow-sm">
-                <div className="mb-6">
-                  {replyingTo && (
-                    <div className="flex items-center justify-between bg-primary/10 text-primary px-3 py-2 rounded-lg mb-3 text-sm">
-                      <span className="flex items-center gap-2"><Reply className="w-4 h-4" /> Respondiendo a <b>{replyingTo.profiles?.username || 'Usuario'}</b></span>
-                      <button onClick={() => setReplyingTo(null)} className="hover:bg-primary/20 p-1 rounded-full"><X className="w-4 h-4" /></button>
+                <TabsContent value="debate" className="m-0 focus-visible:outline-none">
+                  <div className="bg-card rounded-xl border border-border/50 p-4 sm:p-6 shadow-sm">
+                    <div className="mb-6">
+                      {replyingTo && (
+                        <div className="flex items-center justify-between bg-primary/10 text-primary px-3 py-2 rounded-lg mb-3 text-sm">
+                          <span className="flex items-center gap-2"><Reply className="w-4 h-4" /> Respondiendo a <b>{replyingTo.profiles?.username || 'Usuario'}</b></span>
+                          <button onClick={() => setReplyingTo(null)} className="hover:bg-primary/20 p-1 rounded-full"><X className="w-4 h-4" /></button>
+                        </div>
+                      )}
+                      <form onSubmit={handleAddComment} className="flex gap-3">
+                        <div className="w-10 h-10 rounded-full bg-primary/10 hidden sm:flex items-center justify-center shrink-0 border border-primary/20 overflow-hidden cursor-pointer" onClick={() => user && openUserProfile(user.id, profile?.username)}>
+                          {profile?.avatar_url ? <img src={profile.avatar_url} alt="Avatar" className="w-full h-full object-cover" /> : <UserIcon className="w-5 h-5 text-primary" />}
+                        </div>
+                        <div className="flex-1 flex gap-2">
+                          <Input id="comment-input" value={newComment} onChange={(e) => setNewComment(e.target.value)} placeholder={user ? "Opiná sobre este mercado..." : "Iniciá sesión para comentar..."} disabled={isSubmittingComment || !user} className="bg-muted/20" />
+                          <Button type="submit" disabled={!newComment.trim() || isSubmittingComment || !user}>{isSubmittingComment ? <Loader2 className="w-4 h-4 animate-spin" /> : "Enviar"}</Button>
+                        </div>
+                      </form>
                     </div>
-                  )}
-                  <form onSubmit={handleAddComment} className="flex gap-3">
-                    <div className="w-10 h-10 rounded-full bg-primary/10 hidden sm:flex items-center justify-center shrink-0 border border-primary/20 overflow-hidden cursor-pointer" onClick={() => user && openUserProfile(user.id, profile?.username)}>
-                      {profile?.avatar_url ? <img src={profile.avatar_url} alt="Avatar" className="w-full h-full object-cover" /> : <UserIcon className="w-5 h-5 text-primary" />}
+                    <div className="space-y-2">
+                      {topLevelComments.length === 0 ? <p className="text-center py-8 text-muted-foreground bg-muted/10 rounded-xl border border-dashed border-border/50">Todavía no hay comentarios. Rompé el hielo.</p> : topLevelComments.map(comment => renderComment(comment))}
                     </div>
-                    <div className="flex-1 flex gap-2">
-                      <Input id="comment-input" value={newComment} onChange={(e) => setNewComment(e.target.value)} placeholder={user ? "Opiná sobre este mercado..." : "Iniciá sesión para comentar..."} disabled={isSubmittingComment || !user} className="bg-muted/20" />
-                      <Button type="submit" disabled={!newComment.trim() || isSubmittingComment || !user}>{isSubmittingComment ? <Loader2 className="w-4 h-4 animate-spin" /> : "Enviar"}</Button>
-                    </div>
-                  </form>
-                </div>
-                <div className="space-y-2">
-                  {topLevelComments.length === 0 ? <p className="text-center py-8 text-muted-foreground bg-muted/10 rounded-xl border border-dashed border-border/50">Todavía no hay comentarios. Rompé el hielo.</p> : topLevelComments.map(comment => renderComment(comment))}
-                </div>
-              </div>
-            </TabsContent>
-          </Tabs>
+                  </div>
+                </TabsContent>
+              </Tabs>
             </div>
 
             <div className="block lg:hidden w-full mt-4">
@@ -1182,10 +1034,8 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
             </div>
           </div>
 
-          {/* COLUMNA DERECHA: 30% del ancho (Panel de Trading Sticky) */}
           <div className="lg:col-span-4 xl:col-span-3 sticky top-24 self-start flex flex-col gap-6 z-40">
-            
-            {/* BACKDROP FUERA DEL CONTENEDOR TRANSFORMADO PARA QUE CUBRA TODA LA PANTALLA */}
+
             {(selectedOptionId || selectedSellPosition) && (
               <div
                 className="fixed inset-0 bg-black/60 z-[45] lg:hidden animate-in fade-in duration-300"
@@ -1263,8 +1113,8 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                                 </span>
                                 <span className={cn("font-bold text-xl", !isRedTheme ? 'text-green-700 dark:text-green-500' : 'text-red-700 dark:text-red-500')}>
                                   {selectedDirection === 'yes'
-                                    ? Math.round(getOptionPrice(options.find(o => o.id === selectedOptionId)?.total_votes, options.find(o => o.id === selectedOptionId)?.is_eliminated) * 100)
-                                    : 100 - Math.round(getOptionPrice(options.find(o => o.id === selectedOptionId)?.total_votes, options.find(o => o.id === selectedOptionId)?.is_eliminated) * 100)}¢
+                                    ? Math.round(getOptionPrice(options.find(o => o.id === selectedOptionId)) * 100)
+                                    : 100 - Math.round(getOptionPrice(options.find(o => o.id === selectedOptionId)) * 100)}¢
                                 </span>
                               </div>
                               {!isBinaryYesNo && <p className="text-sm font-medium mt-1 truncate text-foreground">{selectedOptName}</p>}
@@ -1369,7 +1219,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                               <div className="mt-4 p-4 bg-background border border-border/50 rounded-xl space-y-2 animate-in fade-in">
                                 <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2 flex items-center gap-1.5"><Wallet className="w-3 h-3" /> Resumen de tus posiciones</p>
                                 <div className="flex justify-between items-center">
-                                  <span className="text-sm font-medium text-foreground">Total Invertido</span>
+                                  <span className="text-sm font-medium text-foreground">Total Invertido (Base)</span>
                                   <span className="text-sm font-bold text-foreground">{marketPositionSummary.totalInvested.toLocaleString()} pts</span>
                                 </div>
                                 <div className="flex justify-between items-center">
