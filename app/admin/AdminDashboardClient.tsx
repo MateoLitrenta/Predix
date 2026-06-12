@@ -92,7 +92,6 @@ export default function AdminDashboardClient() {
 
   const [deletingMarket, setDeletingMarket] = useState<{ id: string, title: string } | null>(null);
 
-  // NUEVO ESTADO PARA GESTIONAR OPCIONES
   const [managingMarket, setManagingMarket] = useState<Market | null>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -200,6 +199,7 @@ export default function AdminDashboardClient() {
     if (createForm.options.length > 2) setCreateForm(f => ({ ...f, options: f.options.filter((_, i) => i !== indexToRemove) }));
   };
 
+  // NUEVO: Manejador de Creación con Fondeo Automático (AMM)
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     let finalOptions = ['Sí', 'No'];
@@ -212,26 +212,67 @@ export default function AdminDashboardClient() {
     }
 
     setIsCreating(true);
+
+    // El backend se encarga de crear, fondear y actualizar el volumen
     const { error } = await createAdminMarket({
-      title: createForm.title.trim(), description: createForm.description.trim() || null, category: createForm.category, end_date: createForm.end_date, image_url: createForm.image_url.trim() || null, options: finalOptions, is_world_cup: createForm.is_world_cup
+      title: createForm.title.trim(),
+      description: createForm.description.trim() || null,
+      category: createForm.category,
+      end_date: createForm.end_date,
+      image_url: createForm.image_url.trim() || null,
+      options: finalOptions,
+      is_world_cup: createForm.is_world_cup
     });
+
     setIsCreating(false);
 
     if (error) {
       toast({ title: "Error al crear", description: error, variant: "destructive" });
     } else {
-      toast({ title: "Mercado Activo", description: "El mercado se creó y ya está público." });
+      toast({ title: "Mercado Activo", description: "Mercado creado y fondeado por Morfeo." });
       setIsCreateModalOpen(false);
       setCreateForm({ title: "", description: "", category: "politica", end_date: "", image_url: "", marketType: "binary", options: ["", ""], is_world_cup: false });
       await fetchMarkets();
     }
   };
 
+  // NUEVO: Manejador de Aprobación con Fondeo Automático (AMM)
   const handleApprove = async (marketId: string) => {
     setProcessingIds((p) => new Set(p).add(marketId));
+
+    // 1. Aprobar el mercado
     const { error } = await approveMarket(marketId);
-    if (error) toast({ title: "Error", description: error, variant: "destructive" });
-    else { toast({ title: "Aprobado", description: "El mercado ya está público." }); await fetchMarkets(); }
+
+    if (error) {
+      toast({ title: "Error", description: error, variant: "destructive" });
+    } else {
+      // 2. Fondeo Automático con Morfeo para mercados aprobados
+      try {
+        const { data: options } = await supabase
+          .from("market_options")
+          .select("id")
+          .eq("market_id", marketId);
+
+        if (options && options.length > 0) {
+          const initialProb = Number((1 / options.length).toFixed(4));
+
+          for (const opt of options) {
+            await supabase.rpc("initialize_amm_market", {
+              p_market_option_id: opt.id,
+              p_treasury_user_id: "2baab0f5-2082-4044-bea2-b3c270d55ee2", // ID de Morfeo
+              p_liquidity_points: 5000,
+              p_initial_prob: initialProb
+            });
+          }
+        }
+        toast({ title: "Aprobado y Fondeado", description: "El mercado ya está público y con liquidez." });
+      } catch (ammError) {
+        console.error("Error fondeando el mercado aprobado:", ammError);
+        toast({ title: "Aprobado", description: "El mercado es público, pero falló el fondeo inicial." });
+      }
+      await fetchMarkets();
+    }
+
     setProcessingIds((p) => { const n = new Set(p); n.delete(marketId); return n; });
   };
 
@@ -269,7 +310,6 @@ export default function AdminDashboardClient() {
     setProcessingIds((p) => { const n = new Set(p); n.delete(id); return n; });
   };
 
-  // NUEVA FUNCIÓN PARA ELIMINAR OPCIÓN
   const handleEliminateOption = async (optionId: string) => {
     setProcessingIds((p) => new Set(p).add(optionId));
     const { error } = await eliminateMarketOption(optionId);
@@ -279,7 +319,6 @@ export default function AdminDashboardClient() {
     } else {
       toast({ title: "Opción Eliminada", description: "Ya no se podrá apostar por esta opción." });
 
-      // Actualizar el estado local para que se vea reflejado en el modal abierto
       if (managingMarket) {
         const updatedOptions = managingMarket.market_options?.map(opt =>
           opt.id === optionId ? { ...opt, is_eliminated: true } : opt
@@ -379,249 +418,248 @@ export default function AdminDashboardClient() {
 
           <TabsContent value="mercados" className="space-y-6 mt-0">
             <div className="mb-8 flex flex-col lg:flex-row gap-4 p-2 bg-card/40 border border-border/50 rounded-2xl shadow-sm backdrop-blur-xl">
-          <div className="relative flex-1">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-            <Input
-              placeholder="Buscar mercado por pregunta..."
-              className="pl-12 h-12 bg-background/60 border-border/50 rounded-xl text-base w-full focus-visible:ring-primary font-medium"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
-          <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="h-12 bg-background/60 border-border/50 rounded-xl w-full sm:w-[200px] font-bold text-foreground">
-                <div className="flex items-center"><Filter className="w-4 h-4 mr-2 text-primary" /><SelectValue placeholder="Estado" /></div>
-              </SelectTrigger>
-              <SelectContent className="rounded-xl border-border/50">
-                <SelectItem value="todos" className="font-medium h-10">Todos los Estados</SelectItem>
-                <SelectItem value="active" className="font-medium h-10">🟢 Activos</SelectItem>
-                <SelectItem value="pending" className="font-medium h-10">🟠 Pendientes</SelectItem>
-                <SelectItem value="resolved" className="font-medium h-10">⚪ Resueltos</SelectItem>
-              </SelectContent>
-            </Select>
+              <div className="relative flex-1">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar mercado por pregunta..."
+                  className="pl-12 h-12 bg-background/60 border-border/50 rounded-xl text-base w-full focus-visible:ring-primary font-medium"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
+              <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger className="h-12 bg-background/60 border-border/50 rounded-xl w-full sm:w-[200px] font-bold text-foreground">
+                    <div className="flex items-center"><Filter className="w-4 h-4 mr-2 text-primary" /><SelectValue placeholder="Estado" /></div>
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl border-border/50">
+                    <SelectItem value="todos" className="font-medium h-10">Todos los Estados</SelectItem>
+                    <SelectItem value="active" className="font-medium h-10">🟢 Activos</SelectItem>
+                    <SelectItem value="pending" className="font-medium h-10">🟠 Pendientes</SelectItem>
+                    <SelectItem value="resolved" className="font-medium h-10">⚪ Resueltos</SelectItem>
+                  </SelectContent>
+                </Select>
 
-            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-              <SelectTrigger className="h-12 bg-background/60 border-border/50 rounded-xl w-full sm:w-[200px] font-bold text-foreground">
-                <SelectValue placeholder="Categoría" />
-              </SelectTrigger>
-              <SelectContent className="rounded-xl border-border/50">
-                <SelectItem value="todas" className="font-medium h-10">Todas las Categorías</SelectItem>
-                <SelectItem value="política" className="font-medium h-10">Política</SelectItem>
-                <SelectItem value="deportes" className="font-medium h-10">Deportes</SelectItem>
-                <SelectItem value="finanzas" className="font-medium h-10">Finanzas</SelectItem>
-                <SelectItem value="cripto" className="font-medium h-10">Cripto</SelectItem>
-                <SelectItem value="entretenimiento" className="font-medium h-10">Entretenimiento</SelectItem>
-                <SelectItem value="música" className="font-medium h-10">Música</SelectItem>
-                <SelectItem value="tecnología" className="font-medium h-10">Tecnología</SelectItem>
-                <SelectItem value="ciencia" className="font-medium h-10">Ciencia</SelectItem>
-                <SelectItem value="clima" className="font-medium h-10">Clima</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
+                <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                  <SelectTrigger className="h-12 bg-background/60 border-border/50 rounded-xl w-full sm:w-[200px] font-bold text-foreground">
+                    <SelectValue placeholder="Categoría" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl border-border/50">
+                    <SelectItem value="todas" className="font-medium h-10">Todas las Categorías</SelectItem>
+                    <SelectItem value="política" className="font-medium h-10">Política</SelectItem>
+                    <SelectItem value="deportes" className="font-medium h-10">Deportes</SelectItem>
+                    <SelectItem value="finanzas" className="font-medium h-10">Finanzas</SelectItem>
+                    <SelectItem value="cripto" className="font-medium h-10">Cripto</SelectItem>
+                    <SelectItem value="entretenimiento" className="font-medium h-10">Entretenimiento</SelectItem>
+                    <SelectItem value="música" className="font-medium h-10">Música</SelectItem>
+                    <SelectItem value="tecnología" className="font-medium h-10">Tecnología</SelectItem>
+                    <SelectItem value="ciencia" className="font-medium h-10">Ciencia</SelectItem>
+                    <SelectItem value="clima" className="font-medium h-10">Clima</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
 
-        {isLoading ? (
-          <div className="flex justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
-        ) : (
-          <>
-            {/* VISTA DESKTOP: TABLA */}
-            <div className="hidden md:block rounded-xl border border-border/50 bg-card shadow-sm overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/20 border-b-border/50">
-                    <TableHead className="font-bold text-foreground">Pregunta</TableHead>
-                    <TableHead className="font-bold text-foreground">Categoría</TableHead>
-                    <TableHead className="font-bold text-foreground">Estado</TableHead>
-                    <TableHead className="font-bold text-foreground">Cierre</TableHead>
-                    <TableHead className="font-bold text-foreground">Volumen</TableHead>
-                    <TableHead className="text-right font-bold text-foreground">Acciones</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
+            {isLoading ? (
+              <div className="flex justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
+            ) : (
+              <>
+                {/* VISTA DESKTOP: TABLA */}
+                <div className="hidden md:block rounded-xl border border-border/50 bg-card shadow-sm overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/20 border-b-border/50">
+                        <TableHead className="font-bold text-foreground">Pregunta</TableHead>
+                        <TableHead className="font-bold text-foreground">Categoría</TableHead>
+                        <TableHead className="font-bold text-foreground">Estado</TableHead>
+                        <TableHead className="font-bold text-foreground">Cierre</TableHead>
+                        <TableHead className="font-bold text-foreground">Volumen</TableHead>
+                        <TableHead className="text-right font-bold text-foreground">Acciones</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {sortedMarkets.length === 0 ? (
+                        <TableRow><TableCell colSpan={6} className="text-center py-16 text-muted-foreground font-medium">No se encontraron mercados con esos filtros.</TableCell></TableRow>
+                      ) : (
+                        sortedMarkets.map((market) => {
+                          const overdue = isOverdue(market.end_date) && market.status === 'active';
+                          const isMultiChoice = market.market_options && market.market_options.length > 2;
+
+                          return (
+                            <TableRow key={String(market.id)} className={cn("transition-colors", market.status === 'resolved' ? 'opacity-60 bg-muted/10' : overdue ? 'bg-red-500/5' : '')}>
+                              <TableCell>
+                                <div className="flex items-center gap-3">
+                                  {market.image_url ? <img src={String(market.image_url)} alt="Miniatura" className="w-12 h-12 rounded-lg object-cover border border-border/50 shrink-0" /> : <div className="w-12 h-12 rounded-lg bg-muted/50 border border-border/50 flex items-center justify-center shrink-0"><ImageIcon className="w-5 h-5 text-muted-foreground/50" /></div>}
+                                  <p className={cn("font-semibold text-foreground line-clamp-2 max-w-[350px] leading-snug", overdue && "text-red-500 dark:text-red-400")}>{safeString(market.title)}</p>
+                                </div>
+                              </TableCell>
+                              <TableCell><Badge variant="secondary" className="font-bold capitalize bg-muted text-muted-foreground border-border/50">{safeString(market.category)}</Badge></TableCell>
+                              <TableCell>{getStatusBadge(market.status)}</TableCell>
+                              <TableCell>
+                                <span className={cn("font-medium flex items-center gap-1.5", overdue ? "text-red-500 font-bold" : "text-muted-foreground")}>
+                                  {overdue && <Clock className="w-3.5 h-3.5" />} {formatDate(market.end_date)}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-foreground font-black">{safeNumber(market.total_volume).toLocaleString()} pts</TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex items-center justify-end gap-2">
+
+                                  {/* BLOQUEO DE EDICIÓN PARA RESUELTOS */}
+                                  {market.status !== "resolved" && (
+                                    <Button size="icon" variant="outline" className="h-9 w-9 hover:text-primary transition-colors bg-background" onClick={() => setEditingMarket(market)}><Pencil className="w-4 h-4" /></Button>
+                                  )}
+
+                                  {market.status === "pending" && (
+                                    <>
+                                      <Button size="sm" onClick={() => handleApprove(market.id)} disabled={processingIds.has(market.id)} className="h-9 px-3 font-bold">{processingIds.has(market.id) ? <Loader2 className="w-4 h-4 animate-spin" /> : <><CheckCircle2 className="w-4 h-4 mr-1.5" /> Aprobar</>}</Button>
+                                      <Button size="icon" variant="destructive" onClick={() => handleReject(market.id)} disabled={processingIds.has(market.id)} className="h-9 w-9">{processingIds.has(market.id) ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}</Button>
+                                    </>
+                                  )}
+
+                                  {market.status === "active" && (
+                                    <>
+                                      {isMultiChoice && (
+                                        <Button
+                                          size="icon"
+                                          variant="outline"
+                                          className="h-9 w-9 hover:text-amber-500 transition-colors bg-background border-amber-500/20"
+                                          onClick={() => setManagingMarket(market)}
+                                          title="Gestionar Opciones Eliminadas"
+                                        >
+                                          <Settings2 className="w-4 h-4" />
+                                        </Button>
+                                      )}
+
+                                      <Button
+                                        size="sm"
+                                        variant={overdue ? "default" : "outline"}
+                                        className={cn("font-bold h-9 transition-all", overdue ? "bg-red-500 hover:bg-red-600 text-white shadow-md shadow-red-500/20 animate-pulse" : "border-primary text-primary hover:bg-primary hover:text-primary-foreground")}
+                                        onClick={() => { setResolvingMarket(market); setSelectedWinningOption(""); }}
+                                        disabled={processingIds.has(market.id)}
+                                      >
+                                        <Trophy className="w-4 h-4 mr-1.5" /> {overdue ? "Resolver YA" : "Resolver"}
+                                      </Button>
+                                    </>
+                                  )}
+
+                                  {/* BLOQUEO DE ELIMINACIÓN/REEMBOLSO PARA RESUELTOS */}
+                                  {market.status !== "pending" && market.status !== "resolved" && (
+                                    <Button size="icon" variant="destructive" className="h-9 w-9 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white border border-red-500/20" onClick={() => setDeletingMarket({ id: market.id, title: String(market.title) })} disabled={processingIds.has(market.id)}>
+                                      {processingIds.has(market.id) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                                    </Button>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {/* VISTA MOBILE: TARJETAS */}
+                <div className="grid grid-cols-1 gap-4 md:hidden">
                   {sortedMarkets.length === 0 ? (
-                    <TableRow><TableCell colSpan={6} className="text-center py-16 text-muted-foreground font-medium">No se encontraron mercados con esos filtros.</TableCell></TableRow>
+                    <div className="text-center py-16 text-muted-foreground bg-card rounded-xl border border-border/50 font-medium">No se encontraron mercados.</div>
                   ) : (
                     sortedMarkets.map((market) => {
                       const overdue = isOverdue(market.end_date) && market.status === 'active';
                       const isMultiChoice = market.market_options && market.market_options.length > 2;
 
                       return (
-                        <TableRow key={String(market.id)} className={cn("transition-colors", market.status === 'resolved' ? 'opacity-60 bg-muted/10' : overdue ? 'bg-red-500/5' : '')}>
-                          <TableCell>
-                            <div className="flex items-center gap-3">
-                              {market.image_url ? <img src={String(market.image_url)} alt="Miniatura" className="w-12 h-12 rounded-lg object-cover border border-border/50 shrink-0" /> : <div className="w-12 h-12 rounded-lg bg-muted/50 border border-border/50 flex items-center justify-center shrink-0"><ImageIcon className="w-5 h-5 text-muted-foreground/50" /></div>}
-                              <p className={cn("font-semibold text-foreground line-clamp-2 max-w-[350px] leading-snug", overdue && "text-red-500 dark:text-red-400")}>{safeString(market.title)}</p>
-                            </div>
-                          </TableCell>
-                          <TableCell><Badge variant="secondary" className="font-bold capitalize bg-muted text-muted-foreground border-border/50">{safeString(market.category)}</Badge></TableCell>
-                          <TableCell>{getStatusBadge(market.status)}</TableCell>
-                          <TableCell>
-                            <span className={cn("font-medium flex items-center gap-1.5", overdue ? "text-red-500 font-bold" : "text-muted-foreground")}>
-                              {overdue && <Clock className="w-3.5 h-3.5" />} {formatDate(market.end_date)}
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-foreground font-black">{safeNumber(market.total_volume).toLocaleString()} pts</TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-2">
+                        <div key={String(market.id)} className={cn("p-4 rounded-xl border bg-card flex flex-col gap-4 shadow-sm transition-colors", market.status === 'resolved' ? 'opacity-70 bg-muted/20 border-border/50' : overdue ? 'border-red-500/50 bg-red-500/5' : 'border-border/50')}>
 
-                              {/* BLOQUEO DE EDICIÓN PARA RESUELTOS */}
-                              {market.status !== "resolved" && (
-                                <Button size="icon" variant="outline" className="h-9 w-9 hover:text-primary transition-colors bg-background" onClick={() => setEditingMarket(market)}><Pencil className="w-4 h-4" /></Button>
-                              )}
-
-                              {market.status === "pending" && (
-                                <>
-                                  <Button size="sm" onClick={() => handleApprove(market.id)} disabled={processingIds.has(market.id)} className="h-9 px-3 font-bold">{processingIds.has(market.id) ? <Loader2 className="w-4 h-4 animate-spin" /> : <><CheckCircle2 className="w-4 h-4 mr-1.5" /> Aprobar</>}</Button>
-                                  <Button size="icon" variant="destructive" onClick={() => handleReject(market.id)} disabled={processingIds.has(market.id)} className="h-9 w-9">{processingIds.has(market.id) ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}</Button>
-                                </>
-                              )}
-
-                              {market.status === "active" && (
-                                <>
-                                  {/* BOTÓN NUEVO: GESTIONAR OPCIONES (solo para múltiples) */}
-                                  {isMultiChoice && (
-                                    <Button
-                                      size="icon"
-                                      variant="outline"
-                                      className="h-9 w-9 hover:text-amber-500 transition-colors bg-background border-amber-500/20"
-                                      onClick={() => setManagingMarket(market)}
-                                      title="Gestionar Opciones Eliminadas"
-                                    >
-                                      <Settings2 className="w-4 h-4" />
-                                    </Button>
-                                  )}
-
-                                  <Button
-                                    size="sm"
-                                    variant={overdue ? "default" : "outline"}
-                                    className={cn("font-bold h-9 transition-all", overdue ? "bg-red-500 hover:bg-red-600 text-white shadow-md shadow-red-500/20 animate-pulse" : "border-primary text-primary hover:bg-primary hover:text-primary-foreground")}
-                                    onClick={() => { setResolvingMarket(market); setSelectedWinningOption(""); }}
-                                    disabled={processingIds.has(market.id)}
-                                  >
-                                    <Trophy className="w-4 h-4 mr-1.5" /> {overdue ? "Resolver YA" : "Resolver"}
-                                  </Button>
-                                </>
-                              )}
-
-                              {/* BLOQUEO DE ELIMINACIÓN/REEMBOLSO PARA RESUELTOS */}
-                              {market.status !== "pending" && market.status !== "resolved" && (
-                                <Button size="icon" variant="destructive" className="h-9 w-9 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white border border-red-500/20" onClick={() => setDeletingMarket({ id: market.id, title: String(market.title) })} disabled={processingIds.has(market.id)}>
-                                  {processingIds.has(market.id) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                                </Button>
-                              )}
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-
-            {/* VISTA MOBILE: TARJETAS */}
-            <div className="grid grid-cols-1 gap-4 md:hidden">
-              {sortedMarkets.length === 0 ? (
-                <div className="text-center py-16 text-muted-foreground bg-card rounded-xl border border-border/50 font-medium">No se encontraron mercados.</div>
-              ) : (
-                sortedMarkets.map((market) => {
-                  const overdue = isOverdue(market.end_date) && market.status === 'active';
-                  const isMultiChoice = market.market_options && market.market_options.length > 2;
-
-                  return (
-                    <div key={String(market.id)} className={cn("p-4 rounded-xl border bg-card flex flex-col gap-4 shadow-sm transition-colors", market.status === 'resolved' ? 'opacity-70 bg-muted/20 border-border/50' : overdue ? 'border-red-500/50 bg-red-500/5' : 'border-border/50')}>
-
-                      <div className="flex items-start gap-3">
-                        {market.image_url ? (
-                          <img src={String(market.image_url)} alt="Miniatura" className="w-14 h-14 rounded-lg object-cover border border-border/50 shrink-0" />
-                        ) : (
-                          <div className="w-14 h-14 rounded-lg bg-muted border border-border/50 flex items-center justify-center shrink-0">
-                            <ImageIcon className="w-6 h-6 text-muted-foreground/50" />
+                          <div className="flex items-start gap-3">
+                            {market.image_url ? (
+                              <img src={String(market.image_url)} alt="Miniatura" className="w-14 h-14 rounded-lg object-cover border border-border/50 shrink-0" />
+                            ) : (
+                              <div className="w-14 h-14 rounded-lg bg-muted border border-border/50 flex items-center justify-center shrink-0">
+                                <ImageIcon className="w-6 h-6 text-muted-foreground/50" />
+                              </div>
+                            )}
+                            <h3 className={cn("font-bold text-foreground text-sm leading-snug line-clamp-3", overdue && "text-red-500 dark:text-red-400")}>{safeString(market.title)}</h3>
                           </div>
-                        )}
-                        <h3 className={cn("font-bold text-foreground text-sm leading-snug line-clamp-3", overdue && "text-red-500 dark:text-red-400")}>{safeString(market.title)}</h3>
-                      </div>
 
-                      <div className="grid grid-cols-2 gap-3 text-sm bg-background/50 p-3 rounded-lg border border-border/50">
-                        <div className="flex flex-col gap-1">
-                          <span className="text-muted-foreground text-[10px] uppercase font-bold tracking-wider">Categoría</span>
-                          <Badge variant="secondary" className="w-fit font-bold capitalize text-xs bg-muted text-muted-foreground">{safeString(market.category)}</Badge>
-                        </div>
-                        <div className="flex flex-col gap-1">
-                          <span className="text-muted-foreground text-[10px] uppercase font-bold tracking-wider">Estado</span>
-                          <div>{getStatusBadge(market.status)}</div>
-                        </div>
-                        <div className="flex flex-col gap-1">
-                          <span className="text-muted-foreground text-[10px] uppercase font-bold tracking-wider">Cierre</span>
-                          <span className={cn("font-semibold flex items-center gap-1.5", overdue ? "text-red-500 font-bold" : "text-foreground")}>
-                            {overdue && <Clock className="w-3 h-3" />} {formatDate(market.end_date)}
-                          </span>
-                        </div>
-                        <div className="flex flex-col gap-1">
-                          <span className="text-muted-foreground text-[10px] uppercase font-bold tracking-wider">Volumen</span>
-                          <span className="font-black text-foreground">{safeNumber(market.total_volume).toLocaleString()} pts</span>
-                        </div>
-                      </div>
+                          <div className="grid grid-cols-2 gap-3 text-sm bg-background/50 p-3 rounded-lg border border-border/50">
+                            <div className="flex flex-col gap-1">
+                              <span className="text-muted-foreground text-[10px] uppercase font-bold tracking-wider">Categoría</span>
+                              <Badge variant="secondary" className="w-fit font-bold capitalize text-xs bg-muted text-muted-foreground">{safeString(market.category)}</Badge>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <span className="text-muted-foreground text-[10px] uppercase font-bold tracking-wider">Estado</span>
+                              <div>{getStatusBadge(market.status)}</div>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <span className="text-muted-foreground text-[10px] uppercase font-bold tracking-wider">Cierre</span>
+                              <span className={cn("font-semibold flex items-center gap-1.5", overdue ? "text-red-500 font-bold" : "text-foreground")}>
+                                {overdue && <Clock className="w-3 h-3" />} {formatDate(market.end_date)}
+                              </span>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <span className="text-muted-foreground text-[10px] uppercase font-bold tracking-wider">Volumen</span>
+                              <span className="font-black text-foreground">{safeNumber(market.total_volume).toLocaleString()} pts</span>
+                            </div>
+                          </div>
 
-                      <div className="pt-2 flex items-center gap-2">
-                        {/* BLOQUEO DE EDICIÓN MOBILE PARA RESUELTOS */}
-                        {market.status !== "resolved" && (
-                          <Button size="icon" variant="outline" className="h-11 w-11 shrink-0 hover:text-primary bg-background" onClick={() => setEditingMarket(market)}>
-                            <Pencil className="w-5 h-5" />
-                          </Button>
-                        )}
-
-                        {market.status === "pending" && (
-                          <>
-                            <Button size="sm" onClick={() => handleApprove(market.id)} disabled={processingIds.has(market.id)} className="flex-1 h-11 font-bold text-base">
-                              {processingIds.has(market.id) ? <Loader2 className="w-5 h-5 animate-spin" /> : <><CheckCircle2 className="w-5 h-5 mr-1.5" /> Aprobar</>}
-                            </Button>
-                            <Button size="icon" variant="destructive" onClick={() => handleReject(market.id)} disabled={processingIds.has(market.id)} className="h-11 w-11 shrink-0">
-                              {processingIds.has(market.id) ? <Loader2 className="w-5 h-5 animate-spin" /> : <XCircle className="w-5 h-5" />}
-                            </Button>
-                          </>
-                        )}
-
-                        {market.status === "active" && (
-                          <>
-                            {isMultiChoice && (
-                              <Button
-                                size="icon"
-                                variant="outline"
-                                className="h-11 w-11 shrink-0 hover:text-amber-500 transition-colors bg-background border-amber-500/20"
-                                onClick={() => setManagingMarket(market)}
-                              >
-                                <Settings2 className="w-5 h-5" />
+                          <div className="pt-2 flex items-center gap-2">
+                            {/* BLOQUEO DE EDICIÓN MOBILE PARA RESUELTOS */}
+                            {market.status !== "resolved" && (
+                              <Button size="icon" variant="outline" className="h-11 w-11 shrink-0 hover:text-primary bg-background" onClick={() => setEditingMarket(market)}>
+                                <Pencil className="w-5 h-5" />
                               </Button>
                             )}
 
-                            <Button
-                              size="sm"
-                              variant={overdue ? "default" : "outline"}
-                              className={cn("flex-1 h-11 font-bold text-base transition-all", overdue ? "bg-red-500 hover:bg-red-600 text-white shadow-md shadow-red-500/20 animate-pulse" : "border-primary text-primary hover:bg-primary hover:text-primary-foreground")}
-                              onClick={() => { setResolvingMarket(market); setSelectedWinningOption(""); }}
-                              disabled={processingIds.has(market.id)}
-                            >
-                              <Trophy className="w-5 h-5 mr-1.5" /> {overdue ? "Resolver YA" : "Resolver"}
-                            </Button>
-                          </>
-                        )}
+                            {market.status === "pending" && (
+                              <>
+                                <Button size="sm" onClick={() => handleApprove(market.id)} disabled={processingIds.has(market.id)} className="flex-1 h-11 font-bold text-base">
+                                  {processingIds.has(market.id) ? <Loader2 className="w-5 h-5 animate-spin" /> : <><CheckCircle2 className="w-5 h-5 mr-1.5" /> Aprobar</>}
+                                </Button>
+                                <Button size="icon" variant="destructive" onClick={() => handleReject(market.id)} disabled={processingIds.has(market.id)} className="h-11 w-11 shrink-0">
+                                  {processingIds.has(market.id) ? <Loader2 className="w-5 h-5 animate-spin" /> : <XCircle className="w-5 h-5" />}
+                                </Button>
+                              </>
+                            )}
 
-                        {/* BLOQUEO DE ELIMINACIÓN/REEMBOLSO MOBILE PARA RESUELTOS */}
-                        {market.status !== "pending" && market.status !== "resolved" && (
-                          <Button size="icon" variant="destructive" className="h-11 w-11 shrink-0 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white border border-red-500/20" onClick={() => setDeletingMarket({ id: market.id, title: String(market.title) })} disabled={processingIds.has(market.id)}>
-                            {processingIds.has(market.id) ? <Loader2 className="w-5 h-5 animate-spin" /> : <Trash2 className="w-5 h-5" />}
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </>
-        )}
+                            {market.status === "active" && (
+                              <>
+                                {isMultiChoice && (
+                                  <Button
+                                    size="icon"
+                                    variant="outline"
+                                    className="h-11 w-11 shrink-0 hover:text-amber-500 transition-colors bg-background border-amber-500/20"
+                                    onClick={() => setManagingMarket(market)}
+                                  >
+                                    <Settings2 className="w-5 h-5" />
+                                  </Button>
+                                )}
+
+                                <Button
+                                  size="sm"
+                                  variant={overdue ? "default" : "outline"}
+                                  className={cn("flex-1 h-11 font-bold text-base transition-all", overdue ? "bg-red-500 hover:bg-red-600 text-white shadow-md shadow-red-500/20 animate-pulse" : "border-primary text-primary hover:bg-primary hover:text-primary-foreground")}
+                                  onClick={() => { setResolvingMarket(market); setSelectedWinningOption(""); }}
+                                  disabled={processingIds.has(market.id)}
+                                >
+                                  <Trophy className="w-5 h-5 mr-1.5" /> {overdue ? "Resolver YA" : "Resolver"}
+                                </Button>
+                              </>
+                            )}
+
+                            {/* BLOQUEO DE ELIMINACIÓN/REEMBOLSO MOBILE PARA RESUELTOS */}
+                            {market.status !== "pending" && market.status !== "resolved" && (
+                              <Button size="icon" variant="destructive" className="h-11 w-11 shrink-0 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white border border-red-500/20" onClick={() => setDeletingMarket({ id: market.id, title: String(market.title) })} disabled={processingIds.has(market.id)}>
+                                {processingIds.has(market.id) ? <Loader2 className="w-5 h-5 animate-spin" /> : <Trash2 className="w-5 h-5" />}
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </>
+            )}
           </TabsContent>
 
           <TabsContent value="prode" className="mt-0">
@@ -779,8 +817,8 @@ export default function AdminDashboardClient() {
                   <p className="text-xs text-muted-foreground">Marcar si este mercado pertenece al Mundial.</p>
                 </div>
                 <div className="flex bg-muted p-1 rounded-lg border border-border shrink-0">
-                  <Button 
-                    type="button" 
+                  <Button
+                    type="button"
                     variant={createForm.is_world_cup ? "default" : "ghost"}
                     size="sm"
                     onClick={() => setCreateForm(f => ({ ...f, is_world_cup: true }))}
@@ -788,8 +826,8 @@ export default function AdminDashboardClient() {
                   >
                     Sí
                   </Button>
-                  <Button 
-                    type="button" 
+                  <Button
+                    type="button"
                     variant={!createForm.is_world_cup ? "default" : "ghost"}
                     size="sm"
                     onClick={() => setCreateForm(f => ({ ...f, is_world_cup: false }))}
@@ -842,7 +880,7 @@ export default function AdminDashboardClient() {
                 <Label className="font-bold">Pregunta</Label>
                 <Input value={editForm.title} onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))} required className="h-12 text-base font-medium bg-muted/50" />
               </div>
-              
+
               <div className="space-y-2">
                 <Label className="font-bold">Descripción (Opcional)</Label>
                 <Textarea value={editForm.description} onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))} className="resize-none h-24 text-base bg-muted/50" />
@@ -878,8 +916,8 @@ export default function AdminDashboardClient() {
                   <p className="text-xs text-muted-foreground">Marcar si este mercado pertenece al Mundial.</p>
                 </div>
                 <div className="flex bg-muted p-1 rounded-lg border border-border shrink-0">
-                  <Button 
-                    type="button" 
+                  <Button
+                    type="button"
                     variant={editForm.is_world_cup ? "default" : "ghost"}
                     size="sm"
                     onClick={() => setEditForm(f => ({ ...f, is_world_cup: true }))}
@@ -887,8 +925,8 @@ export default function AdminDashboardClient() {
                   >
                     Sí
                   </Button>
-                  <Button 
-                    type="button" 
+                  <Button
+                    type="button"
                     variant={!editForm.is_world_cup ? "default" : "ghost"}
                     size="sm"
                     onClick={() => setEditForm(f => ({ ...f, is_world_cup: false }))}

@@ -132,12 +132,12 @@ export async function rejectMarket(marketId: string) {
 
 async function cleanupGhostData(marketId: string) {
   const supabase = await createClient();
-  
+
   // Obtener usuarios involucrados en apuestas para este mercado
   const { data: bets } = await supabase.from('bets').select('id, user_id').eq('market_id', marketId);
   // También podríamos buscar transacciones si market_id existe en ellas
   const { data: txs } = await supabase.from('transactions').select('id, user_id').eq('market_id', marketId);
-  
+
   const userIds = new Set<string>();
   bets?.forEach((b: any) => userIds.add(b.user_id));
   txs?.forEach((t: any) => userIds.add(t.user_id));
@@ -170,7 +170,7 @@ export async function deleteMarket(marketId: string) {
   // Intentamos desvincular las transacciones y notificaciones para evitar el error de Foreign Key
   await supabase.from("transactions").delete().eq("market_id", marketId);
   await supabase.from("notifications").delete().eq("market_id", marketId);
-  
+
   // SOLUCIÓN EXTREMA: Borramos todas las apuestas del mercado. 
   // Esto evita que el RPC intente hacer reembolsos (lo cual está causando el crash de FK).
   // Los usuarios no recuperarán sus puntos, pero el mercado se podrá eliminar.
@@ -183,7 +183,7 @@ export async function deleteMarket(marketId: string) {
 
 export async function resolveMarket(marketId: string, outcome: string) {
   const supabase = await createClient();
-  
+
   // Limpiar usuarios eliminados antes de ejecutar el RPC
   await cleanupGhostData(marketId);
 
@@ -198,7 +198,7 @@ export async function resolveMarket(marketId: string, outcome: string) {
   const { data: bets } = await supabase.from('bets').select('user_id').eq('market_id', marketId);
   if (bets && bets.length > 0) {
     const uniqueUsers = [...new Set(bets.map(b => b.user_id))];
-    
+
     // Filtrar usuarios que aún existen en la tabla profiles para evitar error de Foreign Key
     const { data: validProfiles } = await supabase.from('profiles').select('id').in('id', uniqueUsers);
     const validUserIds = validProfiles?.map(p => p.id) || [];
@@ -210,7 +210,7 @@ export async function resolveMarket(marketId: string, outcome: string) {
       type: "market_resolved",
       market_id: marketId
     }));
-    
+
     if (notifs.length > 0) {
       await supabase.from('notifications').insert(notifs);
     }
@@ -281,6 +281,7 @@ export async function createAdminMarket(params: { title: string; description: st
 
   const categoryNormalized = params.category.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
+  // 1. Crear el mercado
   const { data: marketData, error: marketError } = await supabase.from("markets").insert({
     title: params.title,
     description: params.description || null,
@@ -298,12 +299,46 @@ export async function createAdminMarket(params: { title: string; description: st
 
   if (marketError) return { ok: false, error: marketError.message };
 
+  // 2. Crear las opciones y obtener sus IDs
+  let insertedOptions = [];
   if (params.options && params.options.length > 0) {
     const colors = ['#0ea5e9', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
     const optionsToInsert = params.options.map((opt, index) => ({ market_id: marketData.id, option_name: opt, color: colors[index % colors.length], total_votes: 0 }));
-    await supabase.from("market_options").insert(optionsToInsert);
+
+    const { data } = await supabase.from("market_options").insert(optionsToInsert).select("*");
+    if (data) insertedOptions = data;
   } else {
-    await supabase.from("market_options").insert([{ market_id: marketData.id, option_name: 'Sí', color: '#0ea5e9', total_votes: 0 }, { market_id: marketData.id, option_name: 'No', color: '#ef4444', total_votes: 0 }]);
+    const { data } = await supabase.from("market_options").insert([
+      { market_id: marketData.id, option_name: 'Sí', color: '#0ea5e9', total_votes: 0 },
+      { market_id: marketData.id, option_name: 'No', color: '#ef4444', total_votes: 0 }
+    ]).select("*");
+    if (data) insertedOptions = data;
+  }
+
+  // 3. Fondeo Automático de Morfeo (Lado Servidor)
+  if (insertedOptions.length > 0) {
+    const initialProb = Number((1 / insertedOptions.length).toFixed(4));
+    let totalInjected = 0;
+
+    for (const opt of insertedOptions) {
+      const { error: rpcError } = await supabase.rpc("initialize_amm_market", {
+        p_market_option_id: opt.id,
+        p_treasury_user_id: "2baab0f5-2082-4044-bea2-b3c270d55ee2", // ID de Morfeo
+        p_liquidity_points: 5000,
+        p_initial_prob: initialProb
+      });
+
+      if (!rpcError) {
+        totalInjected += 5000;
+      } else {
+        console.error(`Error fondeando opción ${opt.id}:`, rpcError);
+      }
+    }
+
+    // 4. Actualizar el volumen total del mercado para que impacte visualmente
+    if (totalInjected > 0) {
+      await supabase.from("markets").update({ total_volume: totalInjected }).eq("id", marketData.id);
+    }
   }
 
   return { ok: true, error: null };
@@ -357,7 +392,7 @@ export async function updateProfileName(username: string) {
   return { ok: true };
 }
 
-export type Transaction = { id: string; amount: number; type: string; description: string; created_at: string; markets?: { title: string } | null; market?: { title: string } | null; [key: string]: any; };
+export type Transaction = { id: string; amount: number; type: string; description: string; created_at: string; markets?: { title: string } | null; market?: { title: string } | null;[key: string]: any; };
 
 export async function getMyTransactions(): Promise<{ data: Transaction[] | null; error: string | null }> {
   const supabase = await createClient();
@@ -514,7 +549,7 @@ export async function eliminateMarketOption(optionId: string) {
     // 4. Insertar la foto histórica EXACTA
     await supabase.from("market_option_history").insert(historyInserts);
   }
-  
+
   return { success: true };
 }
 
@@ -530,10 +565,10 @@ export async function resolveProdeMatch(matchId: string, homeScore: number, away
   // 1. Marcar partido como finalizado
   const { error: matchError } = await supabase
     .from("prode_matches")
-    .update({ 
-      actual_score_home: homeScore, 
-      actual_score_away: awayScore, 
-      status: 'finished' 
+    .update({
+      actual_score_home: homeScore,
+      actual_score_away: awayScore,
+      status: 'finished'
     })
     .eq("id", matchId);
 
@@ -603,14 +638,14 @@ export async function resolveProdeMatch(matchId: string, homeScore: number, away
       .from('prode_league_members')
       .select('*')
       .eq('user_id', userId);
-      
+
     if (memberships && memberships.length > 0) {
       memberships.forEach(m => {
         promises.push(
           supabase.from('prode_league_members')
-            .update({ 
+            .update({
               league_points: totalPoints,
-              league_exact_hits: totalExacts 
+              league_exact_hits: totalExacts
             })
             .eq('league_id', m.league_id)
             .eq('user_id', userId)
