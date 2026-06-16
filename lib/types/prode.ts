@@ -4,7 +4,7 @@ export interface Match {
   team_home: string;
   team_away: string;
   kickoff_at: string;
-  status: "not_started" | "in_progress" | "finished";
+  status: "not_started" | "in_progress" | "finished" | "scheduled";
 }
 
 export interface Prediction {

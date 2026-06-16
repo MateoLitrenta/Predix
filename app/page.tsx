@@ -24,6 +24,8 @@ interface MarketOption {
   color: string;
   total_votes: number;
   is_eliminated?: boolean;
+  pool_yes?: number;
+  pool_no?: number;
 }
 
 interface Market {
@@ -116,7 +118,6 @@ export default function PredictionMarketDashboard() {
   }, [supabase.auth, fetchUserProfile]);
 
   const fetchMarkets = useCallback(async () => {
-    // Si ya hay mercados cargados, no ponemos isLoading = true para evitar el parpadeo en las actualizaciones en tiempo real
     if (markets.length === 0) {
       setIsLoadingMarkets(true);
     }
@@ -134,7 +135,7 @@ export default function PredictionMarketDashboard() {
         created_at,
         updated_at,
         image_url,
-        market_options (id, option_name, color, total_votes, is_eliminated)
+        market_options (id, option_name, color, total_votes, is_eliminated, pool_yes, pool_no)
       `)
       .in("status", ["active", "resolved"]);
 
@@ -156,15 +157,12 @@ export default function PredictionMarketDashboard() {
     fetchMarkets();
   }, [fetchMarkets]);
 
-  // ACÁ ESTÁ EL NUEVO HOOK DE REALTIME
   useEffect(() => {
     const channel = supabase.channel('realtime-markets-dashboard')
       .on("postgres_changes", { event: "*", schema: "public", table: "markets" }, () => {
-        // Si cambian los datos generales del mercado (ej: volumen total o estado)
         fetchMarkets();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "market_options" }, () => {
-        // Si alguien vota y cambian las opciones
         fetchMarkets();
       })
       .subscribe();

@@ -21,6 +21,8 @@ interface MarketOption {
   color: string;
   total_votes: number;
   is_eliminated?: boolean; // Aseguramos que la interfaz conozca esta propiedad
+  pool_yes?: number;
+  pool_no?: number;
 }
 
 interface MarketCardProps {
@@ -77,19 +79,30 @@ export function MarketCard({
   // 1. Filtramos a los eliminados para que no aparezcan en la UI
   const activeOptions = options.filter(opt => !opt.is_eliminated);
 
-  // 2. Calculamos el volumen SOLO de los vivos para que sumen 100%
-  const activeTotalVotes = activeOptions.reduce((acc, opt) => acc + Number(opt.total_votes || 0), 0);
-  const totalActiveOptsCount = activeOptions.length || 2;
+  // 3. Función matemática pura para el AMM con normalización
+  const rawProbabilities = activeOptions.reduce((acc, opt) => {
+    const poolYes = Number(opt.pool_yes || 0);
+    const poolNo = Number(opt.pool_no || 0);
+    const totalPool = poolYes + poolNo;
+    if (totalPool === 0) {
+      acc[opt.id] = 1 / (activeOptions.length || 1);
+    } else {
+      let ammPrice = poolNo / totalPool;
+      acc[opt.id] = Math.max(0.01, Math.min(0.99, ammPrice));
+    }
+    return acc;
+  }, {} as Record<string, number>);
 
-  // 3. Función matemática pura
-  const getProbability = (votes: number) => {
-    let ammPrice = (Number(votes) + 100.0) / (activeTotalVotes + (totalActiveOptsCount * 100.0));
-    ammPrice = Math.max(0.01, Math.min(0.99, ammPrice));
-    return ammPrice * 100;
+  const totalImpliedProb = Object.values(rawProbabilities).reduce((sum, prob) => sum + prob, 0);
+
+  const getProbability = (opt: MarketOption) => {
+    if (totalImpliedProb === 0) return (1 / (activeOptions.length || 1)) * 100;
+    const rawProb = rawProbabilities[opt.id] || (1 / (activeOptions.length || 1));
+    return (rawProb / totalImpliedProb) * 100;
   };
 
   // 4. Ordenamos las opciones activas de mayor a menor probabilidad
-  const sortedActiveOptions = [...activeOptions].sort((a, b) => Number(b.total_votes) - Number(a.total_votes));
+  const sortedActiveOptions = [...activeOptions].sort((a, b) => getProbability(b) - getProbability(a));
 
   const isBinaryYesNo = activeOptions.length === 2 &&
     activeOptions.some(o => ['sí', 'si', 'yes'].includes(o.option_name.toLowerCase())) &&
@@ -144,7 +157,7 @@ export function MarketCard({
           {/* OPCIONES TIPO PÍLDORA (Solo muestra los 2 mejores activos) */}
           <div className="flex flex-col gap-2 flex-1 mt-3">
             {sortedActiveOptions.slice(0, 2).map((opt) => {
-              const pct = Math.round(getProbability(opt.total_votes));
+              const pct = Math.round(getProbability(opt));
               const isWinner = winningOutcome === opt.id;
 
               const optNameLower = opt.option_name.toLowerCase();
@@ -237,7 +250,7 @@ export function MarketCard({
 
             <div className="space-y-3">
               {sortedActiveOptions.map((opt) => {
-                const yesPrice = Math.round(getProbability(opt.total_votes));
+                const yesPrice = Math.round(getProbability(opt));
                 const noPrice = 100 - yesPrice;
                 const isYesSelected = selectedAction?.optionId === opt.id && selectedAction?.type === 'yes';
                 const isNoSelected = selectedAction?.optionId === opt.id && selectedAction?.type === 'no';

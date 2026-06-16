@@ -59,7 +59,11 @@ export type BetWithMarket = {
   market_id: string;
   amount: number;
   outcome: string;
+  shares?: number;
+  direction?: string;
+  status?: string;
   created_at?: string;
+  updated_at?: string;
   markets?: {
     id: string;
     title: string;
@@ -587,7 +591,7 @@ export async function resolveProdeMatch(matchId: string, homeScore: number, away
   // 3. Traer totales actuales de profiles para calcular incrementos
   const userIds = [...new Set(predictions.map(p => p.user_id))];
 
-  const promises: Promise<any>[] = [];
+  const promises: any[] = [];
 
   // Paso 3.1: Actualizar los puntos ganados en cada predicción para este partido
   for (const pred of predictions) {

@@ -216,17 +216,34 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
   const activeOptions = options.filter(o => !o.is_eliminated);
   const totalMarketCollateral = options.reduce((acc, opt) => acc + Number(opt.total_collateral || 0), 0);
 
-  // NUEVO: Cálculo de Precio AMM
+  // NUEVO: Cálculo de Precio AMM Normalizado
+  const rawProbabilities = useMemo(() => {
+    return activeOptions.reduce((acc, opt) => {
+      const py = Number(opt.pool_yes || 0);
+      const pn = Number(opt.pool_no || 0);
+      const totalPool = py + pn;
+      if (totalPool === 0) {
+        acc[opt.id] = 1 / (activeOptions.length || 1);
+      } else {
+        acc[opt.id] = pn / totalPool;
+      }
+      return acc;
+    }, {} as Record<string, number>);
+  }, [activeOptions]);
+
+  const totalImpliedProb = useMemo(() => {
+    return Object.values(rawProbabilities).reduce((sum, prob) => sum + prob, 0);
+  }, [rawProbabilities]);
+
   const getOptionPrice = useCallback((opt: any) => {
     if (!opt) return 0.5;
     if (opt.is_eliminated) return 0;
 
-    const py = Number(opt.pool_yes || 0);
-    const pn = Number(opt.pool_no || 0);
-
-    if (py + pn === 0) return 0.5; // Fallback si no hay liquidez
-    return pn / (py + pn); // Precio de la acción "SÍ"
-  }, []);
+    const rawProb = rawProbabilities[opt.id] || 0;
+    if (totalImpliedProb === 0) return 1 / (activeOptions.length || 1);
+    
+    return rawProb / totalImpliedProb;
+  }, [rawProbabilities, totalImpliedProb, activeOptions.length]);
 
   // NUEVO: Cálculo de Retorno Cuadrático (AMM)
   const calculatePartialCashout = useCallback((optId: string, direction: string, sharesToSell: number) => {
@@ -284,24 +301,26 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       const optionName = options.find(o => o.id === selectedOptionId)?.option_name || "la opción";
       const directionText = selectedDirection === 'yes' ? 'a favor de' : 'en contra de';
 
-      // 1. Guardar el recibo visual en la Actividad
-      await supabase.from("transactions").insert({
-        user_id: user.id,
-        market_id: marketId,
-        type: 'buy',
-        amount: numericAmount, // Guardamos en positivo para el Top Inversores
-        description: `Compró ${directionText} ${optionName}`
-      });
+      // La creación de la transacción ahora se delega completamente al RPC backend
 
       // 2. Tomar la foto del nuevo precio para el Gráfico
       const { data: updatedOptions } = await supabase.from("market_options").select("*").eq("market_id", marketId);
       if (updatedOptions && updatedOptions.length > 0) {
+        const activeOpts = updatedOptions.filter((o: any) => !o.is_eliminated);
+        const rawProbs = activeOpts.reduce((acc: Record<string, number>, opt: any) => {
+          const py = Number(opt.pool_yes || 0);
+          const pn = Number(opt.pool_no || 0);
+          const totalPool = py + pn;
+          acc[opt.id] = totalPool > 0 ? (pn / totalPool) : (1 / (activeOpts.length || 1));
+          return acc;
+        }, {});
+        const totalProb = Object.values(rawProbs).reduce((sum, p) => sum + p, 0);
+
         const historyInserts = updatedOptions.map(opt => {
           let percentage = 0;
           if (!opt.is_eliminated) {
-            const py = Number(opt.pool_yes || 0);
-            const pn = Number(opt.pool_no || 0);
-            percentage = (py + pn > 0) ? (pn / (py + pn)) * 100 : 50;
+            const rawProb = rawProbs[opt.id] || 0;
+            percentage = totalProb > 0 ? (rawProb / totalProb) * 100 : (1 / (activeOpts.length || 1)) * 100;
           }
           return { market_id: marketId, option_id: opt.id, percentage };
         });
@@ -354,24 +373,26 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     } else {
       const payout = calculatePartialCashout(optId, dir, sharesToSell);
 
-      // 1. Guardar el recibo visual en la Actividad
-      await supabase.from("transactions").insert({
-        user_id: user.id,
-        market_id: marketId,
-        type: 'sell',
-        amount: payout,
-        description: `Vendió ${Math.round(sharesToSell)} acciones`
-      });
+      // La creación de la transacción ahora se delega completamente al RPC backend
 
       // 2. Tomar la foto del precio tras la venta para el Gráfico
       const { data: updatedOptions } = await supabase.from("market_options").select("*").eq("market_id", marketId);
       if (updatedOptions && updatedOptions.length > 0) {
+        const activeOpts = updatedOptions.filter((o: any) => !o.is_eliminated);
+        const rawProbs = activeOpts.reduce((acc: Record<string, number>, opt: any) => {
+          const py = Number(opt.pool_yes || 0);
+          const pn = Number(opt.pool_no || 0);
+          const totalPool = py + pn;
+          acc[opt.id] = totalPool > 0 ? (pn / totalPool) : (1 / (activeOpts.length || 1));
+          return acc;
+        }, {});
+        const totalProb = Object.values(rawProbs).reduce((sum, p) => sum + p, 0);
+
         const historyInserts = updatedOptions.map(opt => {
           let percentage = 0;
           if (!opt.is_eliminated) {
-            const py = Number(opt.pool_yes || 0);
-            const pn = Number(opt.pool_no || 0);
-            percentage = (py + pn > 0) ? (pn / (py + pn)) * 100 : 50;
+            const rawProb = rawProbs[opt.id] || 0;
+            percentage = totalProb > 0 ? (rawProb / totalProb) * 100 : (1 / (activeOpts.length || 1)) * 100;
           }
           return { market_id: marketId, option_id: opt.id, percentage };
         });
@@ -459,10 +480,23 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
 
     // 1. PUNTO GÉNESIS (Basado en el precio actual si no hay historia)
     const genesisPoint: any = { timestamp: marketCreatedAt };
-    options.forEach(opt => {
+    const genesisActiveOpts = options.filter(o => !o.is_eliminated);
+    const genesisRawProbs = genesisActiveOpts.reduce((acc, opt) => {
       const py = Number(opt.pool_yes || 0);
       const pn = Number(opt.pool_no || 0);
-      genesisPoint[opt.id] = (py + pn > 0) ? (pn / (py + pn)) * 100 : (1 / options.length) * 100;
+      const totalPool = py + pn;
+      acc[opt.id] = totalPool > 0 ? (pn / totalPool) : (1 / (genesisActiveOpts.length || 1));
+      return acc;
+    }, {} as Record<string, number>);
+    const genesisTotalProb = Object.values(genesisRawProbs).reduce((sum, p) => sum + p, 0);
+
+    options.forEach(opt => {
+      if (opt.is_eliminated) {
+        genesisPoint[opt.id] = 0;
+      } else {
+        const rawProb = genesisRawProbs[opt.id] || 0;
+        genesisPoint[opt.id] = genesisTotalProb > 0 ? (rawProb / genesisTotalProb) * 100 : (1 / (genesisActiveOpts.length || 1)) * 100;
+      }
     });
 
     // 2. FORWARD FILL
@@ -488,30 +522,50 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
 
     timeline.push({ ...lastKnownState, timestamp: now });
 
+    // NORMALIZAR TODO EL TIMELINE ANTES DE RETORNAR O DENSIFICAR
+    const normalizedTimeline = timeline.map(point => {
+      let totalVal = 0;
+      options.forEach(opt => {
+        if (!opt.is_eliminated && point[opt.id] !== undefined) {
+          totalVal += point[opt.id];
+        }
+      });
+      
+      const newPoint = { ...point };
+      options.forEach(opt => {
+        if (!opt.is_eliminated && point[opt.id] !== undefined) {
+          newPoint[opt.id] = totalVal > 0 ? (point[opt.id] / totalVal) * 100 : (1 / (options.filter(o => !o.is_eliminated).length || 1)) * 100;
+        } else if (opt.is_eliminated) {
+          newPoint[opt.id] = 0;
+        }
+      });
+      return newPoint;
+    });
+
     // 3. DENSIFY TIMELINE (Evita que el gráfico quede en blanco)
     const denseResult = [];
-    if (timeline.length > 0) {
-      const minT = timeline[0].timestamp;
-      const maxT = timeline[timeline.length - 1].timestamp;
+    if (normalizedTimeline.length > 0) {
+      const minT = normalizedTimeline[0].timestamp;
+      const maxT = normalizedTimeline[normalizedTimeline.length - 1].timestamp;
       const step = Math.max(1000, (maxT - minT) / 150);
 
       let currentIndex = 0;
       for (let t = minT; t <= maxT; t += step) {
-        while (currentIndex < timeline.length - 1 && timeline[currentIndex + 1].timestamp <= t) {
-          denseResult.push(timeline[currentIndex]);
+        while (currentIndex < normalizedTimeline.length - 1 && normalizedTimeline[currentIndex + 1].timestamp <= t) {
+          denseResult.push(normalizedTimeline[currentIndex]);
           currentIndex++;
         }
         if (denseResult.length === 0 || denseResult[denseResult.length - 1].timestamp !== t) {
-          denseResult.push({ ...timeline[currentIndex], timestamp: t });
+          denseResult.push({ ...normalizedTimeline[currentIndex], timestamp: t });
         }
       }
       if (denseResult[denseResult.length - 1].timestamp !== maxT) {
-        denseResult.push(timeline[timeline.length - 1]);
+        denseResult.push(normalizedTimeline[normalizedTimeline.length - 1]);
       }
       return denseResult.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     }
 
-    return timeline;
+    return normalizedTimeline;
   }, [market, options, history]);
 
   const marketPositionSummary = useMemo(() => {

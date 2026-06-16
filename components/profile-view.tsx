@@ -49,7 +49,7 @@ function getMarket(bet: BetWithMarket) {
 export type PortfolioPosition = {
   market_id: string;
   outcome: string;
-  status: 'active' | 'closed';
+  status: 'active' | 'closed' | 'sold';
   shares: number;
   avg_price: number;
   realized_pnl: number;
@@ -90,116 +90,206 @@ export function ProfileView({ userId }: { userId?: string }) {
   const [transactions, setTransactions] = useState<any[]>([]);
   const [marketOptions, setMarketOptions] = useState<any[]>([]);
   const [portfolioPositions, setPortfolioPositions] = useState<PortfolioPosition[]>([]);
+  const [userShares, setUserShares] = useState<any[]>([]);
 
   const [activeTab, setActiveTab] = useState("active");
   const [searchTerm, setSearchTerm] = useState("");
   const [sortBy, setSortBy] = useState<"recent" | "oldest" | "highest_value" | "lowest_value">("recent");
 
-  // NUEVO: Matemática Cuadrática (Cashout Real)
-  const calculateRealCashout = useCallback((opt: any, direction: string, sharesToSell: number) => {
-    if (!opt || sharesToSell <= 0 || !opt.pool_yes || !opt.pool_no) return 0;
-    const py = Number(opt.pool_yes);
-    const pn = Number(opt.pool_no);
-    let payout = 0;
-
-    if (direction === 'yes') {
-      const b = py + pn + sharesToSell;
-      const c = sharesToSell * pn;
-      payout = (b - Math.sqrt(b * b - 4 * c)) / 2;
+  // NUEVO: Precio Normalizado
+  const getNormalizedPrice = useCallback((optId: string, direction: string) => {
+    const opt = marketOptions.find(o => o.id === optId);
+    if (!opt || opt.is_eliminated) return 0;
+    
+    const mOptions = marketOptions.filter(o => o.market_id === opt.market_id && !o.is_eliminated);
+    
+    const rawProbs = mOptions.reduce((acc, o) => {
+      const py = Number(o.pool_yes || 0);
+      const pn = Number(o.pool_no || 0);
+      const totalPool = py + pn;
+      acc[o.id] = totalPool > 0 ? (pn / totalPool) : (1 / (mOptions.length || 1));
+      return acc;
+    }, {} as Record<string, number>);
+    
+    const totalProb = Object.values(rawProbs).reduce((sum, p) => sum + p, 0);
+    
+    let probYes = 0;
+    if (totalProb > 0) {
+      probYes = (rawProbs[optId] || 0) / totalProb;
     } else {
-      const b = py + pn + sharesToSell;
-      const c = sharesToSell * py;
-      payout = (b - Math.sqrt(b * b - 4 * c)) / 2;
+      probYes = 1 / (mOptions.length || 1);
     }
+    
+    return direction === 'yes' ? probYes : (1 - probYes);
+  }, [marketOptions]);
 
-    return Math.floor(payout);
-  }, []);
-
+  // Filtrar y ordenar las posiciones del portfolio para mostrarlas en las pestañas
   const filteredAndSortedPositions = useMemo(() => {
-    let result = [...portfolioPositions];
+    // NUEVO: Construir posiciones activas desde userShares
+    const activePositions: PortfolioPosition[] = [];
+    userShares.forEach((share) => {
+      const opt = share.market_options;
+      const market = opt?.markets;
+      if (!market || !opt) return;
 
-    if (searchTerm.trim() !== '') {
-      const lowerTerm = searchTerm.toLowerCase();
-      result = result.filter(p =>
-        (p.market_title?.toLowerCase().includes(lowerTerm)) ||
-        (p.option_display_name?.toLowerCase().includes(lowerTerm)) ||
-        (p.outcome_name?.toLowerCase().includes(lowerTerm))
+      const marketStatus = String(market.status).toLowerCase();
+      if (!ACTIVE_STATUSES.includes(marketStatus)) return; // solo activas
+
+      // Lectura cruda del balance neto de user_shares (Parseando estrictamente con parseFloat para soportar decimales AMM)
+      const syStr = share.shares_yes_owned !== undefined && share.shares_yes_owned !== null ? share.shares_yes_owned : (share.share_type === 'yes' ? share.shares : 0);
+      const snStr = share.shares_no_owned !== undefined && share.shares_no_owned !== null ? share.shares_no_owned : (share.share_type === 'no' ? share.shares : 0);
+      const sy = parseFloat(String(syStr)) || 0;
+      const sn = parseFloat(String(snStr)) || 0;
+
+      const buildPos = (dir: 'yes' | 'no', s: number, avgPrice: number) => ({
+        market_id: market.id,
+        outcome: opt.id,
+        status: 'active' as const,
+        shares: s,
+        avg_price: avgPrice,
+        realized_pnl: 0,
+        market_title: market.title,
+        market_image_url: market.image_url,
+        option_display_name: opt.option_name,
+        direction: dir,
+        updated_at: share.updated_at,
+        created_at: share.created_at,
+        closed_at: share.updated_at // para el sort
+      });
+
+      if (sy > 0) activePositions.push(buildPos('yes', sy, Number(share.average_price_yes || share.average_price || 0.5)));
+      if (sn > 0) activePositions.push(buildPos('no', sn, Number(share.average_price_no || share.average_price || 0.5)));
+    });
+
+    const closedPositions = portfolioPositions.filter(p => p.status !== 'active').map(p => {
+      // Para posiciones legacy, la fecha de cierre es la de resolución del mercado
+      const relatedBet = bets.find(b => b.market_id === p.market_id);
+      const market = relatedBet ? getMarket(relatedBet) : null;
+      let closedAt = p.closed_at || p.updated_at || p.created_at;
+      // Validar estrictamente para evitar que resoluciones de mercado sobrescriban la venta del AMM
+      if (p.status !== 'sold') {
+        if (market && (market as any).resolved_at) {
+          closedAt = (market as any).resolved_at || closedAt;
+        } else if (market && market.end_date) {
+          // Solo como último recurso usar end_date
+          closedAt = market.end_date || closedAt;
+        }
+      }
+      return {
+        ...p,
+        closed_at: closedAt
+      };
+    });
+
+    // NUEVO: Construir posiciones vendidas (AMM Cashouts) desde transactions
+    const ammSoldPositions: PortfolioPosition[] = [];
+    transactions.forEach(tx => {
+      const amount = Number(tx.amount || 0);
+      const desc = (tx.description || "").toLowerCase();
+      const type = (tx.type || "").toLowerCase();
+      const isBonus = desc.includes('bonus diario');
+      const isSale = type === 'sell' || type === 'cashout' || type === 'venta' || desc.includes('venta') || desc.includes('cashout');
+      const marketId = tx.market_id || tx.markets?.id || tx.market?.id;
+      
+      if (amount > 0 && marketId && isSale && !isBonus) {
+        let shares = parseFloat(String(tx.shares || tx.metadata?.shares || 0)) || 0;
+        let price = parseFloat(String(tx.price || tx.metadata?.price || 0)) || 0;
+
+        if (desc.includes('venta parcial')) {
+           const match = desc.match(/venta parcial de ([\d.,]+) acciones/i);
+           if (match && !shares) shares = parseFloat(match[1].replace(/\./g, '').replace(/,/g, '.'));
+        }
+
+        // Si la tabla no trae shares pero tenemos price y amount, derivamos (Amount / Price)
+        if (!shares && price > 0) {
+           shares = amount / price;
+        }
+
+        const avg_price = Number(tx.metadata?.avg_price || price);
+        const investment = shares * avg_price;
+        const realized_pnl = amount - investment; // PnL = Cashout - Inversión
+        
+        const outcome = tx.metadata?.outcome || tx.outcome || 'unknown';
+        const direction = tx.metadata?.direction || tx.direction || 'yes';
+        const option_display_name = tx.metadata?.option_name || tx.metadata?.outcome_name || 'Opción vendida';
+        
+        const marketTitle = tx.markets?.title || tx.market?.title || "Mercado";
+        const marketImage = tx.markets?.image_url || tx.market?.image_url || null;
+        
+        ammSoldPositions.push({
+          market_id: marketId,
+          outcome: outcome,
+          status: 'sold' as const,
+          shares: shares,
+          avg_price: avg_price,
+          realized_pnl: realized_pnl,
+          market_title: marketTitle,
+          market_image_url: marketImage,
+          option_display_name: option_display_name,
+          direction: direction,
+          closed_at: tx.created_at, // Asignación explícita del momento de la venta
+          created_at: tx.created_at,
+          updated_at: tx.created_at,
+        });
+      }
+    });
+
+    let result = [...activePositions, ...closedPositions, ...ammSoldPositions];
+
+    // Filtrar por término de búsqueda (título del mercado o nombre de la opción)
+    if (searchTerm.trim() !== "") {
+      const term = searchTerm.toLowerCase().trim();
+      result = result.filter(pos => 
+        (pos.market_title && pos.market_title.toLowerCase().includes(term)) ||
+        (pos.option_display_name && pos.option_display_name.toLowerCase().includes(term))
       );
     }
 
-    const getValue = (pos: PortfolioPosition) => {
-      if (pos.status === 'active') {
-        const opt = marketOptions.find(o => o.id === pos.outcome);
-        return calculateRealCashout(opt, pos.direction || 'yes', pos.shares);
-      } else {
-        return (pos.shares * pos.avg_price) + pos.realized_pnl;
+    // Ordenar según el criterio seleccionado
+    result.sort((a, b) => {
+      const getValidTime = (d: any) => {
+        if (!d) return 0;
+        const t = new Date(d).getTime();
+        return isNaN(t) ? 0 : t;
+      };
+
+      if (sortBy === "recent") {
+        const timeA = getValidTime(a.closed_at);
+        const timeB = getValidTime(b.closed_at);
+        return timeB - timeA;
       }
-    };
-
-    const sortedPositions = [...result];
-
-    const getPosDate = (pos: any) => {
-      let finalDate = 0;
-      const relatedBets = bets.filter(b => b.market_id === pos.market_id && b.outcome === pos.outcome);
-
-      if (pos.status === 'closed') {
-        const market = relatedBets.length > 0 ? getMarket(relatedBets[0]) : null;
-        let marketClosedTime = 0;
-        let optionEliminatedTime = 0;
-
-        if (market && (String(market.status).toLowerCase() === 'resolved' || String(market.status).toLowerCase() === 'rejected')) {
-          marketClosedTime = new Date((market as any).updated_at || market.end_date || 0).getTime();
-        }
-
-        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(pos.outcome);
-        if (isUUID && marketOptions && marketOptions.length > 0) {
-          const option = marketOptions.find(o => o.id === pos.outcome);
-          if (option && option.is_eliminated && option.eliminated_at) {
-            optionEliminatedTime = new Date(option.eliminated_at).getTime();
+      if (sortBy === "oldest") {
+        const timeA = getValidTime(a.closed_at);
+        const timeB = getValidTime(b.closed_at);
+        return timeA - timeB;
+      }
+      if (sortBy === "highest_value") {
+        const getValue = (pos: any) => {
+          if (pos.status === 'active') {
+            return pos.shares * getNormalizedPrice(pos.outcome, pos.direction || 'yes');
+          } else {
+            const totalInvestment = pos.shares * pos.avg_price;
+            return totalInvestment + (pos.realized_pnl || 0);
           }
-        }
-
-        const cashoutTime = pos.shares === 0 && pos.last_activity ? new Date(pos.last_activity).getTime() : 0;
-
-        if (cashoutTime > 0) {
-          finalDate = cashoutTime;
-        } else if (optionEliminatedTime > 0) {
-          finalDate = optionEliminatedTime;
-        } else if (marketClosedTime > 0) {
-          finalDate = marketClosedTime;
-        }
+        };
+        return getValue(b) - getValue(a);
       }
-
-      if (finalDate === 0) {
-        if (relatedBets.length > 0) {
-          finalDate = Math.max(...relatedBets.map(b => new Date(b.created_at || 0).getTime()));
-        } else {
-          const dateStr = pos.last_activity || pos.updated_at || pos.created_at || pos.timestamp || pos.date;
-          finalDate = dateStr ? new Date(dateStr).getTime() : 0;
-        }
+      if (sortBy === "lowest_value") {
+        const getValue = (pos: any) => {
+          if (pos.status === 'active') {
+            return pos.shares * getNormalizedPrice(pos.outcome, pos.direction || 'yes');
+          } else {
+            const totalInvestment = pos.shares * pos.avg_price;
+            return totalInvestment + (pos.realized_pnl || 0);
+          }
+        };
+        return getValue(a) - getValue(b);
       }
+      return 0;
+    });
 
-      return finalDate;
-    };
-
-    switch (sortBy) {
-      case 'oldest':
-        sortedPositions.sort((a, b) => getPosDate(a) - getPosDate(b));
-        break;
-      case 'highest_value':
-        sortedPositions.sort((a, b) => getValue(b) - getValue(a));
-        break;
-      case 'lowest_value':
-        sortedPositions.sort((a, b) => getValue(a) - getValue(b));
-        break;
-      case 'recent':
-      default:
-        sortedPositions.sort((a, b) => getPosDate(b) - getPosDate(a));
-        break;
-    }
-
-    return sortedPositions;
-  }, [portfolioPositions, searchTerm, sortBy, bets, marketOptions, calculateRealCashout]);
+    return result;
+  }, [portfolioPositions, userShares, searchTerm, sortBy, marketOptions, getNormalizedPrice, transactions, bets]);
 
   const [isChecking, setIsChecking] = useState(true);
   const [isLoadingBets, setIsLoadingBets] = useState(true);
@@ -259,13 +349,15 @@ export function ProfileView({ userId }: { userId?: string }) {
     let portfolioResData: any = null;
     let portfolioResError: any = null;
     let optionsData: any = null;
+    let sharesData: any[] = [];
 
     if (isOwner) {
-      const [betsRes, txRes, optionsRes, portfolioRes] = await Promise.all([
+      const [betsRes, txRes, optionsRes, portfolioRes, sharesRes] = await Promise.all([
         getMyBets(),
         getMyTransactions(),
         supabase.from("market_options").select("*"),
-        supabase.rpc('get_user_portfolio', { p_user_id: profile.id })
+        supabase.rpc('get_user_portfolio', { p_user_id: profile.id }),
+        supabase.from("user_shares").select("*, market_options(*, markets(*))").eq("user_id", profile.id)
       ]);
 
       if (!betsRes.error && betsRes.data) setBets(betsRes.data);
@@ -274,15 +366,17 @@ export function ProfileView({ userId }: { userId?: string }) {
         setMarketOptions(optionsRes.data);
         optionsData = optionsRes.data;
       }
+      if (sharesRes.data) sharesData = sharesRes.data;
 
       portfolioResData = portfolioRes.data;
       portfolioResError = portfolioRes.error;
     } else {
-      const [betsRes, txRes, optionsRes, portfolioRes] = await Promise.all([
+      const [betsRes, txRes, optionsRes, portfolioRes, sharesRes] = await Promise.all([
         supabase.from("bets").select("*, markets(*)").eq("user_id", profile.id).order("created_at", { ascending: false }),
         supabase.rpc('get_public_transactions', { p_user_id: profile.id }),
         supabase.from("market_options").select("*"),
-        supabase.rpc('get_user_portfolio', { p_user_id: profile.id })
+        supabase.rpc('get_user_portfolio', { p_user_id: profile.id }),
+        supabase.from("user_shares").select("*, market_options(*, markets(*))").eq("user_id", profile.id)
       ]);
 
       if (!betsRes.error && betsRes.data) setBets(betsRes.data as any[]);
@@ -291,12 +385,14 @@ export function ProfileView({ userId }: { userId?: string }) {
         setMarketOptions(optionsRes.data);
         optionsData = optionsRes.data;
       }
+      if (sharesRes.data) sharesData = sharesRes.data;
 
       portfolioResData = portfolioRes.data;
       portfolioResError = portfolioRes.error;
     }
 
     setTransactions(txsResData);
+    setUserShares(sharesData);
 
     let positions: PortfolioPosition[] = [];
     if (!portfolioResError && portfolioResData) {
@@ -401,14 +497,13 @@ export function ProfileView({ userId }: { userId?: string }) {
     const totalCurrentValueActive = portfolioPositions
       .filter(p => p.status === 'active')
       .reduce((acc, pos) => {
-        const opt = marketOptions.find(o => o.id === pos.outcome);
-        const val = calculateRealCashout(opt, pos.direction || 'yes', pos.shares);
+        const val = pos.shares * getNormalizedPrice(pos.outcome, pos.direction || 'yes');
         return acc + val;
       }, 0);
 
     const totalPortfolioValue = availableCapital + totalCurrentValueActive;
     return { availableCapital, totalPortfolioValue, lockedValueOffset: totalCurrentValueActive };
-  }, [portfolioPositions, profile?.points, marketOptions, calculateRealCashout]);
+  }, [portfolioPositions, profile?.points, marketOptions, getNormalizedPrice]);
 
   const processedTransactions = useMemo(() => {
     if (!transactions.length) return [];
@@ -532,8 +627,8 @@ export function ProfileView({ userId }: { userId?: string }) {
               activeInvestmentAtTs += originalInvestment;
             } else {
               if (market && opt) {
-                // NUEVO: Usamos el cálculo real del AMM para el historial
-                activeInvestmentAtTs += calculateRealCashout(opt, bet.direction || 'yes', bet.shares);
+                // NUEVO: Usamos el cálculo de Valor para el historial
+                activeInvestmentAtTs += (bet.shares || 0) * getNormalizedPrice((opt as any).id || (bet as any).outcome, bet.direction || 'yes');
               } else {
                 activeInvestmentAtTs += originalInvestment;
               }
@@ -546,7 +641,7 @@ export function ProfileView({ userId }: { userId?: string }) {
     });
 
     return data;
-  }, [transactions, timeframe, profile, bets, calculateRealCashout, marketOptions]);
+  }, [transactions, timeframe, profile, bets, getNormalizedPrice, marketOptions]);
 
   const dynamicPnl = useMemo(() => {
     if (chartData.length < 2) return { value: 0, percentage: 0 };
@@ -942,8 +1037,8 @@ export function ProfileView({ userId }: { userId?: string }) {
 
                   // NUEVO: Matemática AMM Inyectada para la Tabla!
                   const opt = marketOptions.find(o => o.id === pos.outcome);
-                  const currentPrice = getActualAmmPrice(opt, pos.direction || 'yes');
-                  const currentValue = calculateRealCashout(opt, pos.direction || 'yes', pos.shares);
+                  const currentPrice = getNormalizedPrice(pos.outcome, pos.direction || 'yes');
+                  const currentValue = pos.shares * currentPrice;
 
                   const totalInvestment = pos.shares * pos.avg_price;
                   const floatingPnl = currentValue - totalInvestment;
@@ -980,7 +1075,7 @@ export function ProfileView({ userId }: { userId?: string }) {
                               {badgeText}
                             </Badge>
                             <span className="text-[10px] font-medium text-muted-foreground">
-                              | {Number(pos.shares).toLocaleString('es-AR')} acciones
+                              | {parseFloat(String(pos.shares)).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 3 })} acciones
                             </span>
                           </div>
                         </div>
@@ -1129,7 +1224,7 @@ export function ProfileView({ userId }: { userId?: string }) {
                               {badgeText}
                             </Badge>
                             <span className="text-[10px] font-medium text-muted-foreground">
-                              | {Number(pos.shares).toLocaleString('es-AR')} acciones a ${(Number(pos.avg_price) || 0).toFixed(2)}
+                              | {parseFloat(String(pos.shares)).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 3 })} acciones a ${(Number(pos.avg_price) || 0).toFixed(2)}
                               {pos.closed_at ? ` • ${new Date(pos.closed_at).toLocaleString('es-AR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}
                             </span>
                           </div>
@@ -1183,24 +1278,18 @@ export function ProfileView({ userId }: { userId?: string }) {
                     const desc = tx.description || "";
                     const isBonusDiario = desc.toLowerCase().includes("bonus diario");
 
-                    const amount = Number(tx.amount || 0);
-                    const isBuy = amount < 0;
-                    const isPositive = amount > 0;
-                    const formattedDate = new Date(tx.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: 'short' });
+                    const rawAmount = Number(tx.amount || 0);
+                    const txType = String(tx.type || tx.action || "").toLowerCase();
+                    const isBuy = txType === 'buy' || txType === 'compra';
+                    const amount = isBuy ? -Math.abs(rawAmount) : Math.abs(rawAmount);
+                    const isPositive = !isBuy;
+                    const formattedDate = new Date(tx.created_at || "").toLocaleDateString('es-AR', { day: '2-digit', month: 'short' });
 
                     const marketTitle = tx.markets?.title || tx.market?.title;
 
-                    let parsedShares = 0;
-                    if (amount < 0) {
-                      const relatedBet = bets.find(b => b.market_id === (tx.markets?.id || tx.market_id) && Math.abs(b.amount) === Math.abs(amount) && Math.abs(new Date(b.created_at).getTime() - new Date(tx.created_at).getTime()) < 60000);
-                      if (relatedBet) parsedShares = relatedBet.shares;
-                    } else if (desc.toLowerCase().includes('venta parcial')) {
-                      const match = desc.match(/venta parcial de ([\d.,]+) acciones/i);
-                      if (match) parsedShares = parseFloat(match[1].replace(/\./g, '').replace(/,/g, '.'));
-                    }
-
-                    const sharesAmount = Number(tx.shares || tx.metadata?.shares || parsedShares || 0);
-                    const price = sharesAmount > 0 ? (Math.abs(tx.amount) / sharesAmount).toFixed(2) : '-';
+                    // Para compras/ventas nuevas, la info viene nativamente en tx.shares
+                    const sharesAmount = Number(tx.shares || tx.metadata?.shares || 0);
+                    const price = tx.price ? Number(tx.price) : (sharesAmount > 0 ? (Math.abs(rawAmount) / sharesAmount) : null);
 
                     return (
                       <div key={tx.id} className="flex flex-col md:flex-row justify-between border-b border-border/50 py-4 px-4 hover:bg-muted/10 transition-colors last:border-0 w-full">
@@ -1208,7 +1297,7 @@ export function ProfileView({ userId }: { userId?: string }) {
                         {/* Fila Superior (Descripción) */}
                         <div className="flex items-center gap-3 w-full md:w-auto md:flex-1 min-w-0">
                           <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-muted flex items-center justify-center shrink-0">
-                            {isPositive ? <ArrowUpRight className="w-4 h-4 md:w-5 md:h-5 text-green-500" /> : <ArrowDownRight className="w-4 h-4 md:w-5 md:h-5 text-muted-foreground" />}
+                            {isPositive ? <ArrowUpRight className="w-4 h-4 md:w-5 md:h-5 text-green-500" /> : <ArrowDownRight className="w-4 h-4 md:w-5 md:h-5 text-red-500" />}
                           </div>
                           <div className="flex-1 min-w-0">
                             {(() => {
@@ -1232,7 +1321,15 @@ export function ProfileView({ userId }: { userId?: string }) {
 
                               let finalDesc = desc;
                               if (marketTitle) {
-                                const actionText = amount < 0 ? "Compra" : "Venta";
+                                const txType = String(tx.type || tx.action || "").toLowerCase();
+                                let actionText = "Operación";
+                                if (txType === 'buy' || txType === 'compra') {
+                                  actionText = "Compra";
+                                } else if (txType === 'sell' || txType === 'cashout' || txType === 'venta') {
+                                  actionText = "Venta";
+                                } else {
+                                  actionText = amount < 0 ? "Compra" : "Venta";
+                                }
                                 finalDesc = `${actionText} de acciones en "${marketTitle}"`;
                               }
 
@@ -1253,22 +1350,24 @@ export function ProfileView({ userId }: { userId?: string }) {
                             {/* Columna: Precio */}
                             <div className="flex flex-col items-start md:items-end w-auto md:w-[80px] justify-center">
                               <p className="text-xs md:text-sm font-bold text-muted-foreground md:text-foreground">
-                                <span className="text-xs md:hidden font-medium text-muted-foreground mr-1">Precio:</span>{price !== '-' ? `$${price}` : '-'}
+                                <span className="text-xs md:hidden font-medium text-muted-foreground mr-1">Precio:</span>
+                                {['buy', 'sell', 'compra', 'venta', 'cashout'].includes(txType) && price !== null ? `$${price.toFixed(2)}` : '-'}
                               </p>
                             </div>
 
                             {/* Columna: Acciones */}
                             <div className="flex flex-col items-start md:items-end w-auto md:w-[80px] justify-center">
                               <p className="text-xs md:text-sm font-bold text-muted-foreground md:text-foreground">
-                                <span className="text-xs md:hidden font-medium text-muted-foreground mr-1">Acc:</span>{sharesAmount > 0 ? sharesAmount.toLocaleString('es-AR') : '-'}
+                                <span className="text-xs md:hidden font-medium text-muted-foreground mr-1">Acc:</span>
+                                {['buy', 'sell', 'compra', 'venta', 'cashout'].includes(txType) && sharesAmount > 0 ? sharesAmount.toLocaleString('es-AR', { minimumFractionDigits: 3, maximumFractionDigits: 3 }) : '-'}
                               </p>
                             </div>
                           </div>
 
                           {/* Columna: Valor */}
                           <div className="flex flex-col items-end min-w-[80px] md:w-[100px] justify-center">
-                            <span className={cn("font-black text-sm md:text-base text-right", isPositive ? "text-green-600 dark:text-[#00FF00]" : "text-foreground")}>
-                              {isPositive ? '+' : ''}{tx.amount.toLocaleString()}
+                            <span className={cn("font-black text-sm md:text-base text-right", isPositive ? "text-green-500" : "text-red-500")}>
+                              {isPositive ? '+' : '-'}{Number(Math.abs(amount)).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </span>
                           </div>
                         </div>
