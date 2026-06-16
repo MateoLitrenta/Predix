@@ -1024,13 +1024,62 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                                 {item.profiles?.avatar_url ? <img src={item.profiles.avatar_url} alt="av" className="w-full h-full object-cover" /> : <UserIcon className="w-4 h-4 text-muted-foreground opacity-50" />}
                               </div>
                               <div className="flex flex-col">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="font-semibold text-sm cursor-pointer hover:text-primary transition-colors text-foreground" onClick={() => openUserProfile(item.user_id, item.profiles?.username || "Usuario")}>{item.profiles?.username || "Usuario"}</span>
-                                  <span className="text-sm font-medium text-muted-foreground">{item.type === 'buy' ? 'compró' : 'vendió'}</span>
-                                </div>
-                                <span className="text-xs font-medium text-muted-foreground mt-0.5">
-                                  {item.description}
-                                </span>
+                                {(() => {
+                                  const hasShares = item.shares && Number(item.shares) > 0;
+                                  const unitPrice = hasShares ? Math.abs(Number(item.amount)) / Number(item.shares) : null;
+                                  
+                                  let desc = item.description || "";
+                                  let direction = "a favor";
+                                  if (desc.toLowerCase().includes("en contra")) {
+                                    direction = "en contra";
+                                  }
+                                  
+                                  let optionName = desc;
+                                  const prefixes = [
+                                    "venta parcial de acciones a favor de",
+                                    "venta parcial de acciones en contra de",
+                                    "compra de acciones en",
+                                    "venta de acciones en",
+                                    "a favor de",
+                                    "en contra de",
+                                    "acciones a favor",
+                                    "acciones en contra",
+                                    "acciones"
+                                  ];
+                                  
+                                  let lowerDesc = desc.toLowerCase();
+                                  for (const prefix of prefixes) {
+                                    const idx = lowerDesc.indexOf(prefix);
+                                    if (idx !== -1) {
+                                      optionName = desc.substring(idx + prefix.length).trim();
+                                      if (optionName.toLowerCase().startsWith("de ")) optionName = optionName.substring(3).trim();
+                                      break;
+                                    }
+                                  }
+                                  
+                                  const formattedShares = hasShares ? Number(item.shares).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 3 }) : "";
+                                  const formattedPrice = unitPrice !== null ? `$${unitPrice.toFixed(2)}` : "";
+                                  const actionWord = item.type === 'buy' ? 'compró' : 'vendió';
+
+                                  return hasShares ? (
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="font-semibold text-sm cursor-pointer hover:text-primary transition-colors text-foreground" onClick={() => openUserProfile(item.user_id, item.profiles?.username || "Usuario")}>{item.profiles?.username || "Usuario"}</span>
+                                      <span className="text-sm text-muted-foreground">
+                                        {actionWord} <span className="font-medium text-foreground">{formattedShares}</span> acciones {direction} de <span className="font-medium text-foreground">{optionName}</span> a <span className="font-medium text-foreground">{formattedPrice}</span>
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="font-semibold text-sm cursor-pointer hover:text-primary transition-colors text-foreground" onClick={() => openUserProfile(item.user_id, item.profiles?.username || "Usuario")}>{item.profiles?.username || "Usuario"}</span>
+                                        <span className="text-sm font-medium text-muted-foreground">{actionWord}</span>
+                                      </div>
+                                      <span className="text-xs font-medium text-muted-foreground mt-0.5">
+                                        {item.description}
+                                      </span>
+                                    </>
+                                  );
+                                })()}
                               </div>
                             </div>
                             <div className="text-right flex flex-col items-end shrink-0 pl-2">
