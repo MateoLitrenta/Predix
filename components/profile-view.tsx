@@ -52,6 +52,7 @@ export type PortfolioPosition = {
   status: 'active' | 'closed' | 'sold';
   shares: number;
   avg_price: number;
+  sell_price?: number;
   realized_pnl: number;
   market_title?: string;
   market_image_url?: string | null;
@@ -205,13 +206,84 @@ export function ProfileView({ userId }: { userId?: string }) {
            shares = amount / price;
         }
 
-        const avg_price = Number(tx.metadata?.avg_price || price);
+        let parsedDirection = 'yes';
+        const lowerDesc = desc.toLowerCase();
+        if (lowerDesc.includes('en contra')) {
+          parsedDirection = 'no';
+        }
+
+        const dbOutcome = tx.outcome || tx.metadata?.outcome || tx.metadata?.option_name;
+        const dbDirection = tx.direction || tx.metadata?.direction;
+
+        let outcome = dbOutcome || 'unknown';
+        if (outcome === 'unknown') {
+          // Intentar inferir del texto de la descripción
+          const match = desc.match(/venta de acciones en "([^"]+)"/i);
+          if (match) outcome = match[1];
+        }
+
+        let direction = dbDirection;
+        if (!direction) {
+          // Si es una venta y no sabemos la dirección, la inferimos del último buy del usuario en ese mercado y outcome
+          let lastBuyDir = null;
+          for (const pastTx of transactions) {
+            const pType = (pastTx.type || "").toLowerCase();
+            const pMarketId = pastTx.market_id || pastTx.markets?.id || pastTx.market?.id;
+            if (pType === 'buy' && pMarketId === marketId && new Date(pastTx.created_at) < new Date(tx.created_at)) {
+               const pDesc = (pastTx.description || "").toLowerCase();
+               let pDir = 'yes';
+               if (pDesc.includes('en contra')) pDir = 'no';
+               
+               const pOutcome = pastTx.outcome || pastTx.metadata?.outcome || pastTx.metadata?.option_name || 'unknown';
+               if (pOutcome !== 'unknown' && pOutcome === outcome) {
+                 lastBuyDir = pDir;
+                 break;
+               } else if (pOutcome === 'unknown' || outcome === 'unknown') {
+                 // Si no sabemos el outcome, asumimos que el last buy es de la misma dirección
+                 lastBuyDir = pDir;
+                 break;
+               }
+            }
+          }
+          direction = lastBuyDir || parsedDirection;
+        }
+
+        const option_display_name = dbOutcome || 'Opción vendida';
+        
+        // Calcular average_buy_price usando las transacciones de compra previas
+        let totalBuyShares = 0;
+        let totalBuyAmount = 0;
+        transactions.forEach(pastTx => {
+          const pType = (pastTx.type || "").toLowerCase();
+          const pMarketId = pastTx.market_id || pastTx.markets?.id || pastTx.market?.id;
+          if (pType === 'buy' && pMarketId === marketId && new Date(pastTx.created_at) <= new Date(tx.created_at)) {
+             const pDesc = (pastTx.description || "").toLowerCase();
+             let pDir = 'yes';
+             if (pDesc.includes('en contra')) pDir = 'no';
+             const pOutcome = pastTx.metadata?.outcome || pastTx.outcome || 'unknown';
+             
+             // Coincidencia estricta si tenemos outcome, sino aproximamos por dirección
+             if ((pOutcome !== 'unknown' && pOutcome === outcome) || (pOutcome === 'unknown' && pDir === direction)) {
+                const bShares = parseFloat(String(pastTx.shares || pastTx.metadata?.shares || 0));
+                const bAmount = Math.abs(Number(pastTx.amount || 0));
+                if (bShares > 0) {
+                  totalBuyShares += bShares;
+                  totalBuyAmount += bAmount;
+                }
+             }
+          }
+        });
+
+        let avg_price = Number(tx.metadata?.avg_price || 0);
+        if (avg_price === 0 && totalBuyShares > 0) {
+          avg_price = totalBuyAmount / totalBuyShares;
+        } else if (avg_price === 0) {
+          avg_price = price; // Fallback
+        }
+
         const investment = shares * avg_price;
         const realized_pnl = amount - investment; // PnL = Cashout - Inversión
-        
-        const outcome = tx.metadata?.outcome || tx.outcome || 'unknown';
-        const direction = tx.metadata?.direction || tx.direction || 'yes';
-        const option_display_name = tx.metadata?.option_name || tx.metadata?.outcome_name || 'Opción vendida';
+        const sell_price = price > 0 ? price : (shares > 0 ? amount / shares : 0);
         
         const marketTitle = tx.markets?.title || tx.market?.title || "Mercado";
         const marketImage = tx.markets?.image_url || tx.market?.image_url || null;
@@ -222,6 +294,7 @@ export function ProfileView({ userId }: { userId?: string }) {
           status: 'sold' as const,
           shares: shares,
           avg_price: avg_price,
+          sell_price: sell_price,
           realized_pnl: realized_pnl,
           market_title: marketTitle,
           market_image_url: marketImage,
@@ -1174,13 +1247,17 @@ export function ProfileView({ userId }: { userId?: string }) {
                   const isTie = realized_pnl === 0;
 
                   const outcomeName = String(pos.outcome_name || pos.option_display_name || pos.outcome);
-                  const isBinary = ['sí', 'si', 'no', 'yes'].includes(outcomeName.toLowerCase().trim());
                   const dirText = pos.direction === 'yes' ? 'SÍ' : 'NO';
-                  const badgeText = isBinary ? outcomeName.toUpperCase() : `${dirText} - ${outcomeName}`;
+                  
+                  let badgeText = '';
+                  if (pos.status === 'sold') {
+                    badgeText = `${dirText} - Opción vendida`;
+                  } else {
+                    const isBinary = ['sí', 'si', 'no', 'yes'].includes(outcomeName.toLowerCase().trim());
+                    badgeText = isBinary ? outcomeName.toUpperCase() : `${dirText} - ${outcomeName}`;
+                  }
 
-                  const isRedBadge = isBinary
-                    ? ['no'].includes(outcomeName.toLowerCase().trim())
-                    : pos.direction === 'no';
+                  const isRedBadge = pos.direction === 'no';
 
                   return (
                     <div key={`${pos.market_id}-${pos.outcome}-${idx}`} className="flex flex-col md:flex-row md:items-center border-b border-border/60 md:border-border/30 py-5 px-4 md:py-4 md:px-5 last:border-0 hover:bg-muted/5 md:hover:bg-muted/10 transition-colors gap-4">
@@ -1224,7 +1301,7 @@ export function ProfileView({ userId }: { userId?: string }) {
                               {badgeText}
                             </Badge>
                             <span className="text-[10px] font-medium text-muted-foreground">
-                              | {parseFloat(String(pos.shares)).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 3 })} acciones a ${(Number(pos.avg_price) || 0).toFixed(2)}
+                              | {parseFloat(String(pos.shares)).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 3 })} acciones a ${(Number(pos.sell_price || pos.avg_price) || 0).toFixed(2)}
                               {pos.closed_at ? ` • ${new Date(pos.closed_at).toLocaleString('es-AR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}
                             </span>
                           </div>
@@ -1289,7 +1366,8 @@ export function ProfileView({ userId }: { userId?: string }) {
 
                     // Para compras/ventas nuevas, la info viene nativamente en tx.shares
                     const sharesAmount = Number(tx.shares || tx.metadata?.shares || 0);
-                    const price = tx.price ? Number(tx.price) : (sharesAmount > 0 ? (Math.abs(rawAmount) / sharesAmount) : null);
+                    const executionPrice = sharesAmount > 0 ? (Math.abs(rawAmount) / sharesAmount) : null;
+                    const price = executionPrice;
 
                     return (
                       <div key={tx.id} className="flex flex-col md:flex-row justify-between border-b border-border/50 py-4 px-4 hover:bg-muted/10 transition-colors last:border-0 w-full">
