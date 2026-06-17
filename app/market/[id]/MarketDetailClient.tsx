@@ -364,12 +364,16 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     }
 
     setIsSelling(true);
-    const { error } = await supabase.rpc("sell_shares_amm", {
+    
+    const payload = {
       p_user_id: user.id,
       p_market_option_id: optId,
       p_shares_to_sell: sharesToSell,
       p_sell_yes: dir === 'yes'
-    });
+    };
+    console.log("Payload enviado a sell_shares_amm:", payload);
+    
+    const { error } = await supabase.rpc("sell_shares_amm", payload);
     setIsSelling(false);
 
     if (error) {
@@ -1036,63 +1040,98 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                               </div>
                               <div className="flex flex-col">
                                 {(() => {
+                                  console.log("Transacción cruda de DB:", item);
                                   const hasShares = item.shares && Number(item.shares) > 0;
                                   const unitPrice = hasShares ? Math.abs(Number(item.amount)) / Number(item.shares) : null;
                                   
-                                  // Intentar leer la propiedad exacta de la base de datos (como el usuario indica que ya se guardan o se guardarán)
+                                  // Propiedades nativas como fallback secundario por si la descripción no tiene la data
                                   const dbDirection = item.direction || item.metadata?.direction;
                                   const dbOutcome = item.outcome || item.metadata?.outcome || item.metadata?.option_name;
 
-                                  let txDirection = "yes";
-                                  if (dbDirection) {
-                                    txDirection = dbDirection.toLowerCase();
+                                  let optionName = 'Opción';
+                                  let txDirection = null;
+                                  let desc = (item.description || "").toLowerCase();
+                                  
+                                  // Regex robusto para extraer el nombre de la opción si está entre comillas
+                                  const extractName = (str: string) => {
+                                    const match = str.match(/en ["']([^"']+)["']/i);
+                                    if (match) return match[1];
+                                    const match2 = str.match(/(?:a favor de|en contra de) ["']?([^"']+)["']?/i);
+                                    if (match2) return match2[1];
+                                    return null;
+                                  };
+
+                                  const ext = extractName(item.description || "");
+                                  if (ext) {
+                                    optionName = ext;
+                                  } else if (dbOutcome) {
+                                    optionName = dbOutcome;
                                   } else {
-                                    // Fallback heredado por si quedan transacciones viejas sin la columna
-                                    let desc = item.description || "";
-                                    if (desc.toLowerCase().includes("en contra")) {
-                                      txDirection = "no";
+                                    if (desc.includes('en contra de')) {
+                                      optionName = item.description.substring(desc.indexOf('en contra de') + 13).trim();
+                                    } else if (desc.includes('a favor de')) {
+                                      optionName = item.description.substring(desc.indexOf('a favor de') + 11).trim();
                                     }
+                                    optionName = optionName.replace(/"/g, '');
                                   }
 
-                                  let optionName = dbOutcome || item.description || "";
-                                  if (!dbOutcome) {
-                                    let desc = item.description || "";
-                                    const prefixes = [
-                                      "venta parcial de acciones a favor de",
-                                      "venta parcial de acciones en contra de",
-                                      "compra de acciones en",
-                                      "venta de acciones en",
-                                      "a favor de",
-                                      "en contra de",
-                                      "acciones a favor",
-                                      "acciones en contra",
-                                      "acciones"
-                                    ];
-                                    let lowerDesc = desc.toLowerCase();
-                                    for (const prefix of prefixes) {
-                                      const idx = lowerDesc.indexOf(prefix);
-                                      if (idx !== -1) {
-                                        optionName = desc.substring(idx + prefix.length).trim();
-                                        if (optionName.toLowerCase().startsWith("de ")) optionName = optionName.substring(3).trim();
-                                        break;
-                                      }
-                                    }
-                                  }
+                                  // Lógica estricta de búsqueda en transacciones pasadas
+                                  const tx = item;
+                                  const marketId = item.market_id || item.markets?.id || item.market?.id;
+                                  const outcome = optionName;
                                   
-                                  const directionElement = txDirection === 'yes' 
+                                  if (item.type === 'sell') {
+                                    const pastBuys = activityFeed.filter(t => {
+                                      const pType = (t.type || "").toLowerCase();
+                                      const pMarketId = t.market_id || t.markets?.id || t.market?.id;
+                                      return pType === 'buy' && pMarketId === marketId && new Date(t.created_at) < new Date(tx.created_at);
+                                    }).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+                                    for (const pastTx of pastBuys) {
+                                       const pDesc = (pastTx.description || "").toLowerCase();
+                                       let pOutcome = extractName(pDesc) || '';
+                                       if (!pOutcome) {
+                                         if (pDesc.includes('en contra de')) {
+                                           pOutcome = pastTx.description.substring(pastTx.description.indexOf('en contra de') + 13).trim();
+                                         } else if (pDesc.includes('a favor de')) {
+                                           pOutcome = pastTx.description.substring(pastTx.description.indexOf('a favor de') + 11).trim();
+                                         } else {
+                                           pOutcome = 'unknown';
+                                         }
+                                       }
+                                       pOutcome = pOutcome.replace(/"/g, '').toLowerCase();
+                                       
+                                       if (pOutcome === outcome.toLowerCase()) {
+                                         if (pDesc.includes("en contra")) {
+                                           txDirection = "no";
+                                           break;
+                                         } else if (pDesc.includes("a favor")) {
+                                           txDirection = "yes";
+                                           break;
+                                         }
+                                       }
+                                    }
+                                  } else {
+                                    txDirection = desc.includes("en contra") ? "no" : "yes";
+                                  }
+
+                                  const actionWord = item.type === 'buy' ? 'compró' : 'vendió';
+                                  
+                                  const directionElement = txDirection === 'yes'  
                                     ? <span className="font-bold text-green-500 dark:text-green-400">SÍ</span> 
-                                    : <span className="font-bold text-red-500 dark:text-red-400">NO</span>;
+                                    : txDirection === 'no'
+                                      ? <span className="font-bold text-red-500 dark:text-red-400">NO</span>
+                                      : null;
 
                                   const formattedShares = hasShares ? Number(item.shares).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 3 }) : "";
                                   const executionPrice = hasShares ? Math.abs(Number(item.amount)) / Number(item.shares) : null;
                                   const formattedPrice = executionPrice !== null ? `$${executionPrice.toFixed(2)}` : "";
-                                  const actionWord = item.type === 'buy' ? 'compró' : 'vendió';
 
                                   return hasShares ? (
                                     <div className="flex items-center gap-1.5 flex-wrap">
                                       <span className="font-semibold text-sm cursor-pointer hover:text-primary transition-colors text-foreground" onClick={() => openUserProfile(item.user_id, item.profiles?.username || "Usuario")}>{item.profiles?.username || "Usuario"}</span>
                                       <span className="text-sm text-muted-foreground">
-                                        {actionWord} <span className="font-medium text-foreground">{formattedShares}</span> acciones de {directionElement} en '<span className="font-medium text-foreground">{optionName}</span>' a <span className="font-medium text-foreground">{formattedPrice}</span>
+                                        {actionWord} <span className="font-medium text-foreground">{formattedShares}</span> acciones {directionElement ? <>de {directionElement} </> : ""}en '<span className="font-medium text-foreground">{optionName}</span>' a <span className="font-medium text-foreground">{formattedPrice}</span>
                                       </span>
                                     </div>
                                   ) : (

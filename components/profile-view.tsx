@@ -185,6 +185,7 @@ export function ProfileView({ userId }: { userId?: string }) {
     // NUEVO: Construir posiciones vendidas (AMM Cashouts) desde transactions
     const ammSoldPositions: PortfolioPosition[] = [];
     transactions.forEach(tx => {
+      console.log("Transacción cruda de DB:", tx);
       const amount = Number(tx.amount || 0);
       const desc = (tx.description || "").toLowerCase();
       const type = (tx.type || "").toLowerCase();
@@ -206,49 +207,55 @@ export function ProfileView({ userId }: { userId?: string }) {
            shares = amount / price;
         }
 
-        let parsedDirection = 'yes';
-        const lowerDesc = desc.toLowerCase();
-        if (lowerDesc.includes('en contra')) {
-          parsedDirection = 'no';
-        }
+        // 1. LÓGICA DE EXTRACCIÓN ESTRICTA
+        const extractName = (str: string) => {
+          const match = str.match(/en ["']([^"']+)["']/i);
+          if (match) return match[1];
+          const match2 = str.match(/(?:a favor de|en contra de) ["']?([^"']+)["']?/i);
+          if (match2) return match2[1];
+          return null;
+        };
 
-        const dbOutcome = tx.outcome || tx.metadata?.outcome || tx.metadata?.option_name;
-        const dbDirection = tx.direction || tx.metadata?.direction;
+        let outcome = extractName(desc) || 'unknown';
 
-        let outcome = dbOutcome || 'unknown';
-        if (outcome === 'unknown') {
-          // Intentar inferir del texto de la descripción
-          const match = desc.match(/venta de acciones en "([^"]+)"/i);
-          if (match) outcome = match[1];
-        }
+        let direction = null;
 
-        let direction = dbDirection;
-        if (!direction) {
-          // Si es una venta y no sabemos la dirección, la inferimos del último buy del usuario en ese mercado y outcome
-          let lastBuyDir = null;
-          for (const pastTx of transactions) {
-            const pType = (pastTx.type || "").toLowerCase();
-            const pMarketId = pastTx.market_id || pastTx.markets?.id || pastTx.market?.id;
-            if (pType === 'buy' && pMarketId === marketId && new Date(pastTx.created_at) < new Date(tx.created_at)) {
-               const pDesc = (pastTx.description || "").toLowerCase();
-               let pDir = 'yes';
-               if (pDesc.includes('en contra')) pDir = 'no';
-               
-               const pOutcome = pastTx.outcome || pastTx.metadata?.outcome || pastTx.metadata?.option_name || 'unknown';
-               if (pOutcome !== 'unknown' && pOutcome === outcome) {
-                 lastBuyDir = pDir;
+        // Buscar última compra original del mismo usuario y mercado para esta misma opción
+        // Ordenamos las transacciones por fecha para encontrar la más reciente antes de esta venta
+        if (outcome !== 'unknown') {
+          const pastBuys = transactions.filter(t => {
+            const pType = (t.type || "").toLowerCase();
+            const pMarketId = t.market_id || t.markets?.id || t.market?.id;
+            return pType === 'buy' && pMarketId === marketId && new Date(t.created_at) < new Date(tx.created_at);
+          }).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+          for (const pastTx of pastBuys) {
+             const pDesc = (pastTx.description || "").toLowerCase();
+             let pOutcome = extractName(pDesc);
+             if (!pOutcome) {
+               if (pDesc.includes('en contra de')) {
+                 pOutcome = pastTx.description.substring(pastTx.description.indexOf('en contra de') + 13).trim();
+               } else if (pDesc.includes('a favor de')) {
+                 pOutcome = pastTx.description.substring(pastTx.description.indexOf('a favor de') + 11).trim();
+               } else {
+                 pOutcome = 'unknown';
+               }
+             }
+             pOutcome = pOutcome.replace(/"/g, '').toLowerCase();
+             
+             if (pOutcome === outcome.toLowerCase()) {
+               if (pDesc.includes("en contra")) {
+                 direction = "no";
                  break;
-               } else if (pOutcome === 'unknown' || outcome === 'unknown') {
-                 // Si no sabemos el outcome, asumimos que el last buy es de la misma dirección
-                 lastBuyDir = pDir;
+               } else if (pDesc.includes("a favor")) {
+                 direction = "yes";
                  break;
                }
-            }
+             }
           }
-          direction = lastBuyDir || parsedDirection;
         }
 
-        const option_display_name = dbOutcome || 'Opción vendida';
+        const option_display_name = outcome !== 'unknown' ? outcome : 'Opción vendida';
         
         // Calcular average_buy_price usando las transacciones de compra previas
         let totalBuyShares = 0;
@@ -258,12 +265,29 @@ export function ProfileView({ userId }: { userId?: string }) {
           const pMarketId = pastTx.market_id || pastTx.markets?.id || pastTx.market?.id;
           if (pType === 'buy' && pMarketId === marketId && new Date(pastTx.created_at) <= new Date(tx.created_at)) {
              const pDesc = (pastTx.description || "").toLowerCase();
-             let pDir = 'yes';
-             if (pDesc.includes('en contra')) pDir = 'no';
-             const pOutcome = pastTx.metadata?.outcome || pastTx.outcome || 'unknown';
+             let matchForAvgPrice = false;
+             if (outcome !== 'unknown') {
+               let pOutcome = 'unknown';
+               if (pDesc.includes('en contra de')) {
+                 pOutcome = pastTx.description.substring(pastTx.description.indexOf('en contra de') + 13).trim();
+               } else if (pDesc.includes('a favor de')) {
+                 pOutcome = pastTx.description.substring(pastTx.description.indexOf('a favor de') + 11).trim();
+               } else {
+                 const m = pDesc.match(/(?:compra|venta)(?: parcial)? de acciones (?:en|a favor de|en contra de) ["']?([^"']+)["']?/i);
+                 if (m) pOutcome = m[1];
+               }
+               pOutcome = pOutcome.replace(/"/g, '').toLowerCase();
+               if (pOutcome === outcome.toLowerCase()) {
+                 matchForAvgPrice = true;
+               }
+             } else if (direction) {
+               if (direction === 'no' && pDesc.includes('en contra')) matchForAvgPrice = true;
+               else if (direction === 'yes' && pDesc.includes('a favor')) matchForAvgPrice = true;
+             } else {
+               matchForAvgPrice = true; // Fallback extremo
+             }
              
-             // Coincidencia estricta si tenemos outcome, sino aproximamos por dirección
-             if ((pOutcome !== 'unknown' && pOutcome === outcome) || (pOutcome === 'unknown' && pDir === direction)) {
+             if (matchForAvgPrice) {
                 const bShares = parseFloat(String(pastTx.shares || pastTx.metadata?.shares || 0));
                 const bAmount = Math.abs(Number(pastTx.amount || 0));
                 if (bShares > 0) {
@@ -278,7 +302,7 @@ export function ProfileView({ userId }: { userId?: string }) {
         if (avg_price === 0 && totalBuyShares > 0) {
           avg_price = totalBuyAmount / totalBuyShares;
         } else if (avg_price === 0) {
-          avg_price = price; // Fallback
+          avg_price = price > 0 ? price : 0.5; // Fallback
         }
 
         const investment = shares * avg_price;
@@ -1251,13 +1275,18 @@ export function ProfileView({ userId }: { userId?: string }) {
                   
                   let badgeText = '';
                   if (pos.status === 'sold') {
-                    badgeText = `${dirText} - Opción vendida`;
+                    if (pos.direction === 'yes' || pos.direction === 'no') {
+                      badgeText = `${dirText} - Opción vendida`;
+                    } else {
+                      badgeText = "Opción vendida";
+                    }
                   } else {
                     const isBinary = ['sí', 'si', 'no', 'yes'].includes(outcomeName.toLowerCase().trim());
                     badgeText = isBinary ? outcomeName.toUpperCase() : `${dirText} - ${outcomeName}`;
                   }
 
                   const isRedBadge = pos.direction === 'no';
+                  const hasDirection = pos.direction === 'yes' || pos.direction === 'no';
 
                   return (
                     <div key={`${pos.market_id}-${pos.outcome}-${idx}`} className="flex flex-col md:flex-row md:items-center border-b border-border/60 md:border-border/30 py-5 px-4 md:py-4 md:px-5 last:border-0 hover:bg-muted/5 md:hover:bg-muted/10 transition-colors gap-4">
@@ -1265,13 +1294,9 @@ export function ProfileView({ userId }: { userId?: string }) {
                       {/* Arriba: Imagen y Título */}
                       <div className="flex items-start gap-3 w-full md:flex-1 md:items-center">
                         <div className={cn("w-8 h-8 rounded-full flex items-center justify-center shrink-0 border hidden md:flex",
-                          isProfit ? "bg-green-500/10 border-green-500/30" :
-                            isLoss ? "bg-red-500/10 border-red-500/30" :
-                              "bg-muted/50 border-border/50"
+                          isRedBadge ? "bg-red-500/10 border-red-500/30 text-red-500" : (hasDirection ? "bg-green-500/10 border-green-500/30 text-green-500" : "bg-muted/50 border-border/50 text-muted-foreground")
                         )}>
-                          {isProfit && <CheckCircle2 className="w-4 h-4 text-green-500" />}
-                          {isLoss && <XCircle className="w-4 h-4 text-red-500" />}
-                          {isTie && <MinusCircle className="w-4 h-4 text-muted-foreground" />}
+                          {isRedBadge ? <XCircle className="w-4 h-4" /> : (hasDirection ? <CheckCircle2 className="w-4 h-4" /> : <MinusCircle className="w-4 h-4" />)}
                         </div>
                         {pos.market_image_url ? (
                           <img src={pos.market_image_url} alt="market" className="w-10 h-10 rounded-full object-cover border border-border/50 shrink-0 mt-0.5 md:mt-0" />
@@ -1297,7 +1322,8 @@ export function ProfileView({ userId }: { userId?: string }) {
                           )}
 
                           <div className="flex items-center gap-1.5 mt-2 md:mt-1 flex-wrap">
-                            <Badge variant="outline" className={cn("text-[10px] font-bold h-4 px-1 border", isRedBadge ? "bg-red-500/10 text-red-600 dark:text-red-500 border-red-500/30" : "bg-green-500/10 text-green-600 dark:text-green-500 border-green-500/30")}>
+                            <Badge variant="outline" className={cn("text-[10px] font-bold h-4 px-1 border flex items-center gap-1", isRedBadge ? "bg-red-500/10 text-red-500 border-red-500" : (hasDirection ? "bg-green-500/10 text-green-600 dark:text-green-500 border-green-500/30" : "bg-muted text-muted-foreground border-border"))}>
+                              {isRedBadge && <XCircle size={10} />}
                               {badgeText}
                             </Badge>
                             <span className="text-[10px] font-medium text-muted-foreground">
