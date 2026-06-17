@@ -215,6 +215,10 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
 
   const activeOptions = options.filter(o => !o.is_eliminated);
   const totalMarketCollateral = options.reduce((acc, opt) => acc + Number(opt.total_collateral || 0), 0);
+  const totalVolume = activityFeed.reduce((acc, tx) => acc + Math.abs(Number(tx.amount || 0)), 0);
+
+  const formattedLiquidez = Math.floor(totalMarketCollateral).toLocaleString('es-AR');
+  const formattedVolumen = Math.floor(totalVolume).toLocaleString('es-AR');
 
   // NUEVO: Cálculo de Precio AMM Normalizado
   const rawProbabilities = useMemo(() => {
@@ -835,9 +839,16 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                   </Button>
                 </div>
                 <h1 className="text-2xl sm:text-3xl font-bold text-foreground leading-tight mb-2">{market.title}</h1>
-                <div className="flex items-center gap-4 text-sm text-muted-foreground mt-3">
-                  <div className="flex items-center gap-1.5"><Coins className="w-4 h-4" />{totalMarketCollateral.toLocaleString()} pts Colateral</div>
-                  <div className={cn("flex items-center gap-1.5", isMarketResolved ? "text-primary font-medium" : isMarketClosed ? "text-red-500 font-medium" : "")}>
+                <div className="flex items-center gap-3 text-sm text-muted-foreground mt-3 flex-wrap">
+                  <div className="flex items-center gap-1.5 bg-muted/30 px-2 py-1 rounded-md border border-border/30">
+                    <TrendingUp className="w-4 h-4 text-primary" />
+                    <span className="font-semibold text-foreground">{formattedVolumen} pts</span> Volumen
+                  </div>
+                  <div className="flex items-center gap-1.5 bg-muted/30 px-2 py-1 rounded-md border border-border/30">
+                    <Coins className="w-4 h-4 text-amber-500" />
+                    <span className="font-semibold text-foreground">{formattedLiquidez} pts</span> Liquidez
+                  </div>
+                  <div className={cn("flex items-center gap-1.5 ml-1", isMarketResolved ? "text-primary font-medium" : isMarketClosed ? "text-red-500 font-medium" : "")}>
                     <Clock className="w-4 h-4" />
                     {isMarketResolved ? "Mercado finalizado" : isMarketClosed ? `Cerró el ${new Date(market.end_date).toLocaleDateString()}` : `Cierra: ${new Date(market.end_date).toLocaleDateString()}`}
                   </div>
