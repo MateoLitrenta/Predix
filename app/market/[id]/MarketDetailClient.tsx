@@ -1131,7 +1131,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                                     <div className="flex items-center gap-1.5 flex-wrap">
                                       <span className="font-semibold text-sm cursor-pointer hover:text-primary transition-colors text-foreground" onClick={() => openUserProfile(item.user_id, item.profiles?.username || "Usuario")}>{item.profiles?.username || "Usuario"}</span>
                                       <span className="text-sm text-muted-foreground">
-                                        {actionWord} <span className="font-medium text-foreground">{formattedShares}</span> acciones {directionElement ? <>de {directionElement} </> : ""}en '<span className="font-medium text-foreground">{optionName}</span>' a <span className="font-medium text-foreground">{formattedPrice}</span>
+                                        {actionWord} <span className="font-medium text-foreground">{formattedShares}</span> acciones {directionElement ? <>de {directionElement} - </> : "- "}<span className="font-medium text-foreground">{optionName}</span> a <span className="font-medium text-foreground">{formattedPrice}</span>
                                       </span>
                                     </div>
                                   ) : (
@@ -1456,7 +1456,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                                 const pos = consolidatedPositions.find(p => p.outcome === optId && p.direction === dir);
                                 if (!pos) return null;
 
-                                const maxShares = Math.floor(pos.totalShares);
+                                const maxShares = pos.totalShares;
                                 const sharesToSell = parseFloat(sellSharesInput) || maxShares;
                                 const expectedReturn = calculatePartialCashout(optId, dir, sharesToSell);
                                 const isRed = dir === 'no' || (isBinaryYesNo && opt?.option_name.toLowerCase() === 'no');
@@ -1484,10 +1484,10 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                                         </button>
                                       </div>
                                       <div className="relative mb-5">
-                                        <Input type="number" placeholder="0" min="1" max={maxShares} value={sellSharesInput === "" ? maxShares.toString() : sellSharesInput} onChange={(e) => {
-                                          const val = parseInt(e.target.value);
-                                          if (!isNaN(val) && val >= 1 && val <= maxShares) {
-                                            setSellSharesInput(val.toString());
+                                        <Input type="number" step="any" placeholder="0" min="0" max={maxShares} value={sellSharesInput === "" ? maxShares.toString() : sellSharesInput} onChange={(e) => {
+                                          const val = parseFloat(e.target.value);
+                                          if (!isNaN(val) && val >= 0 && val <= maxShares) {
+                                            setSellSharesInput(e.target.value);
                                           } else if (e.target.value === "") {
                                             setSellSharesInput("");
                                           }
@@ -1495,10 +1495,10 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                                         <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground font-bold text-sm">acciones</span>
                                       </div>
                                       <Slider
-                                        value={[sellSharesInput === "" ? maxShares : parseInt(sellSharesInput) || 0]}
-                                        min={1}
+                                        value={[sellSharesInput === "" ? maxShares : parseFloat(sellSharesInput) || 0]}
+                                        min={0}
                                         max={maxShares}
-                                        step={1}
+                                        step={0.001}
                                         onValueChange={(vals) => setSellSharesInput(vals[0].toString())}
                                         disabled={isMarketClosed}
                                         className="py-1"

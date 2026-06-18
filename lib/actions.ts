@@ -185,15 +185,15 @@ export async function deleteMarket(marketId: string) {
   return { ok: true, error: null };
 }
 
-export async function resolveMarket(marketId: string, outcome: string) {
+export async function resolveMarket(marketId: string, winningOptionId: string) {
   const supabase = await createClient();
 
   // Limpiar usuarios eliminados antes de ejecutar el RPC
   await cleanupGhostData(marketId);
 
-  const { error } = await supabase.rpc("resolver_mercado", {
+  const { error } = await supabase.rpc("resolve_market_amm", {
     p_market_id: marketId,
-    p_outcome: outcome,
+    p_winning_option_id: winningOptionId,
   });
 
   if (error) return { ok: false, error: error.message };

@@ -190,7 +190,7 @@ export function ProfileView({ userId }: { userId?: string }) {
       const desc = (tx.description || "").toLowerCase();
       const type = (tx.type || "").toLowerCase();
       const isBonus = desc.includes('bonus diario');
-      const isSale = type === 'sell' || type === 'cashout' || type === 'venta' || desc.includes('venta') || desc.includes('cashout');
+      const isSale = type === 'sell' || type === 'cashout' || type === 'venta' || type === 'reward' || desc.includes('venta') || desc.includes('cashout');
       const marketId = tx.market_id || tx.markets?.id || tx.market?.id;
       
       if (amount > 0 && marketId && isSale && !isBonus) {
@@ -219,6 +219,11 @@ export function ProfileView({ userId }: { userId?: string }) {
         let outcome = extractName(desc) || 'unknown';
 
         let direction = null;
+
+        if (type === 'reward') {
+          if (desc.includes('Ganó NO')) direction = 'no';
+          else if (desc.includes('Ganó SÍ') || desc.includes('Ganó SI')) direction = 'yes';
+        }
 
         // Buscar última compra original del mismo usuario y mercado para esta misma opción
         // Ordenamos las transacciones por fecha para encontrar la más reciente antes de esta venta
@@ -327,6 +332,7 @@ export function ProfileView({ userId }: { userId?: string }) {
           closed_at: tx.created_at, // Asignación explícita del momento de la venta
           created_at: tx.created_at,
           updated_at: tx.created_at,
+          is_reward: type === 'reward'
         });
       }
     });
@@ -1275,10 +1281,13 @@ export function ProfileView({ userId }: { userId?: string }) {
                   
                   let badgeText = '';
                   if (pos.status === 'sold') {
-                    if (pos.direction === 'yes' || pos.direction === 'no') {
-                      badgeText = `${dirText} - Opción vendida`;
+                    const nameToShow = outcomeName !== 'unknown' ? outcomeName : 'Opción vendida';
+                    if (pos.is_reward) {
+                      badgeText = `${dirText} - Liquidación`;
+                    } else if (pos.direction === 'yes' || pos.direction === 'no') {
+                      badgeText = `${dirText} - ${nameToShow}`;
                     } else {
-                      badgeText = "Opción vendida";
+                      badgeText = nameToShow;
                     }
                   } else {
                     const isBinary = ['sí', 'si', 'no', 'yes'].includes(outcomeName.toLowerCase().trim());
@@ -1326,6 +1335,9 @@ export function ProfileView({ userId }: { userId?: string }) {
                               {isRedBadge && <XCircle size={10} />}
                               {badgeText}
                             </Badge>
+                            {pos.is_reward && outcomeName !== 'unknown' && (
+                              <span className="text-[11px] font-semibold text-foreground">{outcomeName}</span>
+                            )}
                             <span className="text-[10px] font-medium text-muted-foreground">
                               | {parseFloat(String(pos.shares)).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 3 })} acciones a ${(Number(pos.sell_price || pos.avg_price) || 0).toFixed(2)}
                               {pos.closed_at ? ` • ${new Date(pos.closed_at).toLocaleString('es-AR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}
