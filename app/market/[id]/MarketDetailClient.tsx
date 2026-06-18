@@ -1127,11 +1127,13 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                                   const executionPrice = hasShares ? Math.abs(Number(item.amount)) / Number(item.shares) : null;
                                   const formattedPrice = executionPrice !== null ? `$${executionPrice.toFixed(2)}` : "";
 
+                                  const isOptionNameRedundant = optionName.toLowerCase() === 'sí' || optionName.toLowerCase() === 'si' || optionName.toLowerCase() === 'no';
+
                                   return hasShares ? (
                                     <div className="flex items-center gap-1.5 flex-wrap">
                                       <span className="font-semibold text-sm cursor-pointer hover:text-primary transition-colors text-foreground" onClick={() => openUserProfile(item.user_id, item.profiles?.username || "Usuario")}>{item.profiles?.username || "Usuario"}</span>
                                       <span className="text-sm text-muted-foreground">
-                                        {actionWord} <span className="font-medium text-foreground">{formattedShares}</span> acciones {directionElement ? <>de {directionElement} - </> : "- "}<span className="font-medium text-foreground">{optionName}</span> a <span className="font-medium text-foreground">{formattedPrice}</span>
+                                        {actionWord} <span className="font-medium text-foreground">{formattedShares}</span> acciones {(directionElement && !isOptionNameRedundant) ? <>de {directionElement} - </> : "de "}<span className="font-medium text-foreground">{optionName}</span> a <span className="font-medium text-foreground">{formattedPrice}</span>
                                       </span>
                                     </div>
                                   ) : (
@@ -1241,7 +1243,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                     <h3 className="text-xl font-black text-primary mb-1">MERCADO RESUELTO</h3>
                     <p className="text-sm font-medium text-muted-foreground mb-4">La opción ganadora fue:</p>
                     <Badge className="text-lg px-4 py-1.5 font-black bg-background text-foreground border-2 border-primary/50 shadow-sm">
-                      {winningOption?.option_name || 'Desconocido'}
+                      {market?.winning_outcome || winningOption?.option_name || 'Desconocido'}
                     </Badge>
                     <p className="text-xs text-muted-foreground mt-4">Los puntos ya fueron distribuidos a las carteras de los ganadores.</p>
                   </div>

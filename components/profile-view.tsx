@@ -761,11 +761,29 @@ export function ProfileView({ userId }: { userId?: string }) {
     return { value: val, percentage: pct };
   }, [chartData, portfolioStats.totalPortfolioValue]);
 
-  const predictionsPlayed = portfolioPositions.length;
+  const allActivePositions = useMemo(() => filteredAndSortedPositions.filter(p => p.status === 'active'), [filteredAndSortedPositions]);
+  const allClosedPositions = useMemo(() => filteredAndSortedPositions.filter(p => p.status !== 'active'), [filteredAndSortedPositions]);
+
+  const predictionsPlayed = useMemo(() => new Set(transactions.map(tx => tx.market_id || tx.markets?.id || tx.market?.id).filter(Boolean)).size, [transactions]);
+
   const bestPredictionValue = useMemo(() => {
-    if (!portfolioPositions || portfolioPositions.length === 0) return 0;
-    return portfolioPositions.reduce((max, p) => Math.max(max, Number(p.realized_pnl) || 0), 0);
-  }, [portfolioPositions]);
+    if (allClosedPositions.length === 0) return 0;
+    return Math.max(...allClosedPositions.map(pos => {
+      const shares = Number(pos.shares) || 0;
+      const avgPrice = Number(pos.avg_price) || 0;
+      const totalInvestment = shares * avgPrice;
+      const realizedPnl = Number(pos.realized_pnl) || 0;
+      return totalInvestment + realizedPnl;
+    }));
+  }, [allClosedPositions]);
+
+  const totalActiveValue = useMemo(() => {
+    return allActivePositions.reduce((sum, pos) => {
+      const currentPrice = getNormalizedPrice(pos.outcome, pos.direction || 'yes');
+      const currentValue = pos.shares * currentPrice;
+      return sum + currentValue;
+    }, 0);
+  }, [allActivePositions, getNormalizedPrice]);
 
   const confirmSell = async () => {
     if (!betToSell) return;
@@ -930,8 +948,8 @@ export function ProfileView({ userId }: { userId?: string }) {
                     <TrendingUp className="w-4 h-4 text-blue-500 opacity-80" />
                   </div>
                   <div>
-                    <p className="text-2xl font-bold text-foreground">{portfolioStats.lockedValueOffset.toLocaleString(undefined, { maximumFractionDigits: 0 })} pts</p>
-                    <p className="text-[10px] font-semibold text-muted-foreground">{portfolioPositions.filter(p => p.status === 'active').length} mercados</p>
+                    <p className="text-2xl font-bold text-foreground">{totalActiveValue.toLocaleString('es-AR', { maximumFractionDigits: 0 })} pts</p>
+                    <p className="text-[10px] font-semibold text-muted-foreground">{allActivePositions.length} mercados</p>
                   </div>
                 </div>
 
@@ -990,7 +1008,7 @@ export function ProfileView({ userId }: { userId?: string }) {
                 </div>
                 <div className="flex flex-col items-center px-2">
                   <span className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider mb-0.5">Activo</span>
-                  <span className="text-sm font-bold text-foreground">{portfolioStats.lockedValueOffset.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                  <span className="text-sm font-bold text-foreground">{totalActiveValue.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
                 </div>
                 <div className="flex flex-col items-center px-2">
                   <span className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider mb-0.5">Jugadas</span>
@@ -1081,7 +1099,7 @@ export function ProfileView({ userId }: { userId?: string }) {
         {/* TABS DE HISTORIAL */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full mb-4 md:mb-8">
           <TabsList className="flex w-full h-12 mb-3 md:mb-6 bg-muted/30 rounded-xl p-1 border border-border/50 overflow-x-auto whitespace-nowrap scrollbar-none justify-start sm:justify-center shrink-0 hide-scrollbar">
-            <TabsTrigger value="active" className="flex items-center gap-1.5 text-[11px] sm:text-sm font-bold rounded-lg px-4 sm:px-6"><LineChart className="w-3.5 h-3.5 hidden sm:block" />Activas <Badge variant="secondary" className="font-black h-4 px-1 ml-0.5 text-[9px]">{portfolioPositions.filter(p => p.status === 'active').length}</Badge></TabsTrigger>
+            <TabsTrigger value="active" className="flex items-center gap-1.5 text-[11px] sm:text-sm font-bold rounded-lg px-4 sm:px-6"><LineChart className="w-3.5 h-3.5 hidden sm:block" />Activas <Badge variant="secondary" className="font-black h-4 px-1 ml-0.5 text-[9px]">{allActivePositions.length}</Badge></TabsTrigger>
             <TabsTrigger value="finished" className="flex items-center gap-1.5 text-[11px] sm:text-sm font-bold rounded-lg px-4 sm:px-6"><History className="w-3.5 h-3.5 hidden sm:block" />Cerradas</TabsTrigger>
             {isOwner && <TabsTrigger value="bank" className="flex items-center gap-1.5 text-[11px] sm:text-sm font-bold rounded-lg px-4 sm:px-6"><Landmark className="w-3.5 h-3.5 hidden sm:block" />Billetera</TabsTrigger>}
           </TabsList>
@@ -1279,19 +1297,20 @@ export function ProfileView({ userId }: { userId?: string }) {
                   const outcomeName = String(pos.outcome_name || pos.option_display_name || pos.outcome);
                   const dirText = pos.direction === 'yes' ? 'SÍ' : 'NO';
                   
+                  const nameToShow = outcomeName !== 'unknown' ? outcomeName : 'Opción vendida';
+                  const isOptionNameRedundant = nameToShow.toLowerCase() === 'sí' || nameToShow.toLowerCase() === 'si' || nameToShow.toLowerCase() === 'no';
+                  
                   let badgeText = '';
                   if (pos.status === 'sold') {
-                    const nameToShow = outcomeName !== 'unknown' ? outcomeName : 'Opción vendida';
                     if (pos.is_reward) {
-                      badgeText = `${dirText} - Liquidación`;
+                      badgeText = `Resuelto - ${nameToShow}`;
                     } else if (pos.direction === 'yes' || pos.direction === 'no') {
-                      badgeText = `${dirText} - ${nameToShow}`;
+                      badgeText = isOptionNameRedundant ? nameToShow : `${dirText} - ${nameToShow}`;
                     } else {
                       badgeText = nameToShow;
                     }
                   } else {
-                    const isBinary = ['sí', 'si', 'no', 'yes'].includes(outcomeName.toLowerCase().trim());
-                    badgeText = isBinary ? outcomeName.toUpperCase() : `${dirText} - ${outcomeName}`;
+                    badgeText = isOptionNameRedundant ? outcomeName.toUpperCase() : `${dirText} - ${outcomeName}`;
                   }
 
                   const isRedBadge = pos.direction === 'no';
@@ -1335,9 +1354,6 @@ export function ProfileView({ userId }: { userId?: string }) {
                               {isRedBadge && <XCircle size={10} />}
                               {badgeText}
                             </Badge>
-                            {pos.is_reward && outcomeName !== 'unknown' && (
-                              <span className="text-[11px] font-semibold text-foreground">{outcomeName}</span>
-                            )}
                             <span className="text-[10px] font-medium text-muted-foreground">
                               | {parseFloat(String(pos.shares)).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 3 })} acciones a ${(Number(pos.sell_price || pos.avg_price) || 0).toFixed(2)}
                               {pos.closed_at ? ` • ${new Date(pos.closed_at).toLocaleString('es-AR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}
@@ -1403,8 +1419,18 @@ export function ProfileView({ userId }: { userId?: string }) {
                     const marketTitle = tx.markets?.title || tx.market?.title;
 
                     // Para compras/ventas nuevas, la info viene nativamente en tx.shares
-                    const sharesAmount = Number(tx.shares || tx.metadata?.shares || 0);
-                    const executionPrice = sharesAmount > 0 ? (Math.abs(rawAmount) / sharesAmount) : null;
+                    let sharesAmount = Number(tx.shares || tx.metadata?.shares || 0);
+                    let executionPrice = sharesAmount > 0 ? (Math.abs(rawAmount) / sharesAmount) : null;
+                    
+                    if (txType === 'reward') {
+                      if (sharesAmount === 0 && rawAmount > 0) {
+                        sharesAmount = Math.abs(rawAmount);
+                      }
+                      if (sharesAmount > 0) {
+                        executionPrice = Math.abs(rawAmount) / sharesAmount;
+                      }
+                    }
+
                     const price = executionPrice;
 
                     return (
@@ -1467,7 +1493,7 @@ export function ProfileView({ userId }: { userId?: string }) {
                             <div className="flex flex-col items-start md:items-end w-auto md:w-[80px] justify-center">
                               <p className="text-xs md:text-sm font-bold text-muted-foreground md:text-foreground">
                                 <span className="text-xs md:hidden font-medium text-muted-foreground mr-1">Precio:</span>
-                                {['buy', 'sell', 'compra', 'venta', 'cashout'].includes(txType) && price !== null ? `$${price.toFixed(2)}` : '-'}
+                                {['buy', 'sell', 'compra', 'venta', 'cashout', 'reward'].includes(txType) && price !== null ? `$${price.toFixed(2)}` : '-'}
                               </p>
                             </div>
 
@@ -1475,7 +1501,7 @@ export function ProfileView({ userId }: { userId?: string }) {
                             <div className="flex flex-col items-start md:items-end w-auto md:w-[80px] justify-center">
                               <p className="text-xs md:text-sm font-bold text-muted-foreground md:text-foreground">
                                 <span className="text-xs md:hidden font-medium text-muted-foreground mr-1">Acc:</span>
-                                {['buy', 'sell', 'compra', 'venta', 'cashout'].includes(txType) && sharesAmount > 0 ? sharesAmount.toLocaleString('es-AR', { minimumFractionDigits: 3, maximumFractionDigits: 3 }) : '-'}
+                                {['buy', 'sell', 'compra', 'venta', 'cashout', 'reward'].includes(txType) && sharesAmount > 0 ? sharesAmount.toLocaleString('es-AR', { minimumFractionDigits: 3, maximumFractionDigits: 3 }) : '-'}
                               </p>
                             </div>
                           </div>
