@@ -142,24 +142,25 @@ export function ProfileView({ userId }: { userId?: string }) {
       const sy = parseFloat(String(syStr)) || 0;
       const sn = parseFloat(String(snStr)) || 0;
 
-      const buildPos = (dir: 'yes' | 'no', s: number, avgPrice: number) => ({
+      const buildPos = (dir: 'yes' | 'no', s: number, avgPrice: number, isEliminated: boolean) => ({
         market_id: market.id,
         outcome: opt.id,
-        status: 'active' as const,
+        status: isEliminated ? 'closed' : 'active',
         shares: s,
         avg_price: avgPrice,
-        realized_pnl: 0,
+        realized_pnl: isEliminated ? -(s * avgPrice) : 0,
         market_title: market.title,
         market_image_url: market.image_url,
         option_display_name: opt.option_name,
         direction: dir,
         updated_at: share.updated_at,
         created_at: share.created_at,
-        closed_at: share.updated_at // para el sort
+        closed_at: share.updated_at, // para el sort
+        is_eliminated: opt.is_eliminated
       });
 
-      if (sy > 0) activePositions.push(buildPos('yes', sy, Number(share.average_price_yes || share.average_price || 0.5)));
-      if (sn > 0) activePositions.push(buildPos('no', sn, Number(share.average_price_no || share.average_price || 0.5)));
+      if (sy > 0) activePositions.push(buildPos('yes', sy, Number(share.average_price_yes || share.average_price || 0.5), !!opt.is_eliminated) as any);
+      if (sn > 0) activePositions.push(buildPos('no', sn, Number(share.average_price_no || share.average_price || 0.5), !!opt.is_eliminated) as any);
     });
 
     const closedPositions = portfolioPositions.filter(p => p.status !== 'active').map(p => {
@@ -1255,7 +1256,9 @@ export function ProfileView({ userId }: { userId?: string }) {
                     const relatedBet = bets.find(b => b.market_id === pos.market_id && b.outcome === pos.outcome);
                     const market = relatedBet ? getMarket(relatedBet) : null;
 
-                    if (market && (String(market.status).toLowerCase() === 'resolved' || String(market.status).toLowerCase() === 'rejected')) {
+                    if (pos.is_eliminated) {
+                      realized_pnl = -totalInvestment;
+                    } else if (market && (String(market.status).toLowerCase() === 'resolved' || String(market.status).toLowerCase() === 'rejected')) {
                       if (String(market.status).toLowerCase() === 'rejected') {
                         realized_pnl = 0;
                       } else {
@@ -1301,7 +1304,9 @@ export function ProfileView({ userId }: { userId?: string }) {
                   const isOptionNameRedundant = nameToShow.toLowerCase() === 'sí' || nameToShow.toLowerCase() === 'si' || nameToShow.toLowerCase() === 'no';
                   
                   let badgeText = '';
-                  if (pos.status === 'sold') {
+                  if (pos.is_eliminated) {
+                    badgeText = `Resuelto - ${nameToShow}`;
+                  } else if (pos.status === 'sold') {
                     if (pos.is_reward) {
                       badgeText = `Resuelto - ${nameToShow}`;
                     } else if (pos.direction === 'yes' || pos.direction === 'no') {
@@ -1313,8 +1318,8 @@ export function ProfileView({ userId }: { userId?: string }) {
                     badgeText = isOptionNameRedundant ? outcomeName.toUpperCase() : `${dirText} - ${outcomeName}`;
                   }
 
-                  const isRedBadge = pos.direction === 'no';
-                  const hasDirection = pos.direction === 'yes' || pos.direction === 'no';
+                  const isRedBadge = pos.is_eliminated || pos.direction === 'no';
+                  const hasDirection = !pos.is_eliminated && (pos.direction === 'yes' || pos.direction === 'no');
 
                   return (
                     <div key={`${pos.market_id}-${pos.outcome}-${idx}`} className="flex flex-col md:flex-row md:items-center border-b border-border/60 md:border-border/30 py-5 px-4 md:py-4 md:px-5 last:border-0 hover:bg-muted/5 md:hover:bg-muted/10 transition-colors gap-4">
