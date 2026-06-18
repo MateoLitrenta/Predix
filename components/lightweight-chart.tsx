@@ -82,8 +82,6 @@ export function LightweightChart({ data, options, marketCreatedAt, chartTimefram
 
     // Crear las series de líneas "Step" por cada opción del mercado
     options.forEach((opt, index) => {
-      if (opt.is_eliminated) return;
-      
       const isYes = ['sí', 'si', 'yes'].includes(opt.option_name.toLowerCase());
       const isNo = opt.option_name.toLowerCase() === 'no';
       
@@ -141,7 +139,7 @@ export function LightweightChart({ data, options, marketCreatedAt, chartTimefram
         const date = new Date((param.time as number) * 1000).toLocaleString('es-AR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
         const values = options
-          .filter(opt => !opt.is_eliminated && seriesRefs.current[opt.id])
+          .filter(opt => seriesRefs.current[opt.id])
           .map(opt => {
             const s = seriesRefs.current[opt.id];
             const meta = metadataRefs.current[opt.id];
@@ -184,9 +182,7 @@ export function LightweightChart({ data, options, marketCreatedAt, chartTimefram
 
     const seriesData: Record<string, { time: Time, value: number }[]> = {};
     options.forEach(opt => {
-      if (!opt.is_eliminated) {
-        seriesData[opt.id] = [];
-      }
+      seriesData[opt.id] = [];
     });
 
     // Process data to format required by lightweight-charts
@@ -203,7 +199,7 @@ export function LightweightChart({ data, options, marketCreatedAt, chartTimefram
       lastTime = timeInSeconds;
 
       options.forEach(opt => {
-        if (!opt.is_eliminated && point[opt.id] !== undefined) {
+        if (point[opt.id] !== undefined) {
           seriesData[opt.id].push({
             time: timeInSeconds as Time,
             value: Number(point[opt.id])
@@ -219,12 +215,11 @@ export function LightweightChart({ data, options, marketCreatedAt, chartTimefram
 
     // Set data to series
     options.forEach(opt => {
-      if (!opt.is_eliminated && seriesRefs.current[opt.id]) {
+      if (seriesRefs.current[opt.id]) {
         let finalData = seriesData[opt.id];
 
         if (genesisTime !== null) {
-          const activeOptions = options.filter(o => !o.is_eliminated);
-          const initialValue = 100 / (activeOptions.length || 1);
+          const initialValue = 100 / (options.length || 1);
           const genesisPoint = { time: genesisTime as Time, value: initialValue };
           
           const filteredRealData = finalData.filter(d => (d.time as number) > genesisTime!);

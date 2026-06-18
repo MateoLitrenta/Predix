@@ -526,33 +526,13 @@ export async function eliminateMarketOption(optionId: string) {
     .eq("status", "active");
   // --------------------------------------------------------
 
-  // 3. Traer todas las opciones frescas para recalcular los porcentajes del historial
-  const { data: options } = await supabase
-    .from("market_options")
-    .select("*")
-    .eq("market_id", marketId);
-
-  if (options && options.length > 0) {
-    const activeOpts = options.filter(o => !o.is_eliminated);
-    const activeVotes = activeOpts.reduce((acc, opt) => acc + Number(opt.total_votes || 0), 0);
-    const totalOptsCount = activeOpts.length || 2;
-
-    const historyInserts = options.map(opt => {
-      let percentage = 0;
-      if (!opt.is_eliminated) {
-        let price = (Number(opt.total_votes || 0) + 100.0) / (activeVotes + (totalOptsCount * 100.0));
-        percentage = Math.max(0.01, Math.min(0.99, price)) * 100;
-      }
-      return {
-        market_id: marketId,
-        option_id: opt.id,
-        percentage: percentage
-      };
-    });
-
-    // 4. Insertar la foto histórica EXACTA
-    await supabase.from("market_option_history").insert(historyInserts);
-  }
+  // 3. Registrar en el historial únicamente la caída a 0% de la opción eliminada
+  // para que el gráfico refleje su muerte, sin tocar las demás opciones (preservando el AMM).
+  await supabase.from("market_option_history").insert({
+    market_id: marketId,
+    option_id: optionId,
+    percentage: 0
+  });
 
   return { success: true };
 }

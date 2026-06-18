@@ -488,23 +488,18 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
 
     // 1. PUNTO GÉNESIS (Basado en el precio actual si no hay historia)
     const genesisPoint: any = { timestamp: marketCreatedAt };
-    const genesisActiveOpts = options.filter(o => !o.is_eliminated);
-    const genesisRawProbs = genesisActiveOpts.reduce((acc, opt) => {
+    const genesisRawProbs = options.reduce((acc, opt) => {
       const py = Number(opt.pool_yes || 0);
       const pn = Number(opt.pool_no || 0);
       const totalPool = py + pn;
-      acc[opt.id] = totalPool > 0 ? (pn / totalPool) : (1 / (genesisActiveOpts.length || 1));
+      acc[opt.id] = totalPool > 0 ? (pn / totalPool) : (1 / (options.length || 1));
       return acc;
     }, {} as Record<string, number>);
     const genesisTotalProb = Object.values(genesisRawProbs).reduce((sum, p) => sum + p, 0);
 
     options.forEach(opt => {
-      if (opt.is_eliminated) {
-        genesisPoint[opt.id] = 0;
-      } else {
-        const rawProb = genesisRawProbs[opt.id] || 0;
-        genesisPoint[opt.id] = genesisTotalProb > 0 ? (rawProb / genesisTotalProb) * 100 : (1 / (genesisActiveOpts.length || 1)) * 100;
-      }
+      const rawProb = genesisRawProbs[opt.id] || 0;
+      genesisPoint[opt.id] = genesisTotalProb > 0 ? (rawProb / genesisTotalProb) * 100 : (1 / (options.length || 1)) * 100;
     });
 
     // 2. FORWARD FILL
@@ -534,17 +529,20 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     const normalizedTimeline = timeline.map(point => {
       let totalVal = 0;
       options.forEach(opt => {
-        if (!opt.is_eliminated && point[opt.id] !== undefined) {
+        if (point[opt.id] !== undefined && point[opt.id] > 0) {
           totalVal += point[opt.id];
         }
       });
       
       const newPoint = { ...point };
       options.forEach(opt => {
-        if (!opt.is_eliminated && point[opt.id] !== undefined) {
-          newPoint[opt.id] = totalVal > 0 ? (point[opt.id] / totalVal) * 100 : (1 / (options.filter(o => !o.is_eliminated).length || 1)) * 100;
-        } else if (opt.is_eliminated) {
-          newPoint[opt.id] = 0;
+        if (point[opt.id] !== undefined) {
+          if (point[opt.id] === 0) {
+            newPoint[opt.id] = 0;
+          } else {
+            const activeAtThisPoint = options.filter(o => point[o.id] !== undefined && point[o.id] > 0).length;
+            newPoint[opt.id] = totalVal > 0 ? (point[opt.id] / totalVal) * 100 : (1 / (activeAtThisPoint || 1)) * 100;
+          }
         }
       });
       return newPoint;
