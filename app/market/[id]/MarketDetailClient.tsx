@@ -705,13 +705,24 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
   const isMarketResolved = market.status === 'resolved';
   const isMarketClosed = isMarketResolved || (market.end_date && new Date(market.end_date) <= new Date());
 
-  const winningOption = isMarketResolved ? options.find(o => o.id === market.winning_outcome) : null;
+  const winningOptionId = market?.resolved_option_id || market?.winning_outcome;
+  const winningOption = isMarketResolved ? options.find(o => o.id === winningOptionId) : null;
 
   const topLevelComments = comments.filter(c => !c.parent_id).reverse();
 
   const isBinaryYesNo = options.length === 2 &&
     options.some(o => ['sí', 'si', 'yes'].includes(o.option_name.toLowerCase())) &&
     options.some(o => o.option_name.toLowerCase() === 'no');
+
+  // DEBUG LOG REQUESTED BY USER
+  if (isMarketResolved) {
+    console.log('DEBUG RESOLVE:', {
+      resolved_id: market.resolved_option_id,
+      winning_outcome: market.winning_outcome,
+      options: options,
+      market: market
+    });
+  }
 
   const yesOption = isBinaryYesNo ? options.find(o => ['sí', 'si', 'yes'].includes(o.option_name.toLowerCase())) : null;
   const noOption = isBinaryYesNo ? options.find(o => o.option_name.toLowerCase() === 'no') : null;
@@ -1241,7 +1252,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                     <h3 className="text-xl font-black text-primary mb-1">MERCADO RESUELTO</h3>
                     <p className="text-sm font-medium text-muted-foreground mb-4">La opción ganadora fue:</p>
                     <Badge className="text-lg px-4 py-1.5 font-black bg-background text-foreground border-2 border-primary/50 shadow-sm">
-                      {market?.winning_outcome || winningOption?.option_name || 'Desconocido'}
+                      {winningOption?.option_name || winningOptionId || 'Desconocido'}
                     </Badge>
                     <p className="text-xs text-muted-foreground mt-4">Los puntos ya fueron distribuidos a las carteras de los ganadores.</p>
                   </div>

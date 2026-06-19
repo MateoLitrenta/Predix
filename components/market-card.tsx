@@ -158,7 +158,8 @@ export function MarketCard({
           <div className="flex flex-col gap-2 flex-1 mt-3">
             {sortedActiveOptions.slice(0, 2).map((opt) => {
               const pct = Math.round(getProbability(opt));
-              const isWinner = winningOutcome === opt.id;
+              const isWinner = winningOutcome === opt.id || (winningOutcome && opt.option_name.toLowerCase() === winningOutcome.toLowerCase());
+              const isLoser = isResolved && !isWinner;
 
               const optNameLower = opt.option_name.toLowerCase();
               const isYes = ['sí', 'si', 'yes'].includes(optNameLower);
@@ -179,22 +180,27 @@ export function MarketCard({
               }
 
               return (
-                <div key={opt.id} className="relative overflow-hidden bg-muted/10 hover:bg-muted/20 transition-colors border border-border/50 rounded-lg h-9 w-full cursor-pointer">
+                <div key={opt.id} className={cn(
+                  "relative overflow-hidden transition-all duration-300 border rounded-lg h-9 w-full cursor-pointer",
+                  isWinner ? "bg-primary/10 border-primary/50 ring-1 ring-primary/20 shadow-sm" : 
+                  isLoser ? "bg-muted/5 border-border/20 opacity-40 grayscale" : 
+                  "bg-muted/10 hover:bg-muted/20 border-border/50"
+                )}>
                   {/* Barra de progreso de fondo */}
                   <div
-                    className="absolute top-0 left-0 h-full opacity-20 transition-all duration-500 ease-out"
+                    className={cn("absolute top-0 left-0 h-full opacity-20 transition-all duration-500 ease-out", isWinner && "opacity-30")}
                     style={{ width: `${pct}%`, backgroundColor: fillColor }}
                   />
 
                   {/* Contenido (Textos por encima del fondo) */}
                   <div className="relative z-10 flex justify-between items-center w-full h-full px-3">
                     <div className="flex items-center gap-1.5 min-w-0 pr-2">
-                      {isResolved && isWinner && <Trophy className="w-3 h-3 text-primary shrink-0" />}
+                      {isResolved && isWinner && <Trophy className="w-3.5 h-3.5 text-primary shrink-0 drop-shadow-sm" />}
                       <span className={cn("text-foreground/90 font-medium text-[11px] truncate", isWinner && "text-primary font-bold")}>
                         {opt.option_name}
                       </span>
                     </div>
-                    <span className={cn("font-black text-xs shrink-0", pctColorClass)} style={pctStyle}>
+                    <span className={cn("font-black text-xs shrink-0", pctColorClass, isWinner && "text-primary dark:text-primary scale-105 transition-transform")} style={isWinner ? {} : pctStyle}>
                       {pct}%
                     </span>
                   </div>
