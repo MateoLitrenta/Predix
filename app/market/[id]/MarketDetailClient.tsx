@@ -371,7 +371,6 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       p_shares_to_sell: sharesToSell,
       p_sell_yes: dir === 'yes'
     };
-    console.log("Payload enviado a sell_shares_amm:", payload);
     
     const { error } = await supabase.rpc("sell_shares_amm", payload);
     setIsSelling(false);
@@ -716,12 +715,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
 
   // DEBUG LOG REQUESTED BY USER
   if (isMarketResolved) {
-    console.log('DEBUG RESOLVE:', {
-      resolved_id: market.resolved_option_id,
-      winning_outcome: market.winning_outcome,
-      options: options,
-      market: market
-    });
+    // console.log remived for security
   }
 
   const yesOption = isBinaryYesNo ? options.find(o => ['sí', 'si', 'yes'].includes(o.option_name.toLowerCase())) : null;
@@ -1049,7 +1043,6 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                               </div>
                               <div className="flex flex-col">
                                 {(() => {
-                                  console.log("Transacción cruda de DB:", item);
                                   const hasShares = item.shares && Number(item.shares) > 0;
                                   const unitPrice = hasShares ? Math.abs(Number(item.amount)) / Number(item.shares) : null;
                                   

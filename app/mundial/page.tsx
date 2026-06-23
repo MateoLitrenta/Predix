@@ -77,9 +77,13 @@ export default function MundialHubPage() {
   );
 
   useEffect(() => {
+    let isMounted = true;
+    
     const fetchUser = async () => {
       setIsLoadingUser(true);
       const { data: { user: currentUser } } = await supabase.auth.getUser();
+
+      if (!isMounted) return;
 
       if (currentUser) {
         setUser(currentUser);
@@ -91,12 +95,13 @@ export default function MundialHubPage() {
         setUserRole(null);
         setAvatarUrl(null);
       }
-      setIsLoadingUser(false);
+      if (isMounted) setIsLoadingUser(false);
     };
 
     fetchUser();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!isMounted) return;
       if (event === "SIGNED_IN" && session?.user) {
         setUser(session.user);
         await fetchUserProfile(session.user.id);
@@ -109,14 +114,13 @@ export default function MundialHubPage() {
       }
     });
 
-    return () => { subscription.unsubscribe(); };
+    return () => { 
+      isMounted = false;
+      subscription.unsubscribe(); 
+    };
   }, [supabase.auth, fetchUserProfile]);
 
   const fetchMarkets = useCallback(async () => {
-    if (markets.length === 0) {
-      setIsLoadingMarkets(true);
-    }
-
     const { data, error } = await supabase
       .from("markets")
       .select(`
@@ -130,7 +134,8 @@ export default function MundialHubPage() {
         created_at,
         updated_at,
         image_url,
-        market_options (id, option_name, color, total_votes, is_eliminated)
+        market_options (id, option_name, color, total_votes, is_eliminated, pool_yes, pool_no),
+        transactions (amount, created_at)
       `)
       .in("status", ["active", "resolved"])
       .eq("is_world_cup", true);
@@ -138,16 +143,25 @@ export default function MundialHubPage() {
     if (error) {
       console.log("Error fetching Mundial markets:", error.message);
     } else if (data) {
-      const marketsWithOptions = data.map((market: any) => ({
-        ...market,
-        options: market.market_options || [],
-        trending: Math.random() > 0.6 ? ((Math.random() > 0.5 ? "up" : "down") as "up" | "down") : undefined,
-      }));
+      const marketsWithOptions = data.map((market: any) => {
+        const txs = market.transactions || [];
+        const dynamicTotalVolume = txs.reduce((acc: number, tx: any) => acc + Math.abs(Number(tx.amount || 0)), 0);
+        const lastTxTime = txs.length > 0 ? Math.max(...txs.map((tx: any) => new Date(tx.created_at).getTime())) : 0;
+        const lastActivityDate = lastTxTime > 0 ? new Date(lastTxTime).toISOString() : market.updated_at;
+
+        return {
+          ...market,
+          total_volume: dynamicTotalVolume > 0 ? dynamicTotalVolume : market.total_volume,
+          last_activity_at: lastActivityDate,
+          options: market.market_options || [],
+          trending: Math.random() > 0.6 ? ((Math.random() > 0.5 ? "up" : "down") as "up" | "down") : undefined,
+        };
+      });
       setMarkets(marketsWithOptions);
     }
 
     setIsLoadingMarkets(false);
-  }, [supabase, markets.length]);
+  }, [supabase]);
 
   useEffect(() => {
     fetchMarkets();
@@ -198,14 +212,24 @@ export default function MundialHubPage() {
       if (!isAClosed && isBClosed) return -1;
 
       switch (sortBy) {
-        case "trending":
-          return new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime();
-        case "newest":
-          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-        case "ending_soon":
-          return new Date(a.end_date).getTime() - new Date(b.end_date).getTime();
-        case "volume":
-          return b.total_volume - a.total_volume;
+        case "trending": {
+          const dateA = a.last_activity_at ? new Date(a.last_activity_at).getTime() : new Date(a.created_at).getTime();
+          const dateB = b.last_activity_at ? new Date(b.last_activity_at).getTime() : new Date(b.created_at).getTime();
+          return dateB - dateA;
+        }
+        case "newest": {
+          const dateA = new Date(a.created_at).getTime();
+          const dateB = new Date(b.created_at).getTime();
+          return dateB - dateA;
+        }
+        case "ending_soon": {
+          const dateA = new Date(a.end_date).getTime();
+          const dateB = new Date(b.end_date).getTime();
+          return dateA - dateB;
+        }
+        case "volume": {
+          return (b.total_volume || 0) - (a.total_volume || 0);
+        }
         default:
           return 0;
       }
@@ -344,7 +368,7 @@ export default function MundialHubPage() {
                   id={market.id}
                   question={market.title}
                   category={market.category}
-                  totalVolume={market.total_volume.toLocaleString()}
+                  totalVolume={Math.floor(market.total_volume).toLocaleString('es-AR')}
                   endDate={formatDate(market.end_date)}
                   rawEndDate={market.end_date}
                   imageUrl={market.image_url}

@@ -82,9 +82,13 @@ export default function PredictionMarketDashboard() {
   );
 
   useEffect(() => {
+    let isMounted = true;
+
     const fetchUser = async () => {
       setIsLoadingUser(true);
       const { data: { user: currentUser } } = await supabase.auth.getUser();
+
+      if (!isMounted) return;
 
       if (currentUser) {
         setUser(currentUser);
@@ -96,12 +100,13 @@ export default function PredictionMarketDashboard() {
         setUserRole(null);
         setAvatarUrl(null);
       }
-      setIsLoadingUser(false);
+      if (isMounted) setIsLoadingUser(false);
     };
 
     fetchUser();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!isMounted) return;
       if (event === "SIGNED_IN" && session?.user) {
         setUser(session.user);
         await fetchUserProfile(session.user.id);
@@ -114,14 +119,13 @@ export default function PredictionMarketDashboard() {
       }
     });
 
-    return () => { subscription.unsubscribe(); };
+    return () => { 
+      isMounted = false;
+      subscription.unsubscribe(); 
+    };
   }, [supabase.auth, fetchUserProfile]);
 
   const fetchMarkets = useCallback(async () => {
-    if (markets.length === 0) {
-      setIsLoadingMarkets(true);
-    }
-
     const { data, error } = await supabase
       .from("markets")
       .select(`
@@ -161,7 +165,7 @@ export default function PredictionMarketDashboard() {
     }
 
     setIsLoadingMarkets(false);
-  }, [supabase, markets.length]);
+  }, [supabase]);
 
   useEffect(() => {
     fetchMarkets();
