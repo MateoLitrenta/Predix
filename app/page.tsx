@@ -36,8 +36,8 @@ interface Market {
   end_date: string;
   status: string;
   winning_outcome?: string | null;
-  created_at: string;
   updated_at: string;
+  last_activity_at?: string;
   trending?: "up" | "down";
   image_url?: string | null;
   options?: MarketOption[];
@@ -135,18 +135,28 @@ export default function PredictionMarketDashboard() {
         created_at,
         updated_at,
         image_url,
-        market_options (id, option_name, color, total_votes, is_eliminated, pool_yes, pool_no)
+        market_options (id, option_name, color, total_votes, is_eliminated, pool_yes, pool_no),
+        transactions (amount, created_at)
       `)
       .in("status", ["active", "resolved"]);
 
     if (error) {
       console.log("[v0] Error fetching markets:", error.message);
     } else if (data) {
-      const marketsWithOptions = data.map((market: any) => ({
-        ...market,
-        options: market.market_options || [],
-        trending: Math.random() > 0.6 ? ((Math.random() > 0.5 ? "up" : "down") as "up" | "down") : undefined,
-      }));
+      const marketsWithOptions = data.map((market: any) => {
+        const txs = market.transactions || [];
+        const dynamicTotalVolume = txs.reduce((acc: number, tx: any) => acc + Math.abs(Number(tx.amount || 0)), 0);
+        const lastTxTime = txs.length > 0 ? Math.max(...txs.map((tx: any) => new Date(tx.created_at).getTime())) : 0;
+        const lastActivityDate = lastTxTime > 0 ? new Date(lastTxTime).toISOString() : market.updated_at;
+
+        return {
+          ...market,
+          total_volume: dynamicTotalVolume > 0 ? dynamicTotalVolume : market.total_volume,
+          last_activity_at: lastActivityDate,
+          options: market.market_options || [],
+          trending: Math.random() > 0.6 ? ((Math.random() > 0.5 ? "up" : "down") as "up" | "down") : undefined,
+        };
+      });
       setMarkets(marketsWithOptions);
     }
 
@@ -197,14 +207,24 @@ export default function PredictionMarketDashboard() {
       if (!isAClosed && isBClosed) return -1;
 
       switch (sortBy) {
-        case "trending":
-          return new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime();
-        case "newest":
-          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-        case "ending_soon":
-          return new Date(a.end_date).getTime() - new Date(b.end_date).getTime();
-        case "volume":
-          return b.total_volume - a.total_volume;
+        case "trending": {
+          const dateA = a.last_activity_at ? new Date(a.last_activity_at).getTime() : new Date(a.created_at).getTime();
+          const dateB = b.last_activity_at ? new Date(b.last_activity_at).getTime() : new Date(b.created_at).getTime();
+          return dateB - dateA;
+        }
+        case "newest": {
+          const dateA = new Date(a.created_at).getTime();
+          const dateB = new Date(b.created_at).getTime();
+          return dateB - dateA;
+        }
+        case "ending_soon": {
+          const dateA = new Date(a.end_date).getTime();
+          const dateB = new Date(b.end_date).getTime();
+          return dateA - dateB;
+        }
+        case "volume": {
+          return (b.total_volume || 0) - (a.total_volume || 0);
+        }
         default:
           return 0;
       }
@@ -224,13 +244,13 @@ export default function PredictionMarketDashboard() {
       <main className="container mx-auto px-4 py-4 md:py-6 max-w-[1400px]">
         {/* Banner CTA Prode */}
         <Link href="/mundial/prode" className="block mb-6 md:mb-8 transition-transform hover:-translate-y-1">
-          <div className="w-full relative overflow-hidden rounded-2xl bg-gradient-to-r from-yellow-600/20 via-yellow-500/10 to-zinc-900 border border-yellow-500/30 p-6 flex flex-col sm:flex-row items-center justify-between shadow-lg shadow-yellow-500/5 group">
+          <div className="w-full relative overflow-hidden rounded-2xl bg-gradient-to-r from-yellow-500/10 via-yellow-500/5 to-transparent dark:to-zinc-900/50 border border-yellow-500/30 p-6 flex flex-col sm:flex-row items-center justify-between group">
             <div className="absolute top-0 right-0 w-64 h-64 bg-yellow-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
             <div className="relative z-10 flex flex-col text-center sm:text-left mb-4 sm:mb-0">
-              <h2 className="text-xl md:text-2xl font-black text-white flex items-center justify-center sm:justify-start gap-2 mb-1">
+              <h2 className="text-xl md:text-2xl font-black text-gray-900 dark:text-white flex items-center justify-center sm:justify-start gap-2 mb-1">
                 🏆 ¡Armá tu Prode del Mundial con Amigos gratis!
               </h2>
-              <p className="text-zinc-400 font-medium text-sm md:text-base">
+              <p className="text-gray-600 dark:text-zinc-400 font-medium text-sm md:text-base">
                 Pronosticá los resultados de la Copa del Mundo 2026 y competí por el premio mayor.
               </p>
             </div>
@@ -316,7 +336,7 @@ export default function PredictionMarketDashboard() {
                   id={market.id}
                   question={market.title}
                   category={market.category}
-                  totalVolume={market.total_volume.toLocaleString()}
+                  totalVolume={Math.floor(market.total_volume).toLocaleString('es-AR')}
                   endDate={formatDate(market.end_date)}
                   rawEndDate={market.end_date}
                   imageUrl={market.image_url}
