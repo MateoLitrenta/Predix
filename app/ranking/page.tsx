@@ -43,10 +43,96 @@ export default function RankingPage() {
     const userProfile = await getProfile();
     setCurrentUser(userProfile);
 
-    const { data, error } = await supabase.rpc('get_leaderboard_by_timeframe', { p_timeframe: selectedTimeframe });
+    const { data: rpcData, error } = await supabase
+      .rpc('get_leaderboard_by_timeframe', { p_timeframe: selectedTimeframe });
     
-    if (!error && data) {
-      setUsers(data as LeaderboardUser[]);
+    if (!error && rpcData) {
+      const userIds = rpcData.map((u: any) => u.user_id);
+      if (userIds.length > 0) {
+        // 1. Fetch liquid balance (points) from profiles
+        const { data: profilesData } = await supabase
+          .from('profiles')
+          .select('id, points')
+          .in('id', userIds);
+
+        // 2. Fetch market options for AMM pricing
+        const { data: optionsData } = await supabase
+          .from('market_options')
+          .select('*');
+
+        // 3. Fetch user shares with active markets
+        const { data: sharesData } = await supabase
+          .from('user_shares')
+          .select('*, market_options(*, markets(*))')
+          .in('user_id', userIds);
+
+        const allOptions = optionsData || [];
+        const allShares = sharesData || [];
+
+        // Lógica de cálculo AMM (exactamente igual a ProfileClient)
+        const getNormalizedPrice = (optId: string, direction: string) => {
+          const opt = allOptions.find((o: any) => o.id === optId);
+          if (!opt || opt.is_eliminated) return 0;
+          
+          const mOptions = allOptions.filter((o: any) => o.market_id === opt.market_id && !o.is_eliminated);
+          
+          const rawProbs = mOptions.reduce((acc: any, o: any) => {
+            const py = Number(o.pool_yes || 0);
+            const pn = Number(o.pool_no || 0);
+            const totalPool = py + pn;
+            acc[o.id] = totalPool > 0 ? (pn / totalPool) : (1 / (mOptions.length || 1));
+            return acc;
+          }, {});
+          
+          const totalProb = Object.values(rawProbs).reduce((sum: any, p: any) => sum + p, 0) as number;
+          
+          let probYes = 0;
+          if (totalProb > 0) {
+            probYes = (rawProbs[optId] || 0) / totalProb;
+          } else {
+            probYes = 1 / (mOptions.length || 1);
+          }
+          
+          return direction === 'yes' ? probYes : (1 - probYes);
+        };
+
+        const profilesMap = new Map((profilesData || []).map((p: any) => [p.id, p]));
+
+        const mergedData = rpcData.map((u: any) => {
+          const profileInfo = profilesMap.get(u.user_id);
+          
+          // Calcular portfolio activo (dinámico)
+          let dynamicActiveValue = 0;
+          const userSharesList = allShares.filter((s: any) => s.user_id === u.user_id);
+          
+          userSharesList.forEach((share: any) => {
+            const opt = share.market_options;
+            const market = opt?.markets;
+            if (!market || !opt) return;
+
+            const marketStatus = String(market.status).toLowerCase();
+            if (!['active', 'pending'].includes(marketStatus)) return; // solo mercados activos
+
+            const syStr = share.shares_yes_owned !== undefined && share.shares_yes_owned !== null ? share.shares_yes_owned : (share.share_type === 'yes' ? share.shares : 0);
+            const snStr = share.shares_no_owned !== undefined && share.shares_no_owned !== null ? share.shares_no_owned : (share.share_type === 'no' ? share.shares : 0);
+            const sy = parseFloat(String(syStr)) || 0;
+            const sn = parseFloat(String(snStr)) || 0;
+
+            if (sy > 0) dynamicActiveValue += sy * getNormalizedPrice(opt.id, 'yes');
+            if (sn > 0) dynamicActiveValue += sn * getNormalizedPrice(opt.id, 'no');
+          });
+
+          return {
+            ...u,
+            points: profileInfo?.points ?? u.points ?? 0,
+            portfolio_value: dynamicActiveValue
+          };
+        });
+
+        setUsers(mergedData as LeaderboardUser[]);
+      } else {
+        setUsers([]);
+      }
     } else {
       console.error("Error cargando ranking:", error?.message || error);
     }
@@ -58,8 +144,12 @@ export default function RankingPage() {
   }, [timeframe]); 
 
   const topROI = useMemo(() => [...users].sort((a, b) => b.roi - a.roi).slice(0, 100), [users]);
-  const topPortfolio = useMemo(() => [...users].sort((a, b) => b.portfolio_value - a.portfolio_value).slice(0, 10), [users]);
-  const topVolume = useMemo(() => [...users].sort((a, b) => b.total_volume - a.total_volume).slice(0, 10), [users]);
+  const topPortfolio = useMemo(() => [...users].sort((a, b) => {
+    const totalA = Number(a.points || 0) + Number(a.portfolio_value || 0);
+    const totalB = Number(b.points || 0) + Number(b.portfolio_value || 0);
+    return totalB - totalA;
+  }).slice(0, 10), [users]);
+  const topVolume = useMemo(() => [...users].sort((a, b) => Number(b.portfolio_value || 0) - Number(a.portfolio_value || 0)).slice(0, 10), [users]);
 
   const renderRankBadge = (index: number) => {
     if (index === 0) return <div className="w-6 h-6 md:w-8 md:h-8 rounded-full bg-amber-500/20 text-amber-500 flex items-center justify-center font-bold text-xs md:text-sm shrink-0 shadow-[0_0_10px_rgba(245,158,11,0.2)]"><Medal className="w-3 h-3 md:w-4 md:h-4" /></div>;
@@ -243,7 +333,7 @@ export default function RankingPage() {
                                   {isMe && <Badge className="bg-primary text-primary-foreground text-[9px] px-1.5 py-0 uppercase h-4">Vos</Badge>}
                                 </span>
                                 <span className="text-[10px] md:text-xs font-medium text-muted-foreground">
-                                  {user.portfolio_value.toLocaleString()} pts totales
+                                  {Math.floor(Number(user.points || 0) + Number(user.portfolio_value || 0)).toLocaleString('es-AR')} pts totales
                                 </span>
                               </div>
                             </div>
@@ -289,7 +379,7 @@ export default function RankingPage() {
                           </div>
                           <span className="font-semibold text-sm text-foreground truncate">{user.username}</span>
                         </div>
-                        <span className="font-bold text-xs text-amber-600 dark:text-amber-500">{user.portfolio_value.toLocaleString()} pts</span>
+                        <span className="font-bold text-xs text-amber-600 dark:text-amber-500">{Math.floor(Number(user.points || 0) + Number(user.portfolio_value || 0)).toLocaleString('es-AR')} pts</span>
                       </div>
                     </Link>
                   ))}
@@ -301,7 +391,7 @@ export default function RankingPage() {
                   <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-500 shrink-0">
                     <BarChart3 className="w-4 h-4" />
                   </div>
-                  <h3 className="font-bold text-foreground">Top Volumen</h3>
+                  <h3 className="font-bold text-foreground">Top Inversiones</h3>
                 </div>
                 <div className="p-3 space-y-1 overflow-y-auto max-h-[350px] scrollbar-thin scrollbar-thumb-border">
                   {topVolume.map((user, i) => (
@@ -314,7 +404,7 @@ export default function RankingPage() {
                           </div>
                           <span className="font-semibold text-sm text-foreground truncate">{user.username}</span>
                         </div>
-                        <span className="font-bold text-xs text-blue-600 dark:text-blue-400">{user.total_volume.toLocaleString()} pts</span>
+                        <span className="font-bold text-xs text-blue-600 dark:text-blue-400">{Math.floor(Number(user.portfolio_value || 0)).toLocaleString('es-AR')} pts</span>
                       </div>
                     </Link>
                   ))}

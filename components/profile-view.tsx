@@ -594,20 +594,38 @@ export function ProfileView({ userId }: { userId?: string }) {
     setTimeout(() => setIsCopied(false), 2000);
   };
 
+  const allActivePositions = useMemo(() => filteredAndSortedPositions.filter(p => p.status === 'active'), [filteredAndSortedPositions]);
+  const allClosedPositions = useMemo(() => filteredAndSortedPositions.filter(p => p.status !== 'active'), [filteredAndSortedPositions]);
+
+  const predictionsPlayed = useMemo(() => new Set(transactions.map(tx => tx.market_id || tx.markets?.id || tx.market?.id).filter(Boolean)).size, [transactions]);
+
+  const bestPredictionValue = useMemo(() => {
+    if (allClosedPositions.length === 0) return 0;
+    return Math.max(...allClosedPositions.map(pos => {
+      const shares = Number(pos.shares) || 0;
+      const avgPrice = Number(pos.avg_price) || 0;
+      const totalInvestment = shares * avgPrice;
+      const realizedPnl = Number(pos.realized_pnl) || 0;
+      return totalInvestment + realizedPnl;
+    }));
+  }, [allClosedPositions]);
+
+  const totalActiveValue = useMemo(() => {
+    return allActivePositions.reduce((sum, pos) => {
+      const currentPrice = getNormalizedPrice(pos.outcome, pos.direction || 'yes');
+      const currentValue = pos.shares * currentPrice;
+      return sum + currentValue;
+    }, 0);
+  }, [allActivePositions, getNormalizedPrice]);
+
   // NUEVO: Portfolio Stats optimizado con Matemática AMM
   const portfolioStats = useMemo(() => {
-    const availableCapital = profile?.points ?? 0;
+    const availableCapital = Number(profile?.points || 0);
+    const activeValue = Number(totalActiveValue || 0);
 
-    const totalCurrentValueActive = portfolioPositions
-      .filter(p => p.status === 'active')
-      .reduce((acc, pos) => {
-        const val = pos.shares * getNormalizedPrice(pos.outcome, pos.direction || 'yes');
-        return acc + val;
-      }, 0);
-
-    const totalPortfolioValue = availableCapital + totalCurrentValueActive;
-    return { availableCapital, totalPortfolioValue, lockedValueOffset: totalCurrentValueActive };
-  }, [portfolioPositions, profile?.points, marketOptions, getNormalizedPrice]);
+    const totalPortfolioValue = availableCapital + activeValue;
+    return { availableCapital, totalPortfolioValue, lockedValueOffset: activeValue };
+  }, [profile?.points, totalActiveValue]);
 
   const processedTransactions = useMemo(() => {
     if (!transactions.length) return [];
@@ -762,29 +780,7 @@ export function ProfileView({ userId }: { userId?: string }) {
     return { value: val, percentage: pct };
   }, [chartData, portfolioStats.totalPortfolioValue]);
 
-  const allActivePositions = useMemo(() => filteredAndSortedPositions.filter(p => p.status === 'active'), [filteredAndSortedPositions]);
-  const allClosedPositions = useMemo(() => filteredAndSortedPositions.filter(p => p.status !== 'active'), [filteredAndSortedPositions]);
-
-  const predictionsPlayed = useMemo(() => new Set(transactions.map(tx => tx.market_id || tx.markets?.id || tx.market?.id).filter(Boolean)).size, [transactions]);
-
-  const bestPredictionValue = useMemo(() => {
-    if (allClosedPositions.length === 0) return 0;
-    return Math.max(...allClosedPositions.map(pos => {
-      const shares = Number(pos.shares) || 0;
-      const avgPrice = Number(pos.avg_price) || 0;
-      const totalInvestment = shares * avgPrice;
-      const realizedPnl = Number(pos.realized_pnl) || 0;
-      return totalInvestment + realizedPnl;
-    }));
-  }, [allClosedPositions]);
-
-  const totalActiveValue = useMemo(() => {
-    return allActivePositions.reduce((sum, pos) => {
-      const currentPrice = getNormalizedPrice(pos.outcome, pos.direction || 'yes');
-      const currentValue = pos.shares * currentPrice;
-      return sum + currentValue;
-    }, 0);
-  }, [allActivePositions, getNormalizedPrice]);
+  // (Movido hacia arriba para que portfolioStats y chartData lo puedan consumir)
 
   const confirmSell = async () => {
     if (!betToSell) return;
@@ -940,7 +936,7 @@ export function ProfileView({ userId }: { userId?: string }) {
                     <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Portfolio Total</p>
                     <Wallet className="w-5 h-5 text-primary opacity-80" />
                   </div>
-                  <p className="text-3xl font-black text-foreground">{portfolioStats.totalPortfolioValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} pts</p>
+                  <p className="text-3xl font-black text-foreground">{portfolioStats.totalPortfolioValue.toLocaleString('es-AR', { maximumFractionDigits: 0 })} pts</p>
                 </div>
 
                 <div className="bg-card border border-border/50 rounded-2xl p-5 shadow-sm flex flex-col justify-between">
@@ -1035,7 +1031,7 @@ export function ProfileView({ userId }: { userId?: string }) {
                           <Wallet className="w-3.5 h-3.5 text-primary" /> PORTFOLIO
                         </div>
                         <div className="text-2xl leading-none font-black tracking-tighter text-foreground text-right">
-                          {portfolioStats.totalPortfolioValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} <span className="text-xs font-bold opacity-50 tracking-tight">pts</span>
+                          {portfolioStats.totalPortfolioValue.toLocaleString('es-AR', { maximumFractionDigits: 0 })} <span className="text-xs font-bold opacity-50 tracking-tight">pts</span>
                         </div>
                       </div>
 
