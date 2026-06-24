@@ -28,7 +28,7 @@ interface LeaderboardUser {
   roi: number; 
 }
 
-type TimeframeType = '1W' | '1M' | '1Y' | 'ALL';
+type TimeframeType = '1D' | '1W' | '1M' | 'ALL';
 
 export default function RankingPage() {
   const router = useRouter();
@@ -304,17 +304,17 @@ export default function RankingPage() {
                       </div>
                     </div>
 
-                    <div className="flex bg-muted/50 p-1 rounded-xl border border-border/30 w-full md:w-auto overflow-x-auto">
-                      {(['1W', '1M', '1Y', 'ALL'] as TimeframeType[]).map((tf) => (
+                    <div className="flex bg-muted/50 p-1 rounded-xl border border-border/30 w-full sm:w-auto overflow-x-auto">
+                      {(['1D', '1W', '1M', 'ALL'] as TimeframeType[]).map((tf) => (
                         <button 
                           key={tf} 
                           onClick={() => setTimeframe(tf)} 
                           className={cn(
-                            "px-4 py-2 text-xs font-bold rounded-lg transition-all whitespace-nowrap flex-1 md:flex-none", 
+                            "px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap flex-1 sm:flex-none", 
                             timeframe === tf ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
                           )}
                         >
-                          {tf === '1W' ? 'Semana' : tf === '1M' ? 'Mes' : tf === '1Y' ? 'Año' : 'Histórico'}
+                          {tf}
                         </button>
                       ))}
                     </div>

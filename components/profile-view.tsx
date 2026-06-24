@@ -33,14 +33,12 @@ const ACTIVE_STATUSES = ["active", "pending"];
 const FINISHED_STATUSES = ["resolved", "rejected"];
 const INITIAL_BALANCE = 10000;
 
-type TimeframeType = '1D' | '1W' | '1M' | '6M' | '1Y' | 'ALL';
+type TimeframeType = '1D' | '1W' | '1M' | 'ALL';
 
 const timeframeLabels: Record<TimeframeType, string> = {
   '1D': 'últimas 24hs',
   '1W': 'última semana',
   '1M': 'último mes',
-  '6M': 'últimos 6 meses',
-  '1Y': 'último año',
   'ALL': 'Histórico'
 };
 
@@ -673,18 +671,6 @@ export function ProfileView({ userId }: { userId?: string }) {
       for (let i = 7; i >= 0; i--) timestamps.push(now - i * 86400 * 1000);
     } else if (timeframe === '1M') {
       for (let i = 30; i >= 0; i--) timestamps.push(now - i * 86400 * 1000);
-    } else if (timeframe === '6M') {
-      for (let i = 6; i >= 0; i--) {
-        const d = new Date(now);
-        d.setMonth(d.getMonth() - i);
-        timestamps.push(d.getTime());
-      }
-    } else if (timeframe === '1Y') {
-      for (let i = 12; i >= 0; i--) {
-        const d = new Date(now);
-        d.setMonth(d.getMonth() - i);
-        timestamps.push(d.getTime());
-      }
     } else if (timeframe === 'ALL') {
       const diff = now - startTimeForAll;
       const steps = Math.max(1, Math.ceil(diff / (30 * 86400 * 1000)));
@@ -1073,9 +1059,9 @@ export function ProfileView({ userId }: { userId?: string }) {
                       </div>
                     </div>
 
-                    <div className="flex bg-muted/50 p-1 rounded-xl backdrop-blur-md border border-border/30 w-full md:w-auto overflow-x-auto scrollbar-none">
-                      {(['1D', '1W', '1M', '6M', '1Y', 'ALL'] as TimeframeType[]).map((tf) => (
-                        <button key={tf} onClick={() => setTimeframe(tf)} className={cn("px-3 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-xs font-bold rounded-lg transition-all whitespace-nowrap flex-1 md:flex-none", timeframe === tf ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>
+                    <div className="flex bg-muted/50 p-1 rounded-xl border border-border/30 w-full sm:w-auto overflow-x-auto">
+                      {(['1D', '1W', '1M', 'ALL'] as TimeframeType[]).map((tf) => (
+                        <button key={tf} onClick={() => setTimeframe(tf)} className={cn("px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap flex-1 sm:flex-none", timeframe === tf ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>
                           {tf}
                         </button>
                       ))}
