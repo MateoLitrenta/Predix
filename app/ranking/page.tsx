@@ -12,7 +12,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Trophy, Medal, User, Loader2, ArrowLeft, BarChart3, Wallet, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useTheme } from "@/components/theme-provider";
+import { useSearchParams } from 'next/navigation';
+import { useTheme } from "next-themes";
+import { calculateUserROI } from "@/lib/utils/roi";
+import { getMultipleUsersBaseCapital } from "@/lib/utils/capital";
 
 interface LeaderboardUser {
   user_id: string;
@@ -65,6 +68,9 @@ export default function RankingPage() {
           .from('user_shares')
           .select('*, market_options(*, markets(*))')
           .in('user_id', userIds);
+
+        // 4. Fetch Base Capitals via RPC
+        const baseCapitalsMap = await getMultipleUsersBaseCapital(supabase, userIds, selectedTimeframe);
 
         const allOptions = optionsData || [];
         const allShares = sharesData || [];
@@ -122,10 +128,17 @@ export default function RankingPage() {
             if (sn > 0) dynamicActiveValue += sn * getNormalizedPrice(opt.id, 'no');
           });
 
+          const dynamicPoints = profileInfo?.points ?? u.points ?? 0;
+          const totalPortfolio = Number(dynamicPoints) + Number(dynamicActiveValue);
+          
+          const baseCapital = baseCapitalsMap[u.user_id] || 10000;
+          const { percentage: dynamicRoi } = calculateUserROI(totalPortfolio, baseCapital);
+
           return {
             ...u,
-            points: profileInfo?.points ?? u.points ?? 0,
-            portfolio_value: dynamicActiveValue
+            points: dynamicPoints,
+            portfolio_value: dynamicActiveValue,
+            roi: dynamicRoi
           };
         });
 
@@ -149,7 +162,7 @@ export default function RankingPage() {
     const totalB = Number(b.points || 0) + Number(b.portfolio_value || 0);
     return totalB - totalA;
   }).slice(0, 10), [users]);
-  const topVolume = useMemo(() => [...users].sort((a, b) => Number(b.portfolio_value || 0) - Number(a.portfolio_value || 0)).slice(0, 10), [users]);
+  const topVolume = useMemo(() => [...users].sort((a, b) => Number(b.portfolio_value) - Number(a.portfolio_value)).slice(0, 10), [users]);
 
   const renderRankBadge = (index: number) => {
     if (index === 0) return <div className="w-6 h-6 md:w-8 md:h-8 rounded-full bg-amber-500/20 text-amber-500 flex items-center justify-center font-bold text-xs md:text-sm shrink-0 shadow-[0_0_10px_rgba(245,158,11,0.2)]"><Medal className="w-3 h-3 md:w-4 md:h-4" /></div>;

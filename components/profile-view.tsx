@@ -23,7 +23,9 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Coins, User as UserIcon, ArrowLeft, Loader2, TrendingUp, History, Pencil, Landmark, Lock, LineChart, CheckCircle2, XCircle, MinusCircle, Gift, Copy, Check, Users, Wallet, CalendarDays, ChevronRight, ArrowDownRight, ArrowUpRight, Search, ChevronDown } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { useTheme } from "@/components/theme-provider";
+import { useTheme } from "next-themes";
+import { calculateUserROI } from "@/lib/utils/roi";
+import { getUserBaseCapital } from "@/lib/utils/capital";
 
 import { ResponsiveContainer, AreaChart, Area, Tooltip, XAxis, YAxis } from "recharts";
 
@@ -414,8 +416,8 @@ export function ProfileView({ userId }: { userId?: string }) {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isChangingPassword, setIsChangingPassword] = useState(false);
-
   const [timeframe, setTimeframe] = useState<TimeframeType>('ALL');
+  const [baseCapital, setBaseCapital] = useState<number>(10000);
   const [referralLink, setReferralLink] = useState("");
   const [isCopied, setIsCopied] = useState(false);
   const [referredUsers, setReferredUsers] = useState<any[]>([]);
@@ -586,6 +588,12 @@ export function ProfileView({ userId }: { userId?: string }) {
   }, [router, userId, supabase]);
 
   useEffect(() => { if (profile?.id) fetchUserData(); }, [profile?.id, fetchUserData]);
+
+  useEffect(() => {
+    if (profile?.id) {
+      getUserBaseCapital(supabase, profile.id, timeframe).then(setBaseCapital);
+    }
+  }, [profile?.id, timeframe, supabase]);
 
   const handleCopyLink = () => {
     navigator.clipboard.writeText(referralLink);
@@ -762,23 +770,27 @@ export function ProfileView({ userId }: { userId?: string }) {
       return { timestamp: ts, value: Math.max(0, liquidAtTs + activeInvestmentAtTs) };
     });
 
+    // FORZAR el valor actual en vivo para el último tick del gráfico (evita desplomes visuales)
+    if (data.length > 0) {
+      const liveTotal = Number(profile?.points || 0) + Number(totalActiveValue || 0);
+      data[data.length - 1].value = liveTotal;
+    }
+
     return data;
-  }, [transactions, timeframe, profile, bets, getNormalizedPrice, marketOptions]);
+  }, [transactions, timeframe, profile, bets, getNormalizedPrice, marketOptions, totalActiveValue]);
 
   const dynamicPnl = useMemo(() => {
     if (chartData.length < 2) return { value: 0, percentage: 0 };
 
-    const startValue = chartData[0].value;
-    const endValue = portfolioStats.totalPortfolioValue;
+    const startValue = baseCapital;
+    
+    // Sumamos explícitamente el saldo líquido y las inversiones activas
+    const totalLiquid = Number(profile?.points || 0);
+    const totalActive = Number(totalActiveValue || 0);
+    const endValue = totalLiquid + totalActive;
 
-    const val = endValue - startValue;
-
-    let divisor = startValue;
-    if (divisor === 0) divisor = INITIAL_BALANCE;
-    const pct = (val / Math.abs(divisor)) * 100;
-
-    return { value: val, percentage: pct };
-  }, [chartData, portfolioStats.totalPortfolioValue]);
+    return calculateUserROI(endValue, startValue);
+  }, [chartData, profile?.points, totalActiveValue, baseCapital]);
 
   // (Movido hacia arriba para que portfolioStats y chartData lo puedan consumir)
 
