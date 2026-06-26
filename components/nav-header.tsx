@@ -413,11 +413,6 @@ export function NavHeader({
                 </PopoverContent>
               </Popover>
             )}
-            <Button variant="ghost" size="icon" asChild className="h-9 w-9 text-primary hover:bg-primary/10 mr-1 shrink-0">
-              <Link href="/mundial" title="Mundial 2026">
-                <span className="text-xl animate-pulse">⚽</span>
-              </Link>
-            </Button>
 
             <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => setShowMobileMenu(!showMobileMenu)}>
               {showMobileMenu ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -435,7 +430,7 @@ export function NavHeader({
           />
 
           <div className="md:hidden absolute top-full left-0 w-full bg-background/95 backdrop-blur-xl border-b border-border/50 shadow-2xl overflow-hidden animate-in slide-in-from-top-2 duration-200 z-50">
-            <div className="p-4 space-y-4">
+            <div className="p-4 space-y-3">
 
               {userId ? (
                 <div className="flex items-center gap-4 p-4 rounded-xl bg-muted/30 border border-border/50">
@@ -457,61 +452,66 @@ export function NavHeader({
                 </Button>
               )}
 
-              <div className="grid grid-cols-3 gap-2">
-                <Button variant="outline" className="h-16 flex flex-col items-center justify-center gap-1 border-border/50 hover:bg-muted/50 rounded-xl bg-card" asChild>
-                  <Link href="/mundial" onClick={() => setShowMobileMenu(false)}>
-                    <span className="text-xl animate-pulse">⚽</span>
-                    <span className="text-[10px] font-bold mt-1 text-primary">Mundial 2026</span>
-                  </Link>
-                </Button>
+              <Button
+                onClick={userId ? handleClaimBonus : () => { setShowMobileMenu(false); onOpenAuthModal(); }}
+                disabled={isClaimingBonus}
+                variant="outline"
+                className={cn(
+                  "w-full h-14 flex items-center justify-center gap-2.5 rounded-xl border transition-all duration-300 shadow-sm font-bold text-base",
+                  bonusClaimed
+                    ? "bg-green-500/10 border-green-500/40 text-green-600 dark:text-green-400"
+                    : bonusError
+                    ? "bg-red-500/10 border-red-500/40 text-red-600 dark:text-red-400"
+                    : "border-primary/40 bg-primary/5 hover:bg-primary/10 text-primary"
+                )}
+              >
+                {isClaimingBonus ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span>Reclamando...</span>
+                  </>
+                ) : bonusClaimed ? (
+                  <>
+                    <Sparkles className="w-5 h-5 text-green-500" />
+                    <span>¡Bonus Reclamado! (+2000 pts)</span>
+                  </>
+                ) : bonusError ? (
+                  <span>Ya reclamaste tu bonus hoy</span>
+                ) : (
+                  <>
+                    <Gift className="w-5 h-5 text-primary" />
+                    <span>Bonus Diario</span>
+                  </>
+                )}
+              </Button>
 
-                <Button variant="outline" className="h-16 flex flex-col items-center justify-center gap-1 border-border/50 hover:bg-muted/50 rounded-xl bg-card" asChild>
-                  <Link href="/ranking" onClick={() => setShowMobileMenu(false)}>
-                    <Trophy className="w-5 h-5 text-amber-500" />
-                    <span className="text-xs font-semibold mt-1">Ranking</span>
-                  </Link>
-                </Button>
-
-                <Button onClick={userId ? handleClaimBonus : onOpenAuthModal} disabled={isClaimingBonus} variant="outline" className={cn("h-16 flex flex-col items-center justify-center gap-1 border-border/50 rounded-xl bg-card", bonusClaimed && "border-green-500/50 bg-green-500/10")}>
-                  {isClaimingBonus ? <Loader2 className="w-5 h-5 animate-spin" /> : <Gift className={cn("w-5 h-5", bonusClaimed ? "text-green-500" : "text-primary")} />}
-                  <span className="text-xs font-semibold mt-1">{bonusClaimed ? "¡Reclamado!" : "Bonus Diario"}</span>
-                </Button>
-              </div>
-
-              {userId && (
-                <div className="space-y-1 bg-muted/10 p-2 rounded-2xl border border-border/50">
+              <div className="space-y-1 bg-muted/10 p-2 rounded-2xl border border-border/50">
+                {isAdmin && (
                   <Button variant="ghost" className="w-full justify-start h-12 rounded-xl" asChild>
-                    <Link href="/profile" onClick={() => setShowMobileMenu(false)}>
-                      <UserCircle className="w-5 h-5 mr-3 text-muted-foreground" />
-                      <span className="text-sm font-medium">Mi Perfil (Portfolio)</span>
+                    <Link href="/admin" onClick={() => setShowMobileMenu(false)}>
+                      <ShieldCheck className="w-5 h-5 mr-3 text-amber-500" />
+                      <span className="text-sm font-medium">Panel de Control</span>
                     </Link>
                   </Button>
+                )}
 
-                  {isAdmin && (
-                    <Button variant="ghost" className="w-full justify-start h-12 rounded-xl" asChild>
-                      <Link href="/admin" onClick={() => setShowMobileMenu(false)}>
-                        <ShieldCheck className="w-5 h-5 mr-3 text-amber-500" />
-                        <span className="text-sm font-medium">Panel de Control</span>
-                      </Link>
-                    </Button>
-                  )}
-
-                  <div className="flex items-center justify-between px-4 py-2 my-1 border-y border-border/30">
-                    <div className="flex items-center gap-3">
-                      {isDarkMode ? <Moon className="w-5 h-5 text-muted-foreground" /> : <Sun className="w-5 h-5 text-muted-foreground" />}
-                      <span className="text-sm font-medium">Modo Oscuro</span>
-                    </div>
-                    <Button variant="ghost" size="icon" onClick={onToggleDarkMode} className="rounded-full h-8 w-8 bg-background border border-border/50 shadow-sm">
-                      {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-                    </Button>
+                <div className="flex items-center justify-between px-4 py-2 my-1">
+                  <div className="flex items-center gap-3">
+                    {isDarkMode ? <Moon className="w-5 h-5 text-muted-foreground" /> : <Sun className="w-5 h-5 text-muted-foreground" />}
+                    <span className="text-sm font-medium">Modo Oscuro</span>
                   </div>
+                  <Button variant="ghost" size="icon" onClick={onToggleDarkMode} className="rounded-full h-8 w-8 bg-background border border-border/50 shadow-sm">
+                    {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                  </Button>
+                </div>
 
-                  <Button onClick={() => { setShowMobileMenu(false); onSignOut(); }} variant="ghost" className="w-full justify-start h-12 text-red-500 hover:text-red-600 hover:bg-red-500/10 rounded-xl mt-1">
+                {userId && (
+                  <Button onClick={() => { setShowMobileMenu(false); onSignOut(); }} variant="ghost" className="w-full justify-start h-12 text-red-600 dark:text-red-500 hover:text-red-700 dark:hover:text-red-400 hover:bg-red-500/10 rounded-xl mt-1">
                     <LogOut className="w-5 h-5 mr-3" />
                     <span className="text-sm font-bold">Cerrar Sesión</span>
                   </Button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
         </>

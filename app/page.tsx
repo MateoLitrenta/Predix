@@ -370,7 +370,7 @@ export default function PredictionMarketDashboard() {
         )}
       </main>
 
-      <Button id="tour-create-btn-mobile" onClick={() => user ? setIsCreateModalOpen(true) : setIsAuthModalOpen(true)} className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-lg shadow-primary/30 hover:shadow-xl hover:shadow-primary/40 transition-all hover:scale-105 md:hidden z-40" size="icon">
+      <Button id="tour-create-btn-mobile" onClick={() => user ? setIsCreateModalOpen(true) : setIsAuthModalOpen(true)} className="fixed bottom-20 right-6 h-14 w-14 rounded-full shadow-lg shadow-primary/30 hover:shadow-xl hover:shadow-primary/40 transition-all hover:scale-105 md:hidden z-40" size="icon">
         <Plus className="w-6 h-6" />
       </Button>
 

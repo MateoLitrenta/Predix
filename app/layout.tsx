@@ -16,6 +16,7 @@ export const metadata: Metadata = {
 
 import { Toaster } from "@/components/ui/toaster";
 import { ThemeProvider } from "@/components/theme-provider";
+import { BottomNav } from "@/components/BottomNav";
 
 export default function RootLayout({
   children,
@@ -48,7 +49,10 @@ export default function RootLayout({
       </head>
       <body className={`${_geist.className} antialiased`}>
         <ThemeProvider>
-          {children}
+          <div className="pb-20 md:pb-0 min-h-screen flex flex-col">
+            {children}
+          </div>
+          <BottomNav />
           <Toaster />
           <Analytics />
         </ThemeProvider>
