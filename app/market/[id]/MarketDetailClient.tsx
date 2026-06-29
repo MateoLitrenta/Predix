@@ -220,7 +220,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
   const formattedLiquidez = Math.floor(totalMarketCollateral).toLocaleString('es-AR');
   const formattedVolumen = Math.floor(totalVolume).toLocaleString('es-AR');
 
-  // NUEVO: Cálculo de Precio AMM Normalizado
+  // NUEVO: Cálculo de Precio AMM con Normalización Visual para sumar 100%
   const rawProbabilities = useMemo(() => {
     return activeOptions.reduce((acc, opt) => {
       const py = Number(opt.pool_yes || 0);
@@ -229,7 +229,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       if (totalPool === 0) {
         acc[opt.id] = 1 / (activeOptions.length || 1);
       } else {
-        acc[opt.id] = pn / totalPool;
+        acc[opt.id] = Math.max(0.01, Math.min(0.99, pn / totalPool));
       }
       return acc;
     }, {} as Record<string, number>);
@@ -249,7 +249,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     return rawProb / totalImpliedProb;
   }, [rawProbabilities, totalImpliedProb, activeOptions.length]);
 
-  // NUEVO: Cálculo de Retorno Cuadrático (AMM)
+  // NUEVO: Cálculo de Retorno CPMM exacto (k = py * pn)
   const calculatePartialCashout = useCallback((optId: string, direction: string, sharesToSell: number) => {
     const opt = options.find(o => o.id === optId);
     if (!opt || sharesToSell <= 0 || !opt.pool_yes || !opt.pool_no) return 0;
@@ -259,13 +259,9 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     let payout = 0;
 
     if (direction === 'yes') {
-      const b = py + pn + sharesToSell;
-      const c = sharesToSell * pn;
-      payout = (b - Math.sqrt(b * b - 4 * c)) / 2;
+      payout = (pn * sharesToSell) / (py + sharesToSell);
     } else {
-      const b = py + pn + sharesToSell;
-      const c = sharesToSell * py;
-      payout = (b - Math.sqrt(b * b - 4 * c)) / 2;
+      payout = (py * sharesToSell) / (pn + sharesToSell);
     }
 
     return Math.floor(payout); // Redondeamos hacia abajo por seguridad del AMM
@@ -485,7 +481,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     const now = Date.now();
     const marketCreatedAt = new Date(market.created_at).getTime();
 
-    // 1. PUNTO GÉNESIS (Basado en el precio actual si no hay historia)
+    // 1. PUNTO GÉNESIS (Basado en precio con normalización visual si no hay historia)
     const genesisPoint: any = { timestamp: marketCreatedAt };
     const genesisRawProbs = options.reduce((acc, opt) => {
       const py = Number(opt.pool_yes || 0);
@@ -611,39 +607,50 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       .slice(0, 5);
   }, [activityFeed]);
 
-  // NUEVO: Simulador AMM en el Frontend
+  // NUEVO: Simulador AMM en el Frontend (sincronizado con el spot price visual)
   const orderSummary = useMemo(() => {
     if (!selectedOptionId || !betAmount || isNaN(Number(betAmount)) || Number(betAmount) <= 0) return null;
     const amount = Number(betAmount);
     const opt = options.find(o => o.id === selectedOptionId);
-    if (!opt || !opt.pool_yes || !opt.pool_no || !opt.liquidity_k) return null;
+    if (!opt) return null;
 
-    const py = Number(opt.pool_yes);
-    const pn = Number(opt.pool_no);
-    const k = Number(opt.liquidity_k);
     const isYes = selectedDirection === 'yes';
+    const spotPrice = Math.max(0.01, Math.min(0.99, isYes ? getOptionPrice(opt) : (1 - getOptionPrice(opt))));
 
-    let startPrice = 0;
+    // Curva CPMM virtual sincronizada al spot price real de la UI para estimar salida y slippage
+    const py = Number(opt.pool_yes || 10000);
+    const pn = Number(opt.pool_no || 10000);
+    const L = Math.max(20000, py + pn);
+
+    const effPn = spotPrice * L;
+    const effPy = (1 - spotPrice) * L;
+    const k = effPy * effPn;
+
     let shares = 0;
-
     if (isYes) {
-      startPrice = pn / (py + pn);
-      const newPn = pn + amount;
+      const newPn = effPn + amount;
       const newPyTarget = k / newPn;
-      shares = (py + amount) - newPyTarget;
+      shares = (effPy + amount) - newPyTarget;
     } else {
-      startPrice = py / (py + pn);
-      const newPy = py + amount;
+      const newPy = effPy + amount;
       const newPnTarget = k / newPy;
-      shares = (pn + amount) - newPnTarget;
+      shares = (effPn + amount) - newPnTarget;
     }
 
+    if (shares <= 0) return null;
+
     const avgPrice = amount / shares;
-    const slippage = ((avgPrice - startPrice) / startPrice) * 100;
+    const slippage = ((avgPrice - spotPrice) / spotPrice) * 100;
 
     const potentialPayout = shares;
     const potentialProfit = potentialPayout - amount;
     const roi = (potentialProfit / amount) * 100;
+
+    console.log("Auditoría AMM Simulador:", {
+      inversion: amount,
+      precioSpot: spotPrice,
+      accionesCalculadas: shares
+    });
 
     return {
       avgPriceCents: Math.round(avgPrice * 100),
@@ -653,7 +660,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       roi,
       slippage
     };
-  }, [betAmount, selectedOptionId, selectedDirection, options]);
+  }, [betAmount, selectedOptionId, selectedDirection, options, getOptionPrice]);
 
   if (isLoading) {
     return (

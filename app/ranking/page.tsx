@@ -75,29 +75,22 @@ export default function RankingPage() {
         const allOptions = optionsData || [];
         const allShares = sharesData || [];
 
-        // Lógica de cálculo AMM (exactamente igual a ProfileClient)
+        // Lógica de cálculo AMM con normalización visual
         const getNormalizedPrice = (optId: string, direction: string) => {
           const opt = allOptions.find((o: any) => o.id === optId);
           if (!opt || opt.is_eliminated) return 0;
           
           const mOptions = allOptions.filter((o: any) => o.market_id === opt.market_id && !o.is_eliminated);
-          
           const rawProbs = mOptions.reduce((acc: any, o: any) => {
             const py = Number(o.pool_yes || 0);
             const pn = Number(o.pool_no || 0);
             const totalPool = py + pn;
-            acc[o.id] = totalPool > 0 ? (pn / totalPool) : (1 / (mOptions.length || 1));
+            acc[o.id] = totalPool > 0 ? Math.max(0.01, Math.min(0.99, pn / totalPool)) : (1 / (mOptions.length || 1));
             return acc;
           }, {});
           
           const totalProb = Object.values(rawProbs).reduce((sum: any, p: any) => sum + p, 0) as number;
-          
-          let probYes = 0;
-          if (totalProb > 0) {
-            probYes = (rawProbs[optId] || 0) / totalProb;
-          } else {
-            probYes = 1 / (mOptions.length || 1);
-          }
+          let probYes = totalProb > 0 ? ((rawProbs[optId] || 0) / totalProb) : (1 / (mOptions.length || 1));
           
           return direction === 'yes' ? probYes : (1 - probYes);
         };

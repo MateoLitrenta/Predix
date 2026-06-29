@@ -28,20 +28,24 @@ export default async function Image({ params }: { params: Promise<{ id: string }
     )
   }
 
-  // Calculate AMM Current Values based on total_votes
+  // Calculate AMM Current Values with Visual Normalization
   const activeOptions = options.filter((o: any) => !o.is_eliminated);
-  const activeTotalVotes = activeOptions.reduce((acc: number, opt: any) => acc + Number(opt.total_votes || 0), 0);
+  const rawValues: Record<string, number> = {};
+  options.forEach((opt: any) => {
+    if (opt.is_eliminated) {
+       rawValues[opt.id] = 0;
+       return;
+    }
+    const py = Number(opt.pool_yes || 0);
+    const pn = Number(opt.pool_no || 0);
+    const totalPool = py + pn;
+    rawValues[opt.id] = totalPool > 0 ? Math.max(0.01, Math.min(0.99, pn / totalPool)) : (1 / (activeOptions.length || 1));
+  });
+  const totalRawValue = Object.values(rawValues).reduce((sum, v) => sum + v, 0);
 
   const currentValues: Record<string, number> = {};
   options.forEach((opt: any) => {
-    if (opt.is_eliminated) {
-       currentValues[opt.id] = 0;
-       return;
-    }
-    const totalActiveOpts = activeOptions.length || 2;
-    let price = (Number(opt.total_votes || 0) + 100.0) / (activeTotalVotes + (totalActiveOpts * 100.0));
-    price = Math.max(0.01, Math.min(0.99, price));
-    currentValues[opt.id] = price * 100;
+    currentValues[opt.id] = totalRawValue > 0 ? ((rawValues[opt.id] || 0) / totalRawValue) * 100 : 0;
   });
 
   const sortedOptions = [...options].sort((a: any, b: any) => (currentValues[b.id] || 0) - (currentValues[a.id] || 0));
