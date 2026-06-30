@@ -252,10 +252,13 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
   // NUEVO: Cálculo de Retorno CPMM exacto (k = py * pn)
   const calculatePartialCashout = useCallback((optId: string, direction: string, sharesToSell: number) => {
     const opt = options.find(o => o.id === optId);
-    if (!opt || sharesToSell <= 0 || !opt.pool_yes || !opt.pool_no) return 0;
+    if (!opt || sharesToSell <= 0) return 0;
 
-    const py = Number(opt.pool_yes);
-    const pn = Number(opt.pool_no);
+    let py = Number(opt.pool_yes != null ? opt.pool_yes : 5000);
+    let pn = Number(opt.pool_no != null ? opt.pool_no : 5000);
+    if (py <= 0 || isNaN(py)) py = 5000;
+    if (pn <= 0 || isNaN(pn)) pn = 5000;
+
     let payout = 0;
 
     if (direction === 'yes') {
@@ -607,49 +610,55 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       .slice(0, 5);
   }, [activityFeed]);
 
-  // NUEVO: Simulador AMM en el Frontend (sincronizado con el spot price visual)
+  // NUEVO: Simulador AMM en el Frontend (CPMM Estricto sobre pool_yes y pool_no vivos)
   const orderSummary = useMemo(() => {
     if (!selectedOptionId || !betAmount || isNaN(Number(betAmount)) || Number(betAmount) <= 0) return null;
     const amount = Number(betAmount);
     const opt = options.find(o => o.id === selectedOptionId);
     if (!opt) return null;
 
+    console.log("Liquidez real del pool:", opt.pool_yes, opt.pool_no);
+
+    let py = Number(opt.pool_yes != null ? opt.pool_yes : 5000);
+    let pn = Number(opt.pool_no != null ? opt.pool_no : 5000);
+    if (py <= 0 || isNaN(py)) py = 5000;
+    if (pn <= 0 || isNaN(pn)) pn = 5000;
+
+    const k = py * pn;
     const isYes = selectedDirection === 'yes';
-    const spotPrice = Math.max(0.01, Math.min(0.99, isYes ? getOptionPrice(opt) : (1 - getOptionPrice(opt))));
 
-    // Curva CPMM virtual sincronizada al spot price real de la UI para estimar salida y slippage
-    const py = Number(opt.pool_yes || 10000);
-    const pn = Number(opt.pool_no || 10000);
-    const L = Math.max(20000, py + pn);
-
-    const effPn = spotPrice * L;
-    const effPy = (1 - spotPrice) * L;
-    const k = effPy * effPn;
-
+    let startPrice = 0;
     let shares = 0;
+
     if (isYes) {
-      const newPn = effPn + amount;
+      startPrice = pn / (py + pn);
+      const newPn = pn + amount;
       const newPyTarget = k / newPn;
-      shares = (effPy + amount) - newPyTarget;
+      shares = (py + amount) - newPyTarget;
     } else {
-      const newPy = effPy + amount;
+      startPrice = py / (py + pn);
+      const newPy = py + amount;
       const newPnTarget = k / newPy;
-      shares = (effPn + amount) - newPnTarget;
+      shares = (pn + amount) - newPnTarget;
     }
 
     if (shares <= 0) return null;
 
     const avgPrice = amount / shares;
-    const slippage = ((avgPrice - spotPrice) / spotPrice) * 100;
+    const slippage = ((avgPrice - startPrice) / startPrice) * 100;
 
     const potentialPayout = shares;
     const potentialProfit = potentialPayout - amount;
     const roi = (potentialProfit / amount) * 100;
 
-    console.log("Auditoría AMM Simulador:", {
+    console.log("Auditoría AMM Simulador (CPMM Estricto):", {
       inversion: amount,
-      precioSpot: spotPrice,
-      accionesCalculadas: shares
+      poolYes: py,
+      poolNo: pn,
+      k: k,
+      precioSpot: startPrice,
+      accionesCalculadas: shares,
+      precioPromedio: avgPrice
     });
 
     return {
@@ -660,7 +669,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       roi,
       slippage
     };
-  }, [betAmount, selectedOptionId, selectedDirection, options, getOptionPrice]);
+  }, [betAmount, selectedOptionId, selectedDirection, options]);
 
   if (isLoading) {
     return (
@@ -1389,7 +1398,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                                     {isMarketClosed ? <><Lock className="w-4 h-4 mr-2 inline-block" /> Mercado Cerrado</> :
                                       isPlacingBet ? <><Loader2 className="w-4 h-4 mr-2 animate-spin inline-block" /> Procesando...</> :
                                         !user ? "Ingresar para Operar" :
-                                          `Comprar ${isBinaryYesNo ? (selectedDirection === 'yes' ? 'Sí' : 'No') : selectedOptName} por ${betAmount || 0} pts`}
+                                          `Comprar ${isBinaryYesNo ? selectedOptName : (selectedDirection === 'yes' ? 'Sí' : 'No')} por ${betAmount || 0} pts`}
                                   </span>
                                 </Button>
                               </>

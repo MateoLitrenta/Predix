@@ -20,6 +20,8 @@ interface MarketOption {
   color: string;
   total_votes: number;
   is_eliminated?: boolean;
+  pool_yes?: number;
+  pool_no?: number;
 }
 
 interface Market {

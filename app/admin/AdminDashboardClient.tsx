@@ -46,6 +46,8 @@ interface MarketOption {
   id: string;
   option_name: string;
   is_eliminated?: boolean;
+  pool_yes?: number;
+  pool_no?: number;
 }
 
 interface Market {
@@ -114,7 +116,7 @@ export default function AdminDashboardClient() {
   const fetchMarkets = async () => {
     const { data, error } = await supabase
       .from("markets")
-      .select('*, market_options(id, option_name, is_eliminated)')
+      .select('*, market_options(id, option_name, is_eliminated, pool_yes, pool_no)')
       .order("created_at", { ascending: false });
 
     if (error) {
