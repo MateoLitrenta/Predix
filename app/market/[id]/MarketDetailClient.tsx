@@ -1093,44 +1093,54 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                                     optionName = optionName.replace(/"/g, '');
                                   }
 
-                                  // Lógica estricta de búsqueda en transacciones pasadas
-                                  const tx = item;
-                                  const marketId = item.market_id || item.markets?.id || item.market?.id;
-                                  const outcome = optionName;
-                                  
-                                  if (item.type === 'sell') {
+                                  // Lógica ESTRICTA y certera para determinar la dirección del trade (SÍ o NO)
+                                  if (dbDirection === 'no' || dbDirection === 'NO' || dbDirection === 'No') {
+                                    txDirection = 'no';
+                                  } else if (dbDirection === 'yes' || dbDirection === 'YES' || dbDirection === 'Yes') {
+                                    txDirection = 'yes';
+                                  } else if (desc.includes('acciones de no en') || desc.includes('acciones de no -') || desc.includes('en contra')) {
+                                    txDirection = 'no';
+                                  } else if (desc.includes('acciones de sí en') || desc.includes('acciones de si en') || desc.includes('acciones de sí -') || desc.includes('acciones de si -') || desc.includes('a favor')) {
+                                    txDirection = 'yes';
+                                  } else if (optionName.toLowerCase() === 'no') {
+                                    txDirection = 'no';
+                                  } else if (optionName.toLowerCase() === 'sí' || optionName.toLowerCase() === 'si') {
+                                    txDirection = 'yes';
+                                  } else if (item.type === 'sell') {
+                                    // Búsqueda en compras pasadas para ventas antiguas donde la descripción no especifique SÍ/NO
+                                    const marketId = item.market_id || item.markets?.id || item.market?.id;
+                                    const outcome = optionName;
                                     const pastBuys = activityFeed.filter(t => {
                                       const pType = (t.type || "").toLowerCase();
                                       const pMarketId = t.market_id || t.markets?.id || t.market?.id;
-                                      return pType === 'buy' && pMarketId === marketId && new Date(t.created_at) < new Date(tx.created_at);
+                                      return pType === 'buy' && pMarketId === marketId && new Date(t.created_at) < new Date(item.created_at);
                                     }).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
                                     for (const pastTx of pastBuys) {
-                                       const pDesc = (pastTx.description || "").toLowerCase();
-                                       let pOutcome = extractName(pDesc) || '';
-                                       if (!pOutcome) {
-                                         if (pDesc.includes('en contra de')) {
-                                           pOutcome = pastTx.description.substring(pastTx.description.indexOf('en contra de') + 13).trim();
-                                         } else if (pDesc.includes('a favor de')) {
-                                           pOutcome = pastTx.description.substring(pastTx.description.indexOf('a favor de') + 11).trim();
-                                         } else {
-                                           pOutcome = 'unknown';
-                                         }
-                                       }
-                                       pOutcome = pOutcome.replace(/"/g, '').toLowerCase();
-                                       
-                                       if (pOutcome === outcome.toLowerCase()) {
-                                         if (pDesc.includes("en contra")) {
-                                           txDirection = "no";
-                                           break;
-                                         } else if (pDesc.includes("a favor")) {
-                                           txDirection = "yes";
-                                           break;
-                                         }
-                                       }
+                                      const pDesc = (pastTx.description || "").toLowerCase();
+                                      const pDir = pastTx.direction || pastTx.metadata?.direction;
+                                      let pOutcome = extractName(pastTx.description || "") || '';
+                                      if (!pOutcome) {
+                                        if (pDesc.includes('en contra de')) {
+                                          pOutcome = pastTx.description.substring(pastTx.description.indexOf('en contra de') + 13).trim();
+                                        } else if (pDesc.includes('a favor de')) {
+                                          pOutcome = pastTx.description.substring(pastTx.description.indexOf('a favor de') + 11).trim();
+                                        } else {
+                                          pOutcome = 'unknown';
+                                        }
+                                      }
+                                      pOutcome = pOutcome.replace(/"/g, '').toLowerCase();
+
+                                      if (pOutcome === outcome.toLowerCase()) {
+                                        if (pDir === 'no' || pDesc.includes("acciones de no") || pDesc.includes("en contra") || pOutcome === 'no') {
+                                          txDirection = "no";
+                                          break;
+                                        } else if (pDir === 'yes' || pDesc.includes("acciones de sí") || pDesc.includes("acciones de si") || pDesc.includes("a favor") || pOutcome === 'sí' || pOutcome === 'si') {
+                                          txDirection = "yes";
+                                          break;
+                                        }
+                                      }
                                     }
-                                  } else {
-                                    txDirection = desc.includes("en contra") ? "no" : "yes";
                                   }
 
                                   const actionWord = item.type === 'buy' ? 'compró' : 'vendió';
@@ -1151,7 +1161,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                                     <div className="flex items-center gap-1.5 flex-wrap">
                                       <span className="font-semibold text-sm cursor-pointer hover:text-primary transition-colors text-foreground" onClick={() => openUserProfile(item.user_id, item.profiles?.username || "Usuario")}>{item.profiles?.username || "Usuario"}</span>
                                       <span className="text-sm text-muted-foreground">
-                                        {actionWord} <span className="font-medium text-foreground">{formattedShares}</span> acciones {(directionElement && !isOptionNameRedundant) ? <>de {directionElement} - </> : "de "}<span className="font-medium text-foreground">{optionName}</span> a <span className="font-medium text-foreground">{formattedPrice}</span>
+                                        {actionWord} <span className="font-medium text-foreground">{formattedShares}</span> acciones {directionElement ? (isOptionNameRedundant ? <>de {directionElement}</> : <>de {directionElement} - <span className="font-medium text-foreground">{optionName}</span></>) : <>de <span className="font-medium text-foreground">{optionName}</span></>} a <span className="font-medium text-foreground">{formattedPrice}</span>
                                       </span>
                                     </div>
                                   ) : (

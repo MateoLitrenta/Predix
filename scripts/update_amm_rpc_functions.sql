@@ -140,7 +140,7 @@ BEGIN
     'buy', 
     ROUND(p_investment_amount), 
     v_shares, 
-    'Compró ' || ROUND(v_shares, 2) || ' acciones en "' || v_option_name || '"'
+    'Compró ' || ROUND(v_shares, 2) || CASE WHEN p_buy_yes THEN ' acciones de SÍ en "' ELSE ' acciones de NO en "' END || v_option_name || '"'
   );
 
   RETURN json_build_object(
@@ -253,7 +253,7 @@ BEGIN
     'sell', 
     v_payout, 
     p_shares_to_sell, 
-    'Vendió ' || ROUND(p_shares_to_sell, 2) || ' acciones en "' || v_option_name || '"'
+    'Vendió ' || ROUND(p_shares_to_sell, 2) || CASE WHEN p_sell_yes THEN ' acciones de SÍ en "' ELSE ' acciones de NO en "' END || v_option_name || '"'
   );
 
   RETURN json_build_object(
