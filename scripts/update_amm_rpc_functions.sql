@@ -63,12 +63,12 @@ BEGIN
   END IF;
 
   -- 4. Matemática CPMM Exacta e Infalible con k dinámico
-  v_py := COALESCE(v_option.pool_yes, 5000);
-  v_pn := COALESCE(v_option.pool_no, 5000);
+  v_py := COALESCE(v_option.pool_yes, 50000);
+  v_pn := COALESCE(v_option.pool_no, 50000);
   
   IF v_py <= 0 OR v_pn <= 0 THEN
-    v_py := 5000;
-    v_pn := 5000;
+    v_py := 50000;
+    v_pn := 50000;
   END IF;
 
   v_k := v_py * v_pn;
@@ -202,11 +202,11 @@ BEGIN
     RETURN json_build_object('success', false, 'error', 'Acciones insuficientes para vender');
   END IF;
 
-  v_py := COALESCE(v_option.pool_yes, 5000);
-  v_pn := COALESCE(v_option.pool_no, 5000);
+  v_py := COALESCE(v_option.pool_yes, 50000);
+  v_pn := COALESCE(v_option.pool_no, 50000);
   IF v_py <= 0 OR v_pn <= 0 THEN
-    v_py := 5000;
-    v_pn := 5000;
+    v_py := 50000;
+    v_pn := 50000;
   END IF;
 
   IF p_sell_yes THEN

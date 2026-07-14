@@ -240,7 +240,7 @@ export async function updateMarket(marketId: string, params: { title: string; de
   return { ok: true, error: null };
 }
 
-export async function createMarket(params: { title: string; description: string | null; category: string; end_date: string; created_by: string; options?: string[]; is_world_cup?: boolean }) {
+export async function createMarket(params: { title: string; description: string | null; category: string; end_date: string; created_by: string; options?: string[]; is_world_cup?: boolean; initial_liquidity?: number }) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user || user.id !== params.created_by) return { ok: false, error: "No autorizado" };
@@ -263,18 +263,21 @@ export async function createMarket(params: { title: string; description: string 
 
   if (marketError) return { ok: false, error: marketError.message };
 
+  const initialLiquidity = params.initial_liquidity || 50000;
+  const liquidityK = initialLiquidity * initialLiquidity;
+
   if (params.options && params.options.length > 0) {
     const colors = ['#0ea5e9', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
-    const optionsToInsert = params.options.map((opt, index) => ({ market_id: marketData.id, option_name: opt, color: colors[index % colors.length], total_votes: 0, pool_yes: 5000, pool_no: 5000, liquidity_k: 25000000 }));
+    const optionsToInsert = params.options.map((opt, index) => ({ market_id: marketData.id, option_name: opt, color: colors[index % colors.length], total_votes: 0, pool_yes: initialLiquidity, pool_no: initialLiquidity, liquidity_k: liquidityK }));
     await supabase.from("market_options").insert(optionsToInsert);
   } else {
-    await supabase.from("market_options").insert([{ market_id: marketData.id, option_name: 'Sí', color: '#0ea5e9', total_votes: 0, pool_yes: 5000, pool_no: 5000, liquidity_k: 25000000 }, { market_id: marketData.id, option_name: 'No', color: '#ef4444', total_votes: 0, pool_yes: 5000, pool_no: 5000, liquidity_k: 25000000 }]);
+    await supabase.from("market_options").insert([{ market_id: marketData.id, option_name: 'Sí', color: '#0ea5e9', total_votes: 0, pool_yes: initialLiquidity, pool_no: initialLiquidity, liquidity_k: liquidityK }, { market_id: marketData.id, option_name: 'No', color: '#ef4444', total_votes: 0, pool_yes: initialLiquidity, pool_no: initialLiquidity, liquidity_k: liquidityK }]);
   }
 
   return { ok: true, error: null };
 }
 
-export async function createAdminMarket(params: { title: string; description: string | null; category: string; end_date: string; image_url?: string | null; options?: string[]; is_world_cup?: boolean }) {
+export async function createAdminMarket(params: { title: string; description: string | null; category: string; end_date: string; image_url?: string | null; options?: string[]; is_world_cup?: boolean; initial_liquidity?: number }) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -303,18 +306,21 @@ export async function createAdminMarket(params: { title: string; description: st
 
   if (marketError) return { ok: false, error: marketError.message };
 
+  const initialLiquidity = params.initial_liquidity || 50000;
+  const liquidityK = initialLiquidity * initialLiquidity;
+
   // 2. Crear las opciones y obtener sus IDs
   let insertedOptions = [];
   if (params.options && params.options.length > 0) {
     const colors = ['#0ea5e9', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
-    const optionsToInsert = params.options.map((opt, index) => ({ market_id: marketData.id, option_name: opt, color: colors[index % colors.length], total_votes: 0, pool_yes: 5000, pool_no: 5000, liquidity_k: 25000000 }));
+    const optionsToInsert = params.options.map((opt, index) => ({ market_id: marketData.id, option_name: opt, color: colors[index % colors.length], total_votes: 0, pool_yes: initialLiquidity, pool_no: initialLiquidity, liquidity_k: liquidityK }));
 
     const { data } = await supabase.from("market_options").insert(optionsToInsert).select("*");
     if (data) insertedOptions = data;
   } else {
     const { data } = await supabase.from("market_options").insert([
-      { market_id: marketData.id, option_name: 'Sí', color: '#0ea5e9', total_votes: 0, pool_yes: 5000, pool_no: 5000, liquidity_k: 25000000 },
-      { market_id: marketData.id, option_name: 'No', color: '#ef4444', total_votes: 0, pool_yes: 5000, pool_no: 5000, liquidity_k: 25000000 }
+      { market_id: marketData.id, option_name: 'Sí', color: '#0ea5e9', total_votes: 0, pool_yes: initialLiquidity, pool_no: initialLiquidity, liquidity_k: liquidityK },
+      { market_id: marketData.id, option_name: 'No', color: '#ef4444', total_votes: 0, pool_yes: initialLiquidity, pool_no: initialLiquidity, liquidity_k: liquidityK }
     ]).select("*");
     if (data) insertedOptions = data;
   }
@@ -328,12 +334,12 @@ export async function createAdminMarket(params: { title: string; description: st
       const { error: rpcError } = await supabase.rpc("initialize_amm_market", {
         p_market_option_id: opt.id,
         p_treasury_user_id: "2baab0f5-2082-4044-bea2-b3c270d55ee2", // ID de Morfeo
-        p_liquidity_points: 5000,
+        p_liquidity_points: initialLiquidity,
         p_initial_prob: initialProb
       });
 
       if (!rpcError) {
-        totalInjected += 5000;
+        totalInjected += initialLiquidity;
       } else {
         console.error(`Error fondeando opción ${opt.id}:`, rpcError);
       }

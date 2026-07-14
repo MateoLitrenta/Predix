@@ -57,12 +57,23 @@ export function LightweightChart({ data, options, marketCreatedAt, chartTimefram
         timeVisible: true,
         secondsVisible: false,
         rightOffset: 25,
+        tickMarkFormatter: (time: Time, tickMarkType: number) => {
+          const date = new Date((time as number) * 1000);
+          if (tickMarkType === 0) return date.getFullYear().toString();
+          if (tickMarkType === 1) return date.toLocaleDateString('es-AR', { month: 'short' });
+          if (tickMarkType === 2) return date.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' });
+          return date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+        },
       },
       localization: {
         locale: 'es-AR',
         priceFormatter: (price: number) => {
           const rounded = price.toFixed(1);
           return rounded.endsWith('.0') ? `${Math.round(price)}%` : `${rounded}%`;
+        },
+        timeFormatter: (time: Time) => {
+          const date = new Date((time as number) * 1000);
+          return date.toLocaleString('es-AR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
         },
       },
       handleScroll: {

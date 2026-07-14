@@ -84,9 +84,9 @@ export default function AdminDashboardClient() {
   const [isCreating, setIsCreating] = useState(false);
 
   const [createForm, setCreateForm] = useState<{
-    title: string; description: string; category: string; end_date: string; image_url: string; marketType: "binary" | "multiple"; options: string[]; is_world_cup: boolean;
+    title: string; description: string; category: string; end_date: string; image_url: string; marketType: "binary" | "multiple"; options: string[]; is_world_cup: boolean; initial_liquidity: number;
   }>({
-    title: "", description: "", category: "politica", end_date: "", image_url: "", marketType: "binary", options: ["", ""], is_world_cup: false
+    title: "", description: "", category: "politica", end_date: "", image_url: "", marketType: "binary", options: ["", ""], is_world_cup: false, initial_liquidity: 50000
   });
 
   const [resolvingMarket, setResolvingMarket] = useState<Market | null>(null);
@@ -223,7 +223,8 @@ export default function AdminDashboardClient() {
       end_date: createForm.end_date,
       image_url: createForm.image_url.trim() || null,
       options: finalOptions,
-      is_world_cup: createForm.is_world_cup
+      is_world_cup: createForm.is_world_cup,
+      initial_liquidity: Number(createForm.initial_liquidity) || 50000
     });
 
     setIsCreating(false);
@@ -233,7 +234,7 @@ export default function AdminDashboardClient() {
     } else {
       toast({ title: "Mercado Activo", description: "Mercado creado y fondeado por Morfeo." });
       setIsCreateModalOpen(false);
-      setCreateForm({ title: "", description: "", category: "politica", end_date: "", image_url: "", marketType: "binary", options: ["", ""], is_world_cup: false });
+      setCreateForm({ title: "", description: "", category: "politica", end_date: "", image_url: "", marketType: "binary", options: ["", ""], is_world_cup: false, initial_liquidity: 50000 });
       await fetchMarkets();
     }
   };
@@ -252,19 +253,26 @@ export default function AdminDashboardClient() {
       try {
         const { data: options } = await supabase
           .from("market_options")
-          .select("id")
+          .select("id, pool_yes")
           .eq("market_id", marketId);
 
         if (options && options.length > 0) {
           const initialProb = Number((1 / options.length).toFixed(4));
+          let totalInjected = 0;
 
           for (const opt of options) {
+            const optLiquidity = Number(opt.pool_yes) || 50000;
             await supabase.rpc("initialize_amm_market", {
               p_market_option_id: opt.id,
               p_treasury_user_id: "2baab0f5-2082-4044-bea2-b3c270d55ee2", // ID de Morfeo
-              p_liquidity_points: 5000,
+              p_liquidity_points: optLiquidity,
               p_initial_prob: initialProb
             });
+            totalInjected += optLiquidity;
+          }
+
+          if (totalInjected > 0) {
+            await supabase.from("markets").update({ total_volume: totalInjected }).eq("id", marketId);
           }
         }
         toast({ title: "Aprobado y Fondeado", description: "El mercado ya está público y con liquidez." });
@@ -862,6 +870,12 @@ export default function AdminDashboardClient() {
                   <Label className="font-bold">Fecha de Cierre</Label>
                   <Input type="date" value={createForm.end_date} onChange={(e) => setCreateForm((f) => ({ ...f, end_date: e.target.value }))} required className="h-12 text-base font-medium bg-muted/50" />
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="font-bold">Liquidez Inicial por Opción (Puntos Morfeo)</Label>
+                <Input type="number" min="1000" step="1000" value={createForm.initial_liquidity} onChange={(e) => setCreateForm((f) => ({ ...f, initial_liquidity: Number(e.target.value) || 50000 }))} required className="h-12 text-base font-medium bg-muted/50" />
+                <p className="text-xs text-muted-foreground">Recomendado: 50.000 para absorber apuestas grandes sin slippage.</p>
               </div>
               <DialogFooter className="gap-2 sm:gap-0 mt-6 pt-4 border-t border-border/50">
                 <Button type="button" variant="outline" onClick={() => setIsCreateModalOpen(false)} className="h-12 w-full sm:w-auto font-bold text-base">Cancelar</Button>
