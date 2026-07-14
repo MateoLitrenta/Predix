@@ -1145,11 +1145,10 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
 
                                   const actionWord = item.type === 'buy' ? 'compró' : 'vendió';
                                   
-                                  const directionElement = txDirection === 'yes'  
+                                  const isYes = txDirection !== 'no';
+                                  const directionElement = isYes  
                                     ? <span className="font-bold text-green-500 dark:text-green-400">SÍ</span> 
-                                    : txDirection === 'no'
-                                      ? <span className="font-bold text-red-500 dark:text-red-400">NO</span>
-                                      : null;
+                                    : <span className="font-bold text-red-500 dark:text-red-400">NO</span>;
 
                                   const formattedShares = hasShares ? Number(item.shares).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 3 }) : "";
                                   const executionPrice = hasShares ? Math.abs(Number(item.amount)) / Number(item.shares) : null;
@@ -1161,7 +1160,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                                     <div className="flex items-center gap-1.5 flex-wrap">
                                       <span className="font-semibold text-sm cursor-pointer hover:text-primary transition-colors text-foreground" onClick={() => openUserProfile(item.user_id, item.profiles?.username || "Usuario")}>{item.profiles?.username || "Usuario"}</span>
                                       <span className="text-sm text-muted-foreground">
-                                        {actionWord} <span className="font-medium text-foreground">{formattedShares}</span> acciones {directionElement ? (isOptionNameRedundant ? <>de {directionElement}</> : <>de {directionElement} - <span className="font-medium text-foreground">{optionName}</span></>) : <>de <span className="font-medium text-foreground">{optionName}</span></>} a <span className="font-medium text-foreground">{formattedPrice}</span>
+                                        {actionWord} <span className="font-medium text-foreground">{formattedShares}</span> acciones {isOptionNameRedundant ? <>de {directionElement}</> : <>de {directionElement} - <span className="font-medium text-foreground">{optionName}</span></>} a <span className="font-medium text-foreground">{formattedPrice}</span>
                                       </span>
                                     </div>
                                   ) : (
