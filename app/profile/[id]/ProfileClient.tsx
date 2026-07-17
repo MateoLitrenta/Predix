@@ -38,6 +38,8 @@ interface ProfileClientProps {
   profileId: string;
 }
 
+const EmptyTooltip = () => null;
+
 export default function ProfileClient({ profileId }: ProfileClientProps) {
   const router = useRouter();
   const supabase = createClient();
@@ -493,27 +495,27 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
 
         <Card className="bg-card border border-border/50 shadow-sm rounded-2xl overflow-hidden mb-8">
           <CardContent className="p-0">
-            <div className="p-4 sm:p-6 md:p-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-4 border-b border-border/20">
-              <div>
-                <div className="flex items-center gap-2 font-bold text-muted-foreground mb-1 text-sm sm:text-base">
-                  <TrendingUp className="w-4 h-4" /> {currentDisplayedStats.isHovered ? "Variación (en punto seleccionado)" : "Historial de Rendimiento"}
-                </div>
-                <div className="flex items-baseline gap-2 sm:gap-3 flex-wrap mt-1">
-                  <span className={cn("text-3xl sm:text-4xl md:text-5xl font-black tracking-tight", isProfit ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
-                    {isProfit ? '+' : ''}{currentDisplayedStats.variationValue.toLocaleString('es-AR', { maximumFractionDigits: 0 })} <span className="text-lg sm:text-2xl opacity-80">pts</span>
-                  </span>
-                  <Badge variant="outline" className={cn("text-xs sm:text-sm md:text-base px-2 py-0.5 font-bold border-2", isProfit ? "bg-green-500/10 text-green-600 dark:text-[#00FF00] border-green-500/30" : "bg-red-500/10 text-red-600 dark:text-[#FF0000] border-red-500/30")}>
-                    {isProfit ? '+' : ''}{currentDisplayedStats.variationPercentage.toFixed(2)}%
-                  </Badge>
-                  {currentDisplayedStats.isHovered && currentDisplayedStats.hoverTimestamp && (
-                    <span className="text-xs sm:text-sm font-bold text-muted-foreground ml-1 sm:ml-2">
-                      {customTooltipLabelFormatter(currentDisplayedStats.hoverTimestamp)} • {currentDisplayedStats.totalValue.toLocaleString('es-AR', { maximumFractionDigits: 0 })} pts
+            <div className="p-4 sm:p-6 md:p-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-4 border-b border-border/20 min-h-[124px]">
+              <div className="flex flex-col justify-between min-h-[84px] w-full md:w-auto">
+                <div>
+                  <div className="flex items-center gap-2 font-bold text-muted-foreground mb-1 text-sm sm:text-base">
+                    <TrendingUp className="w-4 h-4" /> {currentDisplayedStats.isHovered ? "Variación (en punto seleccionado)" : "Historial de Rendimiento"}
+                  </div>
+                  <div className="flex items-baseline gap-2 sm:gap-3 mt-1">
+                    <span className={cn("text-3xl sm:text-4xl md:text-5xl font-black tracking-tight", isProfit ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
+                      {isProfit ? '+' : ''}{currentDisplayedStats.variationValue.toLocaleString('es-AR', { maximumFractionDigits: 0 })} <span className="text-lg sm:text-2xl opacity-80">pts</span>
                     </span>
-                  )}
+                    <Badge variant="outline" className={cn("text-xs sm:text-sm md:text-base px-2 py-0.5 font-bold border-2", isProfit ? "bg-green-500/10 text-green-600 dark:text-[#00FF00] border-green-500/30" : "bg-red-500/10 text-red-600 dark:text-[#FF0000] border-red-500/30")}>
+                      {isProfit ? '+' : ''}{currentDisplayedStats.variationPercentage.toFixed(2)}%
+                    </Badge>
+                  </div>
+                </div>
+                <div className={cn("w-full mt-2 text-xs sm:text-sm font-bold text-muted-foreground h-5 flex items-center", currentDisplayedStats.isHovered && currentDisplayedStats.hoverTimestamp ? "visible" : "invisible")}>
+                  {currentDisplayedStats.isHovered && currentDisplayedStats.hoverTimestamp ? `${customTooltipLabelFormatter(currentDisplayedStats.hoverTimestamp)} • ${currentDisplayedStats.totalValue.toLocaleString('es-AR', { maximumFractionDigits: 0 })} pts` : "Espacio reservado para fecha"}
                 </div>
               </div>
 
-              <div className="flex bg-muted/50 p-1 rounded-xl backdrop-blur-md border border-border/30 w-full md:w-auto overflow-x-auto scrollbar-none">
+              <div className="flex bg-muted/50 p-1 rounded-xl backdrop-blur-md border border-border/30 w-full md:w-auto overflow-x-auto scrollbar-none self-start md:self-end">
                 {(['1D', '1W', '1M', '6M', '1Y', 'ALL'] as TimeframeType[]).map((tf) => (
                   <button key={tf} onClick={() => setTimeframe(tf)} className={cn("px-3 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-xs font-bold rounded-lg transition-all whitespace-nowrap flex-1 md:flex-none", timeframe === tf ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>
                     {tf}
@@ -522,7 +524,7 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
               </div>
             </div>
 
-            <div className="w-full h-[250px] md:h-[400px] p-2 sm:p-4 md:p-6 pt-6">
+            <div className="w-full h-[240px] md:h-[340px] p-2 sm:p-4 md:p-6 pt-6">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart
                   data={chartData}
@@ -547,7 +549,7 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
                   </defs>
                   <XAxis dataKey="timestamp" type="number" domain={['dataMin', 'dataMax']} tickFormatter={xAxisFormatter} tick={{ fill: axisTextColor, fontSize: 10, fontWeight: 600 }} tickLine={false} axisLine={{ stroke: axisLineColor, strokeWidth: 1 }} minTickGap={60} dy={10} />
                   <YAxis domain={['auto', 'auto']} tickFormatter={yAxisFormatter} tick={{ fill: axisTextColor, fontSize: 10, fontWeight: 600 }} tickLine={false} axisLine={{ stroke: axisLineColor, strokeWidth: 1 }} width={45} orientation="left" dx={-5} tickCount={4} />
-                  <Tooltip formatter={customTooltipFormatter} labelFormatter={customTooltipLabelFormatter} contentStyle={{ backgroundColor: tooltipBgColor, borderRadius: '12px', border: `1px solid ${axisLineColor}`, boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', color: tooltipTextColor, fontWeight: 'bold', padding: '10px' }} itemStyle={{ color: themeChartColor, fontSize: '14px' }} labelStyle={{ color: axisTextColor, marginBottom: '4px', fontSize: '11px' }} cursor={{ stroke: axisTextColor, strokeWidth: 1, strokeDasharray: '4 4' }} />
+                  <Tooltip content={<EmptyTooltip />} cursor={{ stroke: axisTextColor, strokeWidth: 1, strokeDasharray: '4 4' }} />
                   <Area type="monotone" dataKey="value" stroke={themeChartColor} strokeWidth={2.5} fillOpacity={1} fill="url(#colorValue)" dot={false} activeDot={{ r: 4, fill: themeChartColor, stroke: 'hsl(var(--background))', strokeWidth: 2 }} isAnimationActive={false} />
                 </AreaChart>
               </ResponsiveContainer>

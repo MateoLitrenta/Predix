@@ -80,6 +80,8 @@ const getActualAmmPrice = (opt: any, direction: string) => {
   return direction === 'yes' ? priceYes : (1 - priceYes);
 };
 
+const EmptyTooltip = () => null;
+
 export function ProfileView({ userId }: { userId?: string }) {
   const router = useRouter();
   const supabase = createClient();
@@ -968,14 +970,14 @@ export function ProfileView({ userId }: { userId?: string }) {
       <NavHeader points={loggedInProfile?.points ?? 0} isDarkMode={isDarkMode} onToggleDarkMode={toggleDarkMode} onPointsUpdate={() => { }} userId={loggedInProfile?.id ?? null} userEmail={loggedInProfile?.email ?? null} onOpenAuthModal={() => router.push("/")} onSignOut={async () => { await createClient().auth.signOut(); router.replace("/"); }} isAdmin={loggedInProfile?.role === "admin"} username={loggedInProfile?.username ?? null} avatarUrl={loggedInProfile?.avatar_url ?? null} />
 
       <main className="w-full max-w-[1440px] mx-auto px-4 md:px-8 py-6 flex-1">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-8 mb-3 md:mb-10">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-8 mb-3 md:mb-10 items-stretch">
 
           {/* COLUMNA IZQUIERDA (Perfil y Estadísticas) */}
-          <div className="lg:col-span-4 flex flex-col gap-4 md:gap-6">
+          <div className="lg:col-span-4 flex flex-col gap-4 md:gap-6 h-full justify-between">
 
             {/* ENCABEZADO Y TARJETAS (DESKTOP) */}
-            <div className="hidden md:flex flex-col gap-6">
-              <div className="flex justify-between items-start gap-4 bg-card border border-border/50 rounded-2xl p-5 shadow-sm">
+            <div className="hidden md:flex flex-col gap-6 h-full justify-between">
+              <div className="flex justify-between items-start gap-4 bg-card border border-border/50 rounded-2xl p-5 shadow-sm shrink-0">
                 <div className="flex items-center gap-4">
                   <Avatar className="w-20 h-20 border-4 border-background bg-primary/10 shadow-md shrink-0">
                     {profile.avatar_url ? <AvatarImage src={profile.avatar_url} className="object-cover" /> : <AvatarFallback><UserIcon className="w-8 h-8 text-primary opacity-50" /></AvatarFallback>}
@@ -1082,53 +1084,55 @@ export function ProfileView({ userId }: { userId?: string }) {
           </div>
 
           {/* COLUMNA DERECHA (Gráfico y Acciones) */}
-          <div className="lg:col-span-8 flex flex-col gap-4">
+          <div className="lg:col-span-8 flex flex-col gap-4 h-full">
 
             {/* GRÁFICO DE RENDIMIENTO (OPTIMIZADO) */}
             <Card className="bg-card border border-border/50 shadow-sm rounded-2xl overflow-hidden h-full flex flex-col mb-2 md:mb-0">
-              <CardContent className="p-0 flex-1 flex flex-col">
-                <div className="px-4 pt-3 pb-4 md:p-8 flex flex-col gap-3 md:gap-4 border-b border-border/20">
+              <CardContent className="p-0 flex-1 flex flex-col h-full justify-between">
+                <div className="px-4 pt-3 pb-4 md:p-8 flex flex-col gap-3 md:gap-4 border-b border-border/20 shrink-0">
                   <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-3 md:gap-4">
 
                     {/* ENCABEZADO GRAFICO (MOBILE) */}
-                    <div className="md:hidden w-full">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1.5 font-bold text-muted-foreground text-[11px] uppercase tracking-widest">
-                          <Wallet className="w-3.5 h-3.5 text-primary" /> PORTFOLIO
+                    <div className="md:hidden flex flex-col w-full min-h-[76px] justify-between">
+                      <div>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 font-bold text-muted-foreground text-[11px] uppercase tracking-widest">
+                            <Wallet className="w-3.5 h-3.5 text-primary" /> PORTFOLIO
+                          </div>
+                          <div className="text-2xl leading-none font-black tracking-tighter text-foreground text-right">
+                            {currentDisplayedStats.totalValue.toLocaleString('es-AR', { maximumFractionDigits: 0 })} <span className="text-xs font-bold opacity-50 tracking-tight">pts</span>
+                          </div>
                         </div>
-                        <div className="text-2xl leading-none font-black tracking-tighter text-foreground text-right">
-                          {currentDisplayedStats.totalValue.toLocaleString('es-AR', { maximumFractionDigits: 0 })} <span className="text-xs font-bold opacity-50 tracking-tight">pts</span>
+
+                        <div className="flex items-baseline gap-1.5 mt-1">
+                          <TrendingUp className={cn("w-3.5 h-3.5", isProfit ? "text-green-500" : "text-red-500")} />
+                          <span className={cn("text-sm font-bold", isProfit ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
+                            {isProfit ? '+' : ''}{currentDisplayedStats.variationValue.toLocaleString('es-AR', { maximumFractionDigits: 0 })} pts ({isProfit ? '+' : ''}{currentDisplayedStats.variationPercentage.toFixed(2)}%)
+                          </span>
                         </div>
                       </div>
-
-                      <div className="flex items-baseline gap-1.5 mt-1">
-                        <TrendingUp className={cn("w-3.5 h-3.5", isProfit ? "text-green-500" : "text-red-500")} />
-                        <span className={cn("text-sm font-bold", isProfit ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
-                          {isProfit ? '+' : ''}{currentDisplayedStats.variationValue.toLocaleString('es-AR', { maximumFractionDigits: 0 })} pts ({isProfit ? '+' : ''}{currentDisplayedStats.variationPercentage.toFixed(2)}%)
-                        </span>
-                        <span className="text-[10px] font-bold text-muted-foreground ml-1">
-                          {currentDisplayedStats.isHovered && currentDisplayedStats.hoverTimestamp ? customTooltipLabelFormatter(currentDisplayedStats.hoverTimestamp) : timeframeLabels[timeframe]}
-                        </span>
+                      <div className={cn("w-full mt-1 text-[10px] font-bold text-muted-foreground h-4 flex items-center", currentDisplayedStats.isHovered && currentDisplayedStats.hoverTimestamp ? "visible" : "invisible")}>
+                        {currentDisplayedStats.isHovered && currentDisplayedStats.hoverTimestamp ? customTooltipLabelFormatter(currentDisplayedStats.hoverTimestamp) : "Espacio reservado para fecha"}
                       </div>
                     </div>
 
                     {/* ENCABEZADO GRAFICO (DESKTOP) */}
-                    <div className="hidden md:block">
-                      <div className="flex items-center gap-2 font-bold text-muted-foreground mb-1 text-base">
-                        <TrendingUp className="w-4 h-4" /> {currentDisplayedStats.isHovered ? "Variación (en punto seleccionado)" : "Variación"}
-                      </div>
-                      <div className="flex items-baseline gap-3 flex-wrap mt-1">
-                        <span className={cn("text-5xl font-black tracking-tight", isProfit ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
-                          {isProfit ? '+' : ''}{currentDisplayedStats.variationValue.toLocaleString('es-AR', { maximumFractionDigits: 0 })} <span className="text-2xl opacity-80">pts</span>
-                        </span>
-                        <Badge variant="outline" className={cn("text-base px-2 py-0.5 font-bold border-2", isProfit ? "bg-green-500/10 text-green-600 dark:text-[#00FF00] border-green-500/30" : "bg-red-500/10 text-red-600 dark:text-[#FF0000] border-red-500/30")}>
-                          {isProfit ? '+' : ''}{currentDisplayedStats.variationPercentage.toFixed(2)}%
-                        </Badge>
-                        {currentDisplayedStats.isHovered && currentDisplayedStats.hoverTimestamp && (
-                          <span className="text-sm font-bold text-muted-foreground ml-2">
-                            {customTooltipLabelFormatter(currentDisplayedStats.hoverTimestamp)} • {currentDisplayedStats.totalValue.toLocaleString('es-AR', { maximumFractionDigits: 0 })} pts
+                    <div className="hidden md:flex md:flex-col min-h-[100px] justify-between">
+                      <div>
+                        <div className="flex items-center gap-2 font-bold text-muted-foreground mb-1 text-base">
+                          <TrendingUp className="w-4 h-4" /> {currentDisplayedStats.isHovered ? "Variación (en punto seleccionado)" : "Variación"}
+                        </div>
+                        <div className="flex items-baseline gap-3 mt-1">
+                          <span className={cn("text-5xl font-black tracking-tight", isProfit ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
+                            {isProfit ? '+' : ''}{currentDisplayedStats.variationValue.toLocaleString('es-AR', { maximumFractionDigits: 0 })} <span className="text-2xl opacity-80">pts</span>
                           </span>
-                        )}
+                          <Badge variant="outline" className={cn("text-base px-2 py-0.5 font-bold border-2", isProfit ? "bg-green-500/10 text-green-600 dark:text-[#00FF00] border-green-500/30" : "bg-red-500/10 text-red-600 dark:text-[#FF0000] border-red-500/30")}>
+                            {isProfit ? '+' : ''}{currentDisplayedStats.variationPercentage.toFixed(2)}%
+                          </Badge>
+                        </div>
+                      </div>
+                      <div className={cn("w-full mt-2 text-sm font-bold text-muted-foreground h-5 flex items-center", currentDisplayedStats.isHovered && currentDisplayedStats.hoverTimestamp ? "visible" : "invisible")}>
+                        {currentDisplayedStats.isHovered && currentDisplayedStats.hoverTimestamp ? `${customTooltipLabelFormatter(currentDisplayedStats.hoverTimestamp)} • ${currentDisplayedStats.totalValue.toLocaleString('es-AR', { maximumFractionDigits: 0 })} pts` : "Espacio reservado para fecha"}
                       </div>
                     </div>
 
@@ -1142,7 +1146,7 @@ export function ProfileView({ userId }: { userId?: string }) {
                   </div>
                 </div>
 
-                <div className="h-[200px] md:h-[300px] w-full p-2 sm:p-4 md:p-6 shrink-0">
+                <div className="h-[200px] md:h-[220px] lg:h-auto lg:flex-1 w-full p-2 sm:p-4 md:p-6 min-h-[180px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart
                       data={chartData}
@@ -1167,7 +1171,7 @@ export function ProfileView({ userId }: { userId?: string }) {
                       </defs>
                       <XAxis dataKey="timestamp" type="number" domain={['dataMin', 'dataMax']} tickFormatter={xAxisFormatter} tick={{ fill: axisTextColor, fontSize: 10, fontWeight: 600 }} tickLine={false} axisLine={{ stroke: axisLineColor, strokeWidth: 1 }} minTickGap={60} dy={10} />
                       <YAxis domain={['auto', 'auto']} tickFormatter={yAxisFormatter} tick={{ fill: axisTextColor, fontSize: 10, fontWeight: 600 }} tickLine={false} axisLine={{ stroke: axisLineColor, strokeWidth: 1 }} width={45} orientation="left" dx={-5} tickCount={4} />
-                      <Tooltip formatter={customTooltipFormatter} labelFormatter={customTooltipLabelFormatter} contentStyle={{ backgroundColor: tooltipBgColor, borderRadius: '12px', border: `1px solid ${axisLineColor}`, boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', color: tooltipTextColor, fontWeight: 'bold', padding: '10px' }} itemStyle={{ color: themeChartColor, fontSize: '14px' }} labelStyle={{ color: axisTextColor, marginBottom: '4px', fontSize: '11px' }} cursor={{ stroke: axisTextColor, strokeWidth: 1, strokeDasharray: '4 4' }} />
+                      <Tooltip content={<EmptyTooltip />} cursor={{ stroke: axisTextColor, strokeWidth: 1, strokeDasharray: '4 4' }} />
                       <Area type="monotone" dataKey="value" stroke={themeChartColor} strokeWidth={2.5} fillOpacity={1} fill="url(#colorValue)" dot={false} activeDot={{ r: 4, fill: themeChartColor, stroke: 'hsl(var(--background))', strokeWidth: 2 }} isAnimationActive={false} />
                     </AreaChart>
                   </ResponsiveContainer>
