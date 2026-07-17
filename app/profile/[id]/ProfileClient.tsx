@@ -53,6 +53,7 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
   const [isLoading, setIsLoading] = useState(true);
 
   const [timeframe, setTimeframe] = useState<TimeframeType>('ALL');
+  const [hoveredData, setHoveredData] = useState<{ value: number; timestamp?: number } | null>(null);
 
   const fetchAuth = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -198,6 +199,11 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
     }).reverse();
 
     const trueStartingBalance = currentTempBalance;
+    const fallbackStartBalance = INITIAL_BALANCE;
+    const initialBalance = trueStartingBalance > 0 ? trueStartingBalance : fallbackStartBalance;
+    const firstTxTime = chronologicalTxs.length > 0 ? new Date(chronologicalTxs[0].created_at).getTime() : Infinity;
+    const firstBetTime = positions.length > 0 ? Math.min(...positions.map(p => new Date(p.created_at || p.updated_at || '').getTime() || Infinity)) : Infinity;
+    const firstActivityTime = Math.min(firstTxTime, firstBetTime);
 
     const now = Date.now();
     let startTimeForAll = viewedProfile?.created_at ? new Date(viewedProfile.created_at).getTime() : (chronologicalTxs.length > 0 ? new Date(chronologicalTxs[0].created_at).getTime() : now - 30 * 86400 * 1000);
@@ -240,16 +246,26 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
     timestamps = Array.from(new Set(timestamps)).sort((a, b) => a - b);
 
     const data = timestamps.map(ts => {
-      let liquidAtTs = trueStartingBalance;
-      for (let i = 0; i < txsWithBalance.length; i++) {
-        const txTime = new Date(txsWithBalance[i].created_at).getTime();
-        if (txTime <= ts) {
-          liquidAtTs = txsWithBalance[i].balanceAfter;
-        } else {
-          break;
+      if (ts < firstActivityTime) {
+        return { timestamp: ts, value: INITIAL_BALANCE };
+      }
+
+      let liquidAtTs = initialBalance;
+      if (ts >= firstTxTime && txsWithBalance.length > 0) {
+        for (let i = 0; i < txsWithBalance.length; i++) {
+          const txTime = new Date(txsWithBalance[i].created_at).getTime();
+          if (txTime <= ts) {
+            liquidAtTs = txsWithBalance[i].balanceAfter;
+          } else {
+            break;
+          }
         }
       }
-      return { timestamp: ts, value: Math.max(0, liquidAtTs) };
+      let value = Math.max(0, liquidAtTs);
+      if (value === 0 && ts <= firstActivityTime) {
+        value = INITIAL_BALANCE;
+      }
+      return { timestamp: ts, value };
     });
 
     if (data.length > 0) {
@@ -257,16 +273,39 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
       data.push({ timestamp: now, value: Math.max(0, currentLiquid + portfolioStats.lockedValueOffset) });
     }
 
+    // SANITIZACIÓN ESTRICTA DEL CHARTDATA
+    let firstRealTimestamp = Infinity;
+    chronologicalTxs.forEach(tx => {
+      const t = new Date(tx.created_at).getTime();
+      if (!isNaN(t) && t > 0 && t < firstRealTimestamp) firstRealTimestamp = t;
+    });
+    positions.forEach(pos => {
+      const t = new Date(pos.created_at || pos.updated_at || '').getTime();
+      if (!isNaN(t) && t > 0 && t < firstRealTimestamp) firstRealTimestamp = t;
+    });
+
+    data.forEach((item, idx) => {
+      if (item.timestamp < firstRealTimestamp || !item.value || item.value === 0 || isNaN(item.value)) {
+        if (item.timestamp <= firstRealTimestamp || idx === 0 || item.value === 0) {
+          item.value = INITIAL_BALANCE;
+        }
+      }
+    });
+
+    for (let i = 0; i < data.length; i++) {
+      if (data[i].value === 0 || !data[i].value || isNaN(data[i].value)) {
+        data[i].value = INITIAL_BALANCE;
+      }
+    }
+
     if (timeframe === 'ALL' && data.length > 0) {
       if (data[0].timestamp > startTimeForAll) {
-        data.unshift({ timestamp: startTimeForAll, value: 0 });
-      } else {
-        data[0].value = 0;
+        data.unshift({ timestamp: startTimeForAll, value: INITIAL_BALANCE });
       }
     }
 
     return data;
-  }, [transactions, timeframe, viewedProfile, portfolioStats.lockedValueOffset]);
+  }, [transactions, timeframe, viewedProfile, portfolioStats.lockedValueOffset, positions]);
 
   const countActivePositions = useMemo(() => {
     return positions.filter(p => p.market && ACTIVE_STATUSES.includes(String(p.market.status).toLowerCase())).length;
@@ -280,15 +319,19 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
     return { value: val, percentage: pct };
   }, [portfolioStats.totalPortfolioValue]);
 
-  const dynamicPnl = useMemo(() => {
-    if (chartData.length < 2) return { value: 0, percentage: 0 };
-    let startValue = chartData[0].value;
-    const endValue = chartData[chartData.length - 1].value;
-    const val = endValue - startValue;
-    let divisor = startValue === 0 ? INITIAL_BALANCE : startValue;
-    const pct = (val / Math.abs(divisor)) * 100;
-    return { value: val, percentage: pct };
+  const referenceValue = useMemo(() => {
+    return chartData.length > 0 && typeof chartData[0].value === 'number' && chartData[0].value > 0 ? chartData[0].value : INITIAL_BALANCE;
   }, [chartData]);
+
+  const dynamicPnl = useMemo(() => {
+    if (chartData.length < 1) return { value: 0, percentage: 0 };
+    const startValue = referenceValue;
+    const endValue = chartData[chartData.length - 1].value;
+    const val = Math.round(endValue - startValue);
+    let divisor = startValue === 0 ? INITIAL_BALANCE : startValue;
+    const pct = ((endValue - startValue) / Math.abs(divisor)) * 100;
+    return { value: val, percentage: pct };
+  }, [chartData, referenceValue]);
 
 
   const customTooltipFormatter = (value: number) => [`${value.toLocaleString()} pts`];
@@ -311,7 +354,32 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
     return tick.toString();
   };
 
-  const isProfit = dynamicPnl.value >= 0;
+  const currentDisplayedStats = useMemo(() => {
+    if (hoveredData && typeof hoveredData.value === 'number') {
+      const val = Math.round(hoveredData.value - referenceValue);
+      const divisor = referenceValue === 0 ? INITIAL_BALANCE : referenceValue;
+      const pct = ((hoveredData.value - referenceValue) / Math.abs(divisor)) * 100;
+      return {
+        totalValue: Math.round(hoveredData.value),
+        variationValue: val,
+        variationPercentage: pct,
+        isProfit: val >= 0,
+        isHovered: true,
+        hoverTimestamp: hoveredData.timestamp
+      };
+    } else {
+      return {
+        totalValue: Math.round(portfolioStats.totalPortfolioValue),
+        variationValue: dynamicPnl.value,
+        variationPercentage: dynamicPnl.percentage,
+        isProfit: dynamicPnl.value >= 0,
+        isHovered: false,
+        hoverTimestamp: undefined
+      };
+    }
+  }, [hoveredData, portfolioStats.totalPortfolioValue, dynamicPnl, referenceValue]);
+
+  const isProfit = currentDisplayedStats.isProfit;
   const themeChartColor = isProfit ? (isDarkMode ? "#00FF00" : "#16a34a") : (isDarkMode ? "#FF0000" : "#dc2626");
 
   const axisTextColor = isDarkMode ? 'rgba(161, 161, 170, 0.4)' : 'rgba(100, 116, 139, 0.5)';
@@ -428,15 +496,20 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
             <div className="p-4 sm:p-6 md:p-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-4 border-b border-border/20">
               <div>
                 <div className="flex items-center gap-2 font-bold text-muted-foreground mb-1 text-sm sm:text-base">
-                  <TrendingUp className="w-4 h-4" /> Historial de Rendimiento
+                  <TrendingUp className="w-4 h-4" /> {currentDisplayedStats.isHovered ? "Variación (en punto seleccionado)" : "Historial de Rendimiento"}
                 </div>
                 <div className="flex items-baseline gap-2 sm:gap-3 flex-wrap mt-1">
                   <span className={cn("text-3xl sm:text-4xl md:text-5xl font-black tracking-tight", isProfit ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
-                    {isProfit ? '+' : ''}{dynamicPnl.value.toLocaleString()} <span className="text-lg sm:text-2xl opacity-80">pts</span>
+                    {isProfit ? '+' : ''}{currentDisplayedStats.variationValue.toLocaleString('es-AR', { maximumFractionDigits: 0 })} <span className="text-lg sm:text-2xl opacity-80">pts</span>
                   </span>
                   <Badge variant="outline" className={cn("text-xs sm:text-sm md:text-base px-2 py-0.5 font-bold border-2", isProfit ? "bg-green-500/10 text-green-600 dark:text-[#00FF00] border-green-500/30" : "bg-red-500/10 text-red-600 dark:text-[#FF0000] border-red-500/30")}>
-                    {isProfit ? '+' : ''}{dynamicPnl.percentage.toFixed(2)}%
+                    {isProfit ? '+' : ''}{currentDisplayedStats.variationPercentage.toFixed(2)}%
                   </Badge>
+                  {currentDisplayedStats.isHovered && currentDisplayedStats.hoverTimestamp && (
+                    <span className="text-xs sm:text-sm font-bold text-muted-foreground ml-1 sm:ml-2">
+                      {customTooltipLabelFormatter(currentDisplayedStats.hoverTimestamp)} • {currentDisplayedStats.totalValue.toLocaleString('es-AR', { maximumFractionDigits: 0 })} pts
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -451,7 +524,20 @@ export default function ProfileClient({ profileId }: ProfileClientProps) {
 
             <div className="w-full h-[250px] md:h-[400px] p-2 sm:p-4 md:p-6 pt-6">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData} margin={{ top: 5, right: 0, left: 0, bottom: 0 }}>
+                <AreaChart
+                  data={chartData}
+                  margin={{ top: 5, right: 0, left: 0, bottom: 0 }}
+                  onMouseMove={(e: any) => {
+                    if (e?.activePayload?.[0]?.payload) {
+                      setHoveredData(e.activePayload[0].payload);
+                    } else if (e?.activePayload?.[0] && typeof e.activePayload[0].value === 'number') {
+                      setHoveredData(e.activePayload[0]);
+                    }
+                  }}
+                  onMouseLeave={() => {
+                    setHoveredData(null);
+                  }}
+                >
                   <defs>
                     <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor={themeChartColor} stopOpacity={0.15} />

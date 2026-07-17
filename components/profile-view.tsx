@@ -409,6 +409,7 @@ export function ProfileView({ userId }: { userId?: string }) {
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [timeframe, setTimeframe] = useState<TimeframeType>('ALL');
   const [baseCapital, setBaseCapital] = useState<number>(10000);
+  const [hoveredData, setHoveredData] = useState<{ value: number; timestamp?: number } | null>(null);
   const [referralLink, setReferralLink] = useState("");
   const [isCopied, setIsCopied] = useState(false);
   const [referredUsers, setReferredUsers] = useState<any[]>([]);
@@ -596,7 +597,7 @@ export function ProfileView({ userId }: { userId?: string }) {
   const allActivePositions = useMemo(() => filteredAndSortedPositions.filter(p => p.status === 'active'), [filteredAndSortedPositions]);
   const allClosedPositions = useMemo(() => filteredAndSortedPositions.filter(p => p.status !== 'active'), [filteredAndSortedPositions]);
 
-  const predictionsPlayed = useMemo(() => new Set(transactions.map(tx => tx.market_id || tx.markets?.id || tx.market?.id).filter(Boolean)).size, [transactions]);
+  const predictionsPlayed = useMemo(() => new Set(filteredAndSortedPositions.map(pos => pos.market_id).filter(Boolean)).size, [filteredAndSortedPositions]);
 
   const bestPredictionValue = useMemo(() => {
     if (allClosedPositions.length === 0) return 0;
@@ -652,6 +653,11 @@ export function ProfileView({ userId }: { userId?: string }) {
     }).reverse();
 
     const trueStartingBalance = currentTempBalance;
+    const fallbackStartBalance = baseCapital > 0 ? baseCapital : (trueStartingBalance > 0 ? trueStartingBalance : 10000);
+    const initialBalance = trueStartingBalance > 0 ? trueStartingBalance : fallbackStartBalance;
+    const firstTxTime = chronologicalTxs.length > 0 ? new Date(chronologicalTxs[0].created_at).getTime() : Infinity;
+    const firstBetTime = bets.length > 0 ? Math.min(...bets.map(b => new Date(b.created_at || '').getTime() || Infinity)) : Infinity;
+    const firstActivityTime = Math.min(firstTxTime, firstBetTime);
 
     const now = Date.now();
     let startTimeForAll = profile?.created_at ? new Date(profile.created_at).getTime() : (chronologicalTxs.length > 0 ? new Date(chronologicalTxs[0].created_at).getTime() : now - 30 * 86400 * 1000);
@@ -687,13 +693,19 @@ export function ProfileView({ userId }: { userId?: string }) {
     timestamps = Array.from(new Set(timestamps)).sort((a, b) => a - b);
 
     const data = timestamps.map(ts => {
-      let liquidAtTs = trueStartingBalance;
-      for (let i = 0; i < txsWithBalance.length; i++) {
-        const txTime = new Date(txsWithBalance[i].created_at).getTime();
-        if (txTime <= ts + 1000) {
-          liquidAtTs = txsWithBalance[i].balanceAfter;
-        } else {
-          break;
+      if (ts < firstActivityTime) {
+        return { timestamp: ts, value: 10000 };
+      }
+
+      let liquidAtTs = initialBalance;
+      if (ts >= firstTxTime && txsWithBalance.length > 0) {
+        for (let i = 0; i < txsWithBalance.length; i++) {
+          const txTime = new Date(txsWithBalance[i].created_at).getTime();
+          if (txTime <= ts + 1000) {
+            liquidAtTs = txsWithBalance[i].balanceAfter;
+          } else {
+            break;
+          }
         }
       }
 
@@ -746,8 +758,37 @@ export function ProfileView({ userId }: { userId?: string }) {
         }
       });
 
-      return { timestamp: ts, value: Math.max(0, liquidAtTs + activeInvestmentAtTs) };
+      let value = Math.max(0, liquidAtTs + activeInvestmentAtTs);
+      if (value === 0 && ts <= firstActivityTime) {
+        value = 10000;
+      }
+      return { timestamp: ts, value };
     });
+
+    // SANITIZACIÓN ESTRICTA DEL CHARTDATA
+    let firstRealTimestamp = Infinity;
+    chronologicalTxs.forEach(tx => {
+      const t = new Date(tx.created_at).getTime();
+      if (!isNaN(t) && t > 0 && t < firstRealTimestamp) firstRealTimestamp = t;
+    });
+    bets.forEach(bet => {
+      const t = new Date(bet.created_at || '').getTime();
+      if (!isNaN(t) && t > 0 && t < firstRealTimestamp) firstRealTimestamp = t;
+    });
+
+    data.forEach((item, idx) => {
+      if (item.timestamp < firstRealTimestamp || !item.value || item.value === 0 || isNaN(item.value)) {
+        if (item.timestamp <= firstRealTimestamp || idx === 0 || item.value === 0) {
+          item.value = 10000;
+        }
+      }
+    });
+
+    for (let i = 0; i < data.length; i++) {
+      if (data[i].value === 0 || !data[i].value || isNaN(data[i].value)) {
+        data[i].value = 10000;
+      }
+    }
 
     // FORZAR el valor actual en vivo para el último tick del gráfico (evita desplomes visuales)
     if (data.length > 0) {
@@ -756,20 +797,29 @@ export function ProfileView({ userId }: { userId?: string }) {
     }
 
     return data;
-  }, [transactions, timeframe, profile, bets, getNormalizedPrice, marketOptions, totalActiveValue]);
+  }, [transactions, timeframe, profile, bets, getNormalizedPrice, marketOptions, totalActiveValue, baseCapital]);
+
+  const referenceValue = useMemo(() => {
+    return chartData.length > 0 && typeof chartData[0].value === 'number' && chartData[0].value > 0 ? chartData[0].value : (baseCapital > 0 ? baseCapital : 10000);
+  }, [chartData, baseCapital]);
 
   const dynamicPnl = useMemo(() => {
-    if (chartData.length < 2) return { value: 0, percentage: 0 };
+    if (chartData.length < 1) return { value: 0, percentage: 0 };
 
-    const startValue = baseCapital;
-    
-    // Sumamos explícitamente el saldo líquido y las inversiones activas
+    const startValue = referenceValue;
     const totalLiquid = Number(profile?.points || 0);
     const totalActive = Number(totalActiveValue || 0);
     const endValue = totalLiquid + totalActive;
 
-    return calculateUserROI(endValue, startValue);
-  }, [chartData, profile?.points, totalActiveValue, baseCapital]);
+    const val = Math.round(endValue - startValue);
+    const divisor = startValue === 0 ? (baseCapital > 0 ? baseCapital : 10000) : startValue;
+    const pct = ((endValue - startValue) / Math.abs(divisor)) * 100;
+
+    return {
+      value: val,
+      percentage: pct
+    };
+  }, [chartData, profile?.points, totalActiveValue, baseCapital, referenceValue]);
 
   // (Movido hacia arriba para que portfolioStats y chartData lo puedan consumir)
 
@@ -851,7 +901,32 @@ export function ProfileView({ userId }: { userId?: string }) {
     return tick.toString();
   };
 
-  const isProfit = dynamicPnl.value >= 0;
+  const currentDisplayedStats = useMemo(() => {
+    if (hoveredData && typeof hoveredData.value === 'number') {
+      const val = Math.round(hoveredData.value - referenceValue);
+      const divisor = referenceValue === 0 ? (baseCapital > 0 ? baseCapital : 10000) : referenceValue;
+      const pct = ((hoveredData.value - referenceValue) / Math.abs(divisor)) * 100;
+      return {
+        totalValue: Math.round(hoveredData.value),
+        variationValue: val,
+        variationPercentage: pct,
+        isProfit: val >= 0,
+        isHovered: true,
+        hoverTimestamp: hoveredData.timestamp
+      };
+    } else {
+      return {
+        totalValue: Math.round(portfolioStats.totalPortfolioValue),
+        variationValue: dynamicPnl.value,
+        variationPercentage: dynamicPnl.percentage,
+        isProfit: dynamicPnl.value >= 0,
+        isHovered: false,
+        hoverTimestamp: undefined
+      };
+    }
+  }, [hoveredData, portfolioStats.totalPortfolioValue, dynamicPnl, referenceValue, baseCapital]);
+
+  const isProfit = currentDisplayedStats.isProfit;
   const themeChartColor = isProfit ? (isDarkMode ? "#00FF00" : "#16a34a") : (isDarkMode ? "#FF0000" : "#dc2626");
 
   const axisTextColor = isDarkMode ? 'rgba(161, 161, 170, 0.4)' : 'rgba(100, 116, 139, 0.5)';
@@ -1022,17 +1097,17 @@ export function ProfileView({ userId }: { userId?: string }) {
                           <Wallet className="w-3.5 h-3.5 text-primary" /> PORTFOLIO
                         </div>
                         <div className="text-2xl leading-none font-black tracking-tighter text-foreground text-right">
-                          {portfolioStats.totalPortfolioValue.toLocaleString('es-AR', { maximumFractionDigits: 0 })} <span className="text-xs font-bold opacity-50 tracking-tight">pts</span>
+                          {currentDisplayedStats.totalValue.toLocaleString('es-AR', { maximumFractionDigits: 0 })} <span className="text-xs font-bold opacity-50 tracking-tight">pts</span>
                         </div>
                       </div>
 
                       <div className="flex items-baseline gap-1.5 mt-1">
                         <TrendingUp className={cn("w-3.5 h-3.5", isProfit ? "text-green-500" : "text-red-500")} />
                         <span className={cn("text-sm font-bold", isProfit ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
-                          {isProfit ? '+' : ''}{dynamicPnl.value.toLocaleString()} pts ({isProfit ? '+' : ''}{dynamicPnl.percentage.toFixed(2)}%)
+                          {isProfit ? '+' : ''}{currentDisplayedStats.variationValue.toLocaleString('es-AR', { maximumFractionDigits: 0 })} pts ({isProfit ? '+' : ''}{currentDisplayedStats.variationPercentage.toFixed(2)}%)
                         </span>
                         <span className="text-[10px] font-bold text-muted-foreground ml-1">
-                          {timeframeLabels[timeframe]}
+                          {currentDisplayedStats.isHovered && currentDisplayedStats.hoverTimestamp ? customTooltipLabelFormatter(currentDisplayedStats.hoverTimestamp) : timeframeLabels[timeframe]}
                         </span>
                       </div>
                     </div>
@@ -1040,15 +1115,20 @@ export function ProfileView({ userId }: { userId?: string }) {
                     {/* ENCABEZADO GRAFICO (DESKTOP) */}
                     <div className="hidden md:block">
                       <div className="flex items-center gap-2 font-bold text-muted-foreground mb-1 text-base">
-                        <TrendingUp className="w-4 h-4" /> Variación
+                        <TrendingUp className="w-4 h-4" /> {currentDisplayedStats.isHovered ? "Variación (en punto seleccionado)" : "Variación"}
                       </div>
                       <div className="flex items-baseline gap-3 flex-wrap mt-1">
                         <span className={cn("text-5xl font-black tracking-tight", isProfit ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
-                          {isProfit ? '+' : ''}{dynamicPnl.value.toLocaleString()} <span className="text-2xl opacity-80">pts</span>
+                          {isProfit ? '+' : ''}{currentDisplayedStats.variationValue.toLocaleString('es-AR', { maximumFractionDigits: 0 })} <span className="text-2xl opacity-80">pts</span>
                         </span>
                         <Badge variant="outline" className={cn("text-base px-2 py-0.5 font-bold border-2", isProfit ? "bg-green-500/10 text-green-600 dark:text-[#00FF00] border-green-500/30" : "bg-red-500/10 text-red-600 dark:text-[#FF0000] border-red-500/30")}>
-                          {isProfit ? '+' : ''}{dynamicPnl.percentage.toFixed(2)}%
+                          {isProfit ? '+' : ''}{currentDisplayedStats.variationPercentage.toFixed(2)}%
                         </Badge>
+                        {currentDisplayedStats.isHovered && currentDisplayedStats.hoverTimestamp && (
+                          <span className="text-sm font-bold text-muted-foreground ml-2">
+                            {customTooltipLabelFormatter(currentDisplayedStats.hoverTimestamp)} • {currentDisplayedStats.totalValue.toLocaleString('es-AR', { maximumFractionDigits: 0 })} pts
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -1064,7 +1144,20 @@ export function ProfileView({ userId }: { userId?: string }) {
 
                 <div className="h-[200px] md:h-[300px] w-full p-2 sm:p-4 md:p-6 shrink-0">
                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={chartData} margin={{ top: 5, right: 0, left: 0, bottom: 0 }}>
+                    <AreaChart
+                      data={chartData}
+                      margin={{ top: 5, right: 0, left: 0, bottom: 0 }}
+                      onMouseMove={(e: any) => {
+                        if (e?.activePayload?.[0]?.payload) {
+                          setHoveredData(e.activePayload[0].payload);
+                        } else if (e?.activePayload?.[0] && typeof e.activePayload[0].value === 'number') {
+                          setHoveredData(e.activePayload[0]);
+                        }
+                      }}
+                      onMouseLeave={() => {
+                        setHoveredData(null);
+                      }}
+                    >
                       <defs>
                         <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor={themeChartColor} stopOpacity={0.15} />
