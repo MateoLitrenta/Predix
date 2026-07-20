@@ -8,6 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { IS_PRODE_ACTIVE } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -238,32 +239,35 @@ export function CreateMarketModal({ isOpen, onClose, userId, onMarketCreated }: 
             </div>
 
             {/* World Cup Toggle */}
-            <div className="flex items-center justify-between p-4 bg-muted/20 rounded-xl border border-border/50">
-              <div className="space-y-0.5">
-                <Label className="text-sm font-bold">¿Predicción del Mundial 2026?</Label>
-                <p className="text-[11px] text-muted-foreground">Marcar si el mercado trata sobre la Copa del Mundo FIFA 2026.</p>
+            {IS_PRODE_ACTIVE && (
+              <div className="flex items-center justify-between p-4 bg-muted/20 rounded-xl border border-border/50">
+                <div className="space-y-0.5">
+                  <Label className="text-sm font-bold">¿Predicción del Mundial 2026?</Label>
+                  <p className="text-[11px] text-muted-foreground">Marcar si el mercado trata sobre la Copa del Mundo FIFA 2026.</p>
+                </div>
+                <div className="flex bg-muted p-1 rounded-lg border border-border shrink-0">
+                  <Button 
+                    type="button" 
+                    variant={isWorldCup ? "default" : "ghost"}
+                    size="sm"
+                    onClick={() => setIsWorldCup(true)}
+                    className="h-8 px-3 text-xs font-bold"
+                  >
+                    Sí
+                  </Button>
+                  <Button 
+                    type="button" 
+                    variant={!isWorldCup ? "default" : "ghost"}
+                    size="sm"
+                    onClick={() => setIsWorldCup(false)}
+                    className="h-8 px-3 text-xs font-bold"
+                  >
+                    No
+                  </Button>
+                </div>
               </div>
-              <div className="flex bg-muted p-1 rounded-lg border border-border shrink-0">
-                <Button 
-                  type="button" 
-                  variant={isWorldCup ? "default" : "ghost"}
-                  size="sm"
-                  onClick={() => setIsWorldCup(true)}
-                  className="h-8 px-3 text-xs font-bold"
-                >
-                  Sí
-                </Button>
-                <Button 
-                  type="button" 
-                  variant={!isWorldCup ? "default" : "ghost"}
-                  size="sm"
-                  onClick={() => setIsWorldCup(false)}
-                  className="h-8 px-3 text-xs font-bold"
-                >
-                  No
-                </Button>
-              </div>
-            </div>
+            )}
+
 
             {/* Category and End Date */}
             <div className="grid grid-cols-2 gap-4">

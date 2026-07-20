@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Plus, Search, Flame, Clock, TrendingUp, Loader2, Timer } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
+import { IS_PRODE_ACTIVE } from "@/lib/constants";
 import Link from "next/link";
 import type { User } from "@supabase/supabase-js";
 import { useTheme } from "@/components/theme-provider";
@@ -247,24 +248,26 @@ export default function PredictionMarketDashboard() {
 
       <main className="container mx-auto px-4 py-4 md:py-6 max-w-[1400px]">
         {/* Banner CTA Prode */}
-        <Link href="/mundial/prode" className="block mb-6 md:mb-8 transition-transform hover:-translate-y-1">
-          <div className="w-full relative overflow-hidden rounded-2xl bg-gradient-to-r from-yellow-500/10 via-yellow-500/5 to-transparent dark:to-zinc-900/50 border border-yellow-500/30 p-6 flex flex-col sm:flex-row items-center justify-between group">
-            <div className="absolute top-0 right-0 w-64 h-64 bg-yellow-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
-            <div className="relative z-10 flex flex-col text-center sm:text-left mb-4 sm:mb-0">
-              <h2 className="text-xl md:text-2xl font-black text-gray-900 dark:text-white flex items-center justify-center sm:justify-start gap-2 mb-1">
-                🏆 ¡Armá tu Prode del Mundial con Amigos gratis!
-              </h2>
-              <p className="text-gray-600 dark:text-zinc-400 font-medium text-sm md:text-base">
-                Pronosticá los resultados de la Copa del Mundo 2026 y competí por el premio mayor.
-              </p>
+        {IS_PRODE_ACTIVE && (
+          <Link href="/mundial/prode" className="block mb-6 md:mb-8 transition-transform hover:-translate-y-1">
+            <div className="w-full relative overflow-hidden rounded-2xl bg-gradient-to-r from-yellow-500/10 via-yellow-500/5 to-transparent dark:to-zinc-900/50 border border-yellow-500/30 p-6 flex flex-col sm:flex-row items-center justify-between group">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-yellow-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+              <div className="relative z-10 flex flex-col text-center sm:text-left mb-4 sm:mb-0">
+                <h2 className="text-xl md:text-2xl font-black text-gray-900 dark:text-white flex items-center justify-center sm:justify-start gap-2 mb-1">
+                  🏆 ¡Armá tu Prode del Mundial con Amigos gratis!
+                </h2>
+                <p className="text-gray-600 dark:text-zinc-400 font-medium text-sm md:text-base">
+                  Pronosticá los resultados de la Copa del Mundo 2026 y competí por el premio mayor.
+                </p>
+              </div>
+              <div className="relative z-10">
+                <Button className="bg-yellow-500 hover:bg-yellow-400 text-zinc-950 font-bold px-6 py-5 rounded-xl shadow-md group-hover:scale-105 transition-all pointer-events-none">
+                  Jugar Ahora
+                </Button>
+              </div>
             </div>
-            <div className="relative z-10">
-              <Button className="bg-yellow-500 hover:bg-yellow-400 text-zinc-950 font-bold px-6 py-5 rounded-xl shadow-md group-hover:scale-105 transition-all pointer-events-none">
-                Jugar Ahora
-              </Button>
-            </div>
-          </div>
-        </Link>
+          </Link>
+        )}
 
         <div className="flex flex-col lg:flex-row lg:items-center gap-3 lg:gap-6 mb-6 pb-4 border-b border-border/40 lg:pb-0 lg:h-14 lg:border-none">
 

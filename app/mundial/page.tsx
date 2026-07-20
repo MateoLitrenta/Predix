@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Plus, Search, Loader2, Trophy, Calendar, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
+import { IS_PRODE_ACTIVE } from "@/lib/constants";
 import type { User } from "@supabase/supabase-js";
 import { useTheme } from "@/components/theme-provider";
 
@@ -265,12 +266,14 @@ export default function MundialHubPage() {
                 El Hub oficial de ZÉILO para el Mundial de Estados Unidos, México y Canadá 2026. Hacé tus predicciones en cada partido de Argentina, las fases finales, goleadores y quién levantará la copa.
               </p>
               <div className="mt-6 md:mt-8 flex justify-center md:justify-start">
-                <Button asChild size="lg" className="bg-yellow-500 hover:bg-yellow-400 text-zinc-950 font-black px-8 py-6 rounded-2xl shadow-[0_0_20px_rgba(234,179,8,0.3)] hover:shadow-[0_0_25px_rgba(234,179,8,0.5)] transition-all hover:-translate-y-1">
-                  <Link href="/mundial/prode">
-                    <Trophy className="w-5 h-5 mr-2" fill="currentColor" />
-                    Jugar al Prode con Amigos (Gratis)
-                  </Link>
-                </Button>
+                {IS_PRODE_ACTIVE && (
+                  <Button asChild size="lg" className="bg-yellow-500 hover:bg-yellow-400 text-zinc-950 font-black px-8 py-6 rounded-2xl shadow-[0_0_20px_rgba(234,179,8,0.3)] hover:shadow-[0_0_25px_rgba(234,179,8,0.5)] transition-all hover:-translate-y-1">
+                    <Link href="/mundial/prode">
+                      <Trophy className="w-5 h-5 mr-2" fill="currentColor" />
+                      Jugar al Prode con Amigos (Gratis)
+                    </Link>
+                  </Button>
+                )}
               </div>
             </div>
           </div>

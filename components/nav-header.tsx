@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { IS_PRODE_ACTIVE } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -294,12 +295,14 @@ export function NavHeader({
           </Link>
 
           <div className="hidden md:flex items-center gap-3">
-            <Button variant="ghost" asChild className="rounded-xl border border-primary/20 bg-primary/5 hover:bg-primary/10 hover:text-primary transition-colors text-primary font-bold">
-              <Link href="/mundial">
-                <span className="text-xl mr-2">⚽</span>
-                <span>Mundial 2026</span>
-              </Link>
-            </Button>
+            {IS_PRODE_ACTIVE && (
+              <Button variant="ghost" asChild className="rounded-xl border border-primary/20 bg-primary/5 hover:bg-primary/10 hover:text-primary transition-colors text-primary font-bold">
+                <Link href="/mundial">
+                  <span className="text-xl mr-2">⚽</span>
+                  <span>Mundial 2026</span>
+                </Link>
+              </Button>
+            )}
 
             {userId && (
               <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-secondary/20 border border-secondary/30">
