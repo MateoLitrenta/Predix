@@ -918,7 +918,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                     onClick={() => { if (!isMarketClosed) { setSelectedOptionId(yesOption.id); setSelectedDirection('yes'); setTradeTab("buy"); } }}
                     className={cn("rounded-lg border transition-all cursor-pointer",
                       isMarketClosed ? "opacity-60 cursor-not-allowed bg-muted" : "hover:bg-muted/30",
-                      selectedOptionId === yesOption.id ? "bg-green-500/10 border-green-500" : "bg-muted/10 border-border/50 hover:border-green-500/50")}
+                      selectedOptionId === yesOption.id && selectedDirection === 'yes' ? "bg-green-500/10 border-green-500" : "bg-muted/10 border-border/50 hover:border-green-500/50")}
                   >
                     <div className="flex w-full items-center justify-between px-3 py-2">
                       <span className="text-xs font-semibold text-foreground">SÍ</span>
@@ -926,14 +926,14 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                     </div>
                   </div>
                   <div
-                    onClick={() => { if (!isMarketClosed) { setSelectedOptionId(noOption.id); setSelectedDirection('yes'); setTradeTab("buy"); } }}
+                    onClick={() => { if (!isMarketClosed) { setSelectedOptionId(yesOption.id); setSelectedDirection('no'); setTradeTab("buy"); } }}
                     className={cn("rounded-lg border transition-all cursor-pointer",
                       isMarketClosed ? "opacity-60 cursor-not-allowed bg-muted" : "hover:bg-muted/30",
-                      selectedOptionId === noOption.id ? "bg-red-500/10 border-red-500" : "bg-muted/10 border-border/50 hover:border-red-500/50")}
+                      selectedOptionId === yesOption.id && selectedDirection === 'no' ? "bg-red-500/10 border-red-500" : "bg-muted/10 border-border/50 hover:border-red-500/50")}
                   >
                     <div className="flex w-full items-center justify-between px-3 py-2">
                       <span className="text-xs font-semibold text-foreground">NO</span>
-                      <span className="text-sm font-black text-red-600 dark:text-red-400">{Math.round(getOptionPrice(noOption) * 100)}¢</span>
+                      <span className="text-sm font-black text-red-600 dark:text-red-400">{Math.round((1 - getOptionPrice(yesOption)) * 100)}¢</span>
                     </div>
                   </div>
                 </div>
