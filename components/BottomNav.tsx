@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Home, Trophy, Globe, User } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { IS_PRODE_ACTIVE } from "@/lib/constants";
 
 export function BottomNav() {
   const pathname = usePathname();
@@ -15,31 +16,37 @@ export function BottomNav() {
       href: "/",
       icon: Home,
       isActive: pathname === "/",
+      show: true,
     },
     {
       label: "Ranking",
       href: "/ranking",
       icon: Trophy,
       isActive: pathname?.startsWith("/ranking"),
+      show: true,
     },
     {
       label: "Mundial",
       href: "/mundial",
       icon: Globe,
       isActive: pathname?.startsWith("/mundial"),
+      show: IS_PRODE_ACTIVE,
     },
     {
       label: "Perfil",
       href: "/profile",
       icon: User,
       isActive: pathname?.startsWith("/profile"),
+      show: true,
     },
   ];
 
+  const visibleItems = navItems.filter((item) => item.show);
+
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 w-full h-16 bg-background/85 dark:bg-zinc-950/85 backdrop-blur-xl border-t border-border/60 shadow-[0_-4px_20px_rgba(0,0,0,0.1)] dark:shadow-[0_-4px_20px_rgba(0,0,0,0.4)]">
-      <div className="grid h-full w-full grid-cols-4 mx-auto max-w-md">
-        {navItems.map((item) => {
+      <div className={cn("grid h-full w-full mx-auto max-w-md", visibleItems.length === 3 ? "grid-cols-3" : "grid-cols-4")}>
+        {visibleItems.map((item) => {
           const Icon = item.icon;
           return (
             <Link

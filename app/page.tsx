@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Plus, Search, Flame, Clock, TrendingUp, Loader2, Timer } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { createClient } from "@/lib/supabase/client";
+import { supabase } from "@/lib/supabase/client";
 import { IS_PRODE_ACTIVE } from "@/lib/constants";
 import Link from "next/link";
 import type { User } from "@supabase/supabase-js";
@@ -62,8 +62,6 @@ export default function PredictionMarketDashboard() {
   const [isLoadingMarkets, setIsLoadingMarkets] = useState(true);
   const [isLoadingUser, setIsLoadingUser] = useState(true);
 
-  const supabase = createClient();
-
   const fetchUserProfile = useCallback(
     async (userId: string) => {
       const { data: profile } = await supabase
@@ -79,7 +77,7 @@ export default function PredictionMarketDashboard() {
         setAvatarUrl(profile.avatar_url ?? null);
       }
     },
-    [supabase]
+    []
   );
 
   useEffect(() => {
@@ -124,53 +122,55 @@ export default function PredictionMarketDashboard() {
       isMounted = false;
       subscription.unsubscribe(); 
     };
-  }, [supabase.auth, fetchUserProfile]);
+  }, [fetchUserProfile]);
 
   const fetchMarkets = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("markets")
-      .select(`
-        id, 
-        title, 
-        category, 
-        total_volume, 
-        end_date, 
-        status,
-        winning_outcome,
-        created_at,
-        updated_at,
-        image_url,
-        market_options (id, option_name, color, total_votes, is_eliminated, pool_yes, pool_no),
-        transactions (amount, created_at)
-      `)
-      .in("status", ["active", "resolved"]);
+    try {
+      const { data, error } = await supabase
+        .from("markets")
+        .select(`
+          id, 
+          title, 
+          category, 
+          total_volume, 
+          end_date, 
+          status,
+          winning_outcome,
+          created_at,
+          updated_at,
+          image_url,
+          market_options (id, option_name, color, total_votes, is_eliminated, pool_yes, pool_no),
+          transactions (amount, created_at)
+        `)
+        .in("status", ["active", "resolved"]);
 
-    if (error) {
-      console.log("[v0] Error fetching markets:", error.message);
-    } else if (data) {
-      const marketsWithOptions = data.map((market: any) => {
-        const txs = market.transactions || [];
-        const dynamicTotalVolume = txs.reduce((acc: number, tx: any) => acc + Math.abs(Number(tx.amount || 0)), 0);
-        const lastTxTime = txs.length > 0 ? Math.max(...txs.map((tx: any) => new Date(tx.created_at).getTime())) : 0;
-        const lastActivityDate = lastTxTime > 0 ? new Date(lastTxTime).toISOString() : market.updated_at;
+      if (error) {
+        // Silenced error log to keep console clean
+      } else if (data) {
+        const marketsWithOptions = data.map((market: any) => {
+          const txs = market.transactions || [];
+          const dynamicTotalVolume = txs.reduce((acc: number, tx: any) => acc + Math.abs(Number(tx.amount || 0)), 0);
+          const lastTxTime = txs.length > 0 ? Math.max(...txs.map((tx: any) => new Date(tx.created_at).getTime())) : 0;
+          const lastActivityDate = lastTxTime > 0 ? new Date(lastTxTime).toISOString() : market.updated_at;
 
-        return {
-          ...market,
-          total_volume: dynamicTotalVolume > 0 ? dynamicTotalVolume : market.total_volume,
-          last_activity_at: lastActivityDate,
-          options: market.market_options || [],
-          trending: Math.random() > 0.6 ? ((Math.random() > 0.5 ? "up" : "down") as "up" | "down") : undefined,
-        };
-      });
-      setMarkets(marketsWithOptions);
+          return {
+            ...market,
+            total_volume: dynamicTotalVolume > 0 ? dynamicTotalVolume : market.total_volume,
+            last_activity_at: lastActivityDate,
+            options: market.market_options || [],
+            trending: Math.random() > 0.6 ? ((Math.random() > 0.5 ? "up" : "down") as "up" | "down") : undefined,
+          };
+        });
+        setMarkets(marketsWithOptions);
+      }
+    } finally {
+      setIsLoadingMarkets(false);
     }
-
-    setIsLoadingMarkets(false);
-  }, [supabase]);
+  }, []);
 
   useEffect(() => {
     fetchMarkets();
-  }, [fetchMarkets]);
+  }, []);
 
   useEffect(() => {
     const channel = supabase.channel('realtime-markets-dashboard')
