@@ -333,7 +333,100 @@ export function ProfileView({ userId }: { userId?: string }) {
       }
     });
 
-    let result = [...activePositions, ...closedPositions, ...ammSoldPositions];
+    let rawResult = [...activePositions, ...closedPositions, ...ammSoldPositions];
+
+    const active = rawResult.filter(p => p.status === 'active');
+    const inactive = rawResult.filter(p => p.status !== 'active');
+    
+    const groupedInactive = new Map<string, any>();
+    
+    inactive.forEach((pos: any) => {
+       const key = `${pos.market_id}-${pos.outcome}-${pos.direction || 'yes'}`;
+       if (!groupedInactive.has(key)) {
+         groupedInactive.set(key, { ...pos, all_shares: pos.shares, sum_investment: pos.shares * pos.avg_price, cashout_returns: pos.is_reward ? 0 : (pos.status === 'sold' ? pos.realized_pnl + (pos.shares * pos.avg_price) : 0), has_reward: pos.is_reward });
+       } else {
+         const existing = groupedInactive.get(key);
+         // Acumular acciones e inversión si no es la recompensa final ni un cashout parcial
+         if (!pos.is_reward && pos.status !== 'sold') {
+            existing.all_shares += pos.shares;
+            existing.sum_investment += pos.shares * pos.avg_price;
+         } else if (pos.status === 'sold' && !pos.is_reward) {
+            existing.cashout_returns += (pos.realized_pnl + (pos.shares * pos.avg_price));
+         }
+         
+         if (pos.is_reward) existing.has_reward = true;
+         
+         if (pos.status === 'closed' && existing.status !== 'closed') {
+           existing.status = 'closed';
+         }
+         if (new Date(pos.closed_at || 0) > new Date(existing.closed_at || 0)) {
+           existing.closed_at = pos.closed_at;
+         }
+         existing.is_eliminated = existing.is_eliminated || pos.is_eliminated;
+         groupedInactive.set(key, existing);
+       }
+    });
+
+    const consolidatedInactive = Array.from(groupedInactive.values()).map((pos: any) => {
+        let totalInvestment = pos.sum_investment || (pos.all_shares * pos.avg_price);
+        let finalReturn = 0;
+        let realized_pnl = 0;
+        
+        const relatedBet = bets.find(b => b.market_id === pos.market_id && b.outcome === pos.outcome);
+        const market = relatedBet ? getMarket(relatedBet) : null;
+        
+        if (pos.has_reward || (market && (String(market.status).toLowerCase() === 'resolved' || String(market.status).toLowerCase() === 'rejected'))) {
+           pos.status = 'closed';
+           
+           if (pos.is_eliminated) {
+              finalReturn = 0;
+              realized_pnl = -totalInvestment;
+           } else if (market && String(market.status).toLowerCase() === 'rejected') {
+              finalReturn = totalInvestment;
+              realized_pnl = 0;
+           } else {
+              const outcomeNameStr = String(pos.outcome_name || pos.option_display_name || pos.outcome);
+              const isOldBinary = ['sí', 'si', 'no', 'yes'].includes(outcomeNameStr.toLowerCase().trim());
+              
+              let won = false;
+              if (isOldBinary) {
+                 won = market?.winning_outcome === pos.outcome;
+              } else {
+                 if (pos.direction === 'yes') {
+                    won = market?.winning_outcome === pos.outcome;
+                 } else if (pos.direction === 'no') {
+                    won = market?.winning_outcome !== pos.outcome && market?.winning_outcome !== null;
+                 } else {
+                    won = market?.winning_outcome === pos.outcome;
+                 }
+              }
+              
+              if (won || pos.has_reward) {
+                 finalReturn = pos.all_shares * 1.0;
+                 realized_pnl = finalReturn - totalInvestment;
+              } else {
+                 finalReturn = 0;
+                 realized_pnl = -totalInvestment;
+              }
+           }
+        } else if (pos.status === 'sold') {
+           finalReturn = pos.cashout_returns;
+           realized_pnl = finalReturn - totalInvestment;
+        } else {
+           finalReturn = totalInvestment + pos.realized_pnl;
+           realized_pnl = pos.realized_pnl;
+        }
+        
+        return {
+           ...pos,
+           shares: pos.all_shares,
+           realized_pnl,
+           finalReturn,
+           totalInvestment
+        };
+    });
+
+    let result = [...active, ...consolidatedInactive];
 
     // Filtrar por término de búsqueda (título del mercado o nombre de la opción)
     if (searchTerm.trim() !== "") {
@@ -1332,50 +1425,9 @@ export function ProfileView({ userId }: { userId?: string }) {
                 </div>
 
                 {filteredAndSortedPositions.filter(p => p.status === 'closed' || p.status === 'sold').map((pos, idx, arr) => {
-                  const totalInvestment = pos.shares * pos.avg_price;
-                  let realized_pnl = pos.realized_pnl;
-
-                  // Corregir realized_pnl si el usuario mantuvo las acciones hasta la resolución
-                  if (pos.shares > 0) {
-                    const relatedBet = bets.find(b => b.market_id === pos.market_id && b.outcome === pos.outcome);
-                    const market = relatedBet ? getMarket(relatedBet) : null;
-
-                    if (pos.is_eliminated) {
-                      realized_pnl = -totalInvestment;
-                    } else if (market && (String(market.status).toLowerCase() === 'resolved' || String(market.status).toLowerCase() === 'rejected')) {
-                      if (String(market.status).toLowerCase() === 'rejected') {
-                        realized_pnl = 0;
-                      } else {
-                        const outcomeNameStr = String(pos.outcome_name || pos.option_display_name || pos.outcome);
-                        const isOldBinary = ['sí', 'si', 'no', 'yes'].includes(outcomeNameStr.toLowerCase().trim());
-
-                        if (pos.status === 'sold') {
-                          realized_pnl = pos.realized_pnl;
-                        } else {
-                          let won = false;
-                          if (isOldBinary) {
-                            won = market.winning_outcome === pos.outcome;
-                          } else {
-                            if (pos.direction === 'yes') {
-                              won = market.winning_outcome === pos.outcome;
-                            } else if (pos.direction === 'no') {
-                              won = market.winning_outcome !== pos.outcome && market.winning_outcome !== null;
-                            } else {
-                              won = market.winning_outcome === pos.outcome;
-                            }
-                          }
-
-                          if (won) {
-                            realized_pnl = pos.shares - totalInvestment;
-                          } else {
-                            realized_pnl = -totalInvestment;
-                          }
-                        }
-                      }
-                    }
-                  }
-
-                  const finalAmount = totalInvestment + realized_pnl;
+                  const totalInvestment = pos.totalInvestment !== undefined ? pos.totalInvestment : (pos.shares * pos.avg_price);
+                  const realized_pnl = pos.realized_pnl;
+                  const finalAmount = pos.finalReturn !== undefined ? pos.finalReturn : (totalInvestment + realized_pnl);
                   const pnlPct = totalInvestment > 0 ? (realized_pnl / totalInvestment) * 100 : 0;
                   const isLoss = realized_pnl < 0;
                   const isProfit = realized_pnl > 0;

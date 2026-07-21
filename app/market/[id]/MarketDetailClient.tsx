@@ -1043,17 +1043,20 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                 </TabsList>
 
                 <TabsContent value="activity" className="m-0 focus-visible:outline-none">
-                  <div className="rounded-xl border border-border/50 bg-card overflow-hidden shadow-sm">
-                    {activityFeed.length === 0 ? (
-                      <div className="text-center py-12 border-2 border-dashed border-border/50 rounded-xl bg-muted/10 mx-4 my-4">
-                        <TrendingUp className="w-8 h-8 mx-auto mb-2 text-muted-foreground opacity-50" />
-                        <p className="text-sm font-medium text-muted-foreground">Aún no hay actividad en este mercado. ¡Sé el primero!</p>
-                      </div>
-                    ) : (
-                      <div className="divide-y divide-border/30 max-h-[600px] overflow-y-auto scrollbar-thin scrollbar-thumb-border">
-                        {activityFeed.map((item) => (
-                          <div key={item.id} className="flex items-center justify-between p-4 hover:bg-muted/10 transition-colors group">
-                            <div className="flex items-center gap-3">
+                  {(() => {
+                    const visibleActivity = activityFeed.filter((t) => t.type === 'buy' || t.type === 'sell');
+                    return (
+                      <div className="rounded-xl border border-border/50 bg-card overflow-hidden shadow-sm">
+                        {visibleActivity.length === 0 ? (
+                          <div className="text-center py-12 border-2 border-dashed border-border/50 rounded-xl bg-muted/10 mx-4 my-4">
+                            <TrendingUp className="w-8 h-8 mx-auto mb-2 text-muted-foreground opacity-50" />
+                            <p className="text-sm font-medium text-muted-foreground">Aún no hay actividad en este mercado. ¡Sé el primero!</p>
+                          </div>
+                        ) : (
+                          <div className="divide-y divide-border/30 max-h-[600px] overflow-y-auto scrollbar-thin scrollbar-thumb-border">
+                            {visibleActivity.map((item) => (
+                              <div key={item.id} className="flex items-center justify-between p-4 hover:bg-muted/10 transition-colors group">
+                                <div className="flex items-center gap-3">
                               <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 border border-border/50 bg-background overflow-hidden cursor-pointer" onClick={() => openUserProfile(item.user_id, item.profiles?.username || "Usuario")}>
                                 {item.profiles?.avatar_url ? <img src={item.profiles.avatar_url} alt="av" className="w-full h-full object-cover" /> : <UserIcon className="w-4 h-4 text-muted-foreground opacity-50" />}
                               </div>
@@ -1187,6 +1190,8 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                       </div>
                     )}
                   </div>
+                    );
+                  })()}
                 </TabsContent>
 
                 <TabsContent value="debate" className="m-0 focus-visible:outline-none">
