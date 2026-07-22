@@ -521,7 +521,21 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       lastKnownState = { ...newState };
     });
 
-    timeline.push({ ...lastKnownState, timestamp: now });
+    let finalTimestamp = now;
+    if (market.status === 'resolved' || market.status === 'closed') {
+      const m = market as any;
+      if (m.resolved_at) {
+        finalTimestamp = new Date(m.resolved_at).getTime();
+      } else if (m.closed_at) {
+        finalTimestamp = new Date(m.closed_at).getTime();
+      } else if (market.end_date && new Date(market.end_date).getTime() < now) {
+        finalTimestamp = new Date(market.end_date).getTime();
+      } else if (rawHistory.length > 0) {
+        finalTimestamp = rawHistory[rawHistory.length - 1].timestamp;
+      }
+    }
+
+    timeline.push({ ...lastKnownState, timestamp: finalTimestamp });
 
     // NORMALIZAR TODO EL TIMELINE ANTES DE RETORNAR O DENSIFICAR
     const normalizedTimeline = timeline.map(point => {
@@ -566,7 +580,18 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       if (denseResult[denseResult.length - 1].timestamp !== maxT) {
         denseResult.push(normalizedTimeline[normalizedTimeline.length - 1]);
       }
-      return denseResult.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      let finalResult = denseResult.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      
+      const m = market as any;
+      if (m.status === 'resolved' && m.resolved_at) {
+        const lastPoint = finalResult[finalResult.length - 1];
+        const endTime = new Date(m.resolved_at).getTime();
+
+        if (endTime && lastPoint && endTime > lastPoint.timestamp) {
+          finalResult.push({ ...lastPoint, timestamp: endTime });
+        }
+      }
+      return finalResult;
     }
 
     return normalizedTimeline;
@@ -873,7 +898,11 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                   </div>
                   <div className={cn("flex items-center gap-1.5 ml-1", isMarketResolved ? "text-primary font-medium" : isMarketClosed ? "text-red-500 font-medium" : "")}>
                     <Clock className="w-4 h-4" />
-                    {isMarketResolved ? "Mercado finalizado" : isMarketClosed ? `Cerró el ${new Date(market.end_date).toLocaleDateString()}` : `Cierra: ${new Date(market.end_date).toLocaleDateString()}`}
+                    {isMarketResolved 
+                      ? ((market as any).resolved_at 
+                          ? `Resuelto el ${new Date((market as any).resolved_at).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })} a las ${new Date((market as any).resolved_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}` 
+                          : "Mercado resuelto")
+                      : isMarketClosed ? `Cerró el ${new Date(market.end_date).toLocaleDateString()}` : `Cierra: ${new Date(market.end_date).toLocaleDateString()}`}
                   </div>
                 </div>
               </div>
@@ -884,25 +913,27 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                 <h3 className="font-semibold flex items-center gap-2">
                   <LineChartIcon className="w-5 h-5 text-primary" /> Tendencia del Mercado
                 </h3>
-                <div className="flex bg-muted/50 p-1 rounded-xl border border-border/30 w-full sm:w-auto overflow-x-auto">
-                  {timeframes.map((tf) => (
-                    <button
-                      key={tf}
-                      onClick={() => handleTimeframeChange(tf)}
-                      className={cn(
-                        "px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap flex-1 sm:flex-none",
-                        chartTimeframe === tf ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      {tf}
-                    </button>
-                  ))}
-                </div>
+                {!isMarketResolved && (
+                  <div className="flex bg-muted/50 p-1 rounded-xl border border-border/30 w-full sm:w-auto overflow-x-auto">
+                    {timeframes.map((tf) => (
+                      <button
+                        key={tf}
+                        onClick={() => handleTimeframeChange(tf)}
+                        className={cn(
+                          "px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap flex-1 sm:flex-none",
+                          chartTimeframe === tf ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        {tf}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {filteredHistory.length > 0 ? (
                 <div className="w-full h-[350px] relative min-w-0 overflow-hidden pr-2 lg:pr-8 mt-4 mb-2">
-                  <LightweightChart data={filteredHistory} options={options} marketCreatedAt={new Date(market.created_at).getTime()} chartTimeframe={chartTimeframe} />
+                  <LightweightChart data={filteredHistory} options={options} marketCreatedAt={new Date(market.created_at).getTime()} chartTimeframe={isMarketResolved ? 'ALL' : chartTimeframe} />
                 </div>
               ) : (
                 <div className="w-full h-[350px] relative min-w-0 overflow-hidden pr-2 lg:pr-8 mt-4 mb-2 flex items-center justify-center border-2 border-dashed border-border/50 rounded-xl bg-muted/10">

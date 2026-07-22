@@ -247,12 +247,13 @@ export function LightweightChart({ data, options, marketCreatedAt, chartTimefram
   useEffect(() => {
     if (!chartRef.current || data.length === 0) return;
 
-    const nowInSeconds = Math.floor(Date.now() / 1000);
+    const lastDataPointTime = data[data.length - 1].timestamp;
+    const targetEndSeconds = Math.floor(new Date(lastDataPointTime).getTime() / 1000);
     let fromTimestamp: number | null = null;
 
-    if (chartTimeframe === '1D') fromTimestamp = nowInSeconds - 86400;
-    else if (chartTimeframe === '1W') fromTimestamp = nowInSeconds - (7 * 86400);
-    else if (chartTimeframe === '1M') fromTimestamp = nowInSeconds - (30 * 86400);
+    if (chartTimeframe === '1D') fromTimestamp = targetEndSeconds - 86400;
+    else if (chartTimeframe === '1W') fromTimestamp = targetEndSeconds - (7 * 86400);
+    else if (chartTimeframe === '1M') fromTimestamp = targetEndSeconds - (30 * 86400);
 
     const animateZoom = (chartInstance: any, newFrom: number | null, newTo: number) => {
       const timeScale = chartInstance.timeScale();
@@ -291,7 +292,7 @@ export function LightweightChart({ data, options, marketCreatedAt, chartTimefram
     if (chartTimeframe === 'ALL' || !fromTimestamp) {
       chartRef.current.timeScale().fitContent();
     } else {
-      animateZoom(chartRef.current, fromTimestamp, nowInSeconds);
+      animateZoom(chartRef.current, fromTimestamp, targetEndSeconds);
     }
   }, [chartTimeframe, data]);
 
