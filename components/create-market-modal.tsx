@@ -40,8 +40,6 @@ export function CreateMarketModal({ isOpen, onClose, userId, onMarketCreated }: 
   // NUEVO: Estado para manejar opciones personalizadas
   const [marketType, setMarketType] = useState<"binary" | "multiple">("binary");
   const [options, setOptions] = useState<string[]>(["", ""]); // Arranca con 2 vacías
-  const [isWorldCup, setIsWorldCup] = useState(false);
-  
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -95,7 +93,7 @@ export function CreateMarketModal({ isOpen, onClose, userId, onMarketCreated }: 
       end_date: endDate,
       created_by: userId,
       options: finalOptions, // <- Pasamos el array de opciones
-      is_world_cup: isWorldCup
+      is_world_cup: false
     } as any); // Usamos 'any' por ahora hasta actualizar el type en actions.ts
 
     setIsSubmitting(false);
@@ -115,7 +113,6 @@ export function CreateMarketModal({ isOpen, onClose, userId, onMarketCreated }: 
       setEndDate("");
       setMarketType("binary");
       setOptions(["", ""]);
-      setIsWorldCup(false);
       onMarketCreated?.();
       onClose();
     }, 2000);
@@ -237,36 +234,6 @@ export function CreateMarketModal({ isOpen, onClose, userId, onMarketCreated }: 
                 </div>
               )}
             </div>
-
-            {/* World Cup Toggle */}
-            {IS_PRODE_ACTIVE && (
-              <div className="flex items-center justify-between p-4 bg-muted/20 rounded-xl border border-border/50">
-                <div className="space-y-0.5">
-                  <Label className="text-sm font-bold">¿Predicción del Mundial 2026?</Label>
-                  <p className="text-[11px] text-muted-foreground">Marcar si el mercado trata sobre la Copa del Mundo FIFA 2026.</p>
-                </div>
-                <div className="flex bg-muted p-1 rounded-lg border border-border shrink-0">
-                  <Button 
-                    type="button" 
-                    variant={isWorldCup ? "default" : "ghost"}
-                    size="sm"
-                    onClick={() => setIsWorldCup(true)}
-                    className="h-8 px-3 text-xs font-bold"
-                  >
-                    Sí
-                  </Button>
-                  <Button 
-                    type="button" 
-                    variant={!isWorldCup ? "default" : "ghost"}
-                    size="sm"
-                    onClick={() => setIsWorldCup(false)}
-                    className="h-8 px-3 text-xs font-bold"
-                  >
-                    No
-                  </Button>
-                </div>
-              </div>
-            )}
 
 
             {/* Category and End Date */}

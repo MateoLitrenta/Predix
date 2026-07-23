@@ -10,7 +10,6 @@ import { NavHeader } from "@/components/nav-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { ProdeAdminTab } from "@/components/admin/ProdeAdminTab";
 import {
   Table,
   TableBody,
@@ -167,7 +166,7 @@ export default function AdminDashboardClient() {
       category: editForm.category,
       end_date: editForm.end_date,
       image_url: editForm.image_url.trim() || null,
-      is_world_cup: editForm.is_world_cup,
+      is_world_cup: false,
     });
 
     if (!error && editForm.options.length > 0) {
@@ -223,7 +222,7 @@ export default function AdminDashboardClient() {
       end_date: createForm.end_date,
       image_url: createForm.image_url.trim() || null,
       options: finalOptions,
-      is_world_cup: createForm.is_world_cup,
+      is_world_cup: false,
       initial_liquidity: Number(createForm.initial_liquidity) || 50000
     });
 
@@ -420,14 +419,8 @@ export default function AdminDashboardClient() {
           <Button onClick={() => setIsCreateModalOpen(true)} className="shrink-0 bg-primary hover:bg-primary/90 h-12 w-full md:w-auto font-bold text-base shadow-md hover:scale-[1.02] active:scale-[0.98] transition-all"><Plus className="w-5 h-5 mr-2" /> Crear Mercado Rápido</Button>
         </div>
 
-        <Tabs defaultValue="mercados" className="w-full">
-          <TabsList className="mb-6 grid w-full max-w-[400px] grid-cols-2">
-            <TabsTrigger value="mercados" className="font-bold">Mercados Zéilo</TabsTrigger>
-            <TabsTrigger value="prode" className="font-bold text-yellow-500 data-[state=active]:bg-yellow-500/10">Prode Mundial</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="mercados" className="space-y-6 mt-0">
-            <div className="mb-8 flex flex-col lg:flex-row gap-4 p-2 bg-card/40 border border-border/50 rounded-2xl shadow-sm backdrop-blur-xl">
+        <div className="w-full space-y-6">
+          <div className="mb-8 flex flex-col lg:flex-row gap-4 p-2 bg-card/40 border border-border/50 rounded-2xl shadow-sm backdrop-blur-xl">
               <div className="relative flex-1">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                 <Input
@@ -670,12 +663,7 @@ export default function AdminDashboardClient() {
                 </div>
               </>
             )}
-          </TabsContent>
-
-          <TabsContent value="prode" className="mt-0">
-            <ProdeAdminTab />
-          </TabsContent>
-        </Tabs>
+        </div>
 
         {/* MODAL NUEVO: GESTIONAR OPCIONES (ELIMINACIONES PARCIALES) */}
         <Dialog open={!!managingMarket} onOpenChange={(open) => !open && setManagingMarket(null)}>
@@ -820,33 +808,6 @@ export default function AdminDashboardClient() {
                 )}
               </div>
 
-              {/* World Cup Toggle */}
-              <div className="flex items-center justify-between p-4 bg-muted/30 rounded-xl border border-border/50">
-                <div className="space-y-0.5">
-                  <Label className="font-bold">¿Predicción del Mundial 2026?</Label>
-                  <p className="text-xs text-muted-foreground">Marcar si este mercado pertenece al Mundial.</p>
-                </div>
-                <div className="flex bg-muted p-1 rounded-lg border border-border shrink-0">
-                  <Button
-                    type="button"
-                    variant={createForm.is_world_cup ? "default" : "ghost"}
-                    size="sm"
-                    onClick={() => setCreateForm(f => ({ ...f, is_world_cup: true }))}
-                    className="h-8 px-3 text-xs font-bold"
-                  >
-                    Sí
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={!createForm.is_world_cup ? "default" : "ghost"}
-                    size="sm"
-                    onClick={() => setCreateForm(f => ({ ...f, is_world_cup: false }))}
-                    className="h-8 px-3 text-xs font-bold"
-                  >
-                    No
-                  </Button>
-                </div>
-              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -925,33 +886,6 @@ export default function AdminDashboardClient() {
                 ))}
               </div>
 
-              {/* World Cup Toggle */}
-              <div className="flex items-center justify-between p-4 bg-muted/30 rounded-xl border border-border/50">
-                <div className="space-y-0.5">
-                  <Label className="font-bold">¿Predicción del Mundial 2026?</Label>
-                  <p className="text-xs text-muted-foreground">Marcar si este mercado pertenece al Mundial.</p>
-                </div>
-                <div className="flex bg-muted p-1 rounded-lg border border-border shrink-0">
-                  <Button
-                    type="button"
-                    variant={editForm.is_world_cup ? "default" : "ghost"}
-                    size="sm"
-                    onClick={() => setEditForm(f => ({ ...f, is_world_cup: true }))}
-                    className="h-8 px-3 text-xs font-bold"
-                  >
-                    Sí
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={!editForm.is_world_cup ? "default" : "ghost"}
-                    size="sm"
-                    onClick={() => setEditForm(f => ({ ...f, is_world_cup: false }))}
-                    className="h-8 px-3 text-xs font-bold"
-                  >
-                    No
-                  </Button>
-                </div>
-              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
