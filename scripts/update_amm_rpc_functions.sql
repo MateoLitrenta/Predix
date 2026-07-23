@@ -133,10 +133,12 @@ BEGIN
   VALUES (p_user_id, v_market_id, p_market_option_id::text, v_direction, ROUND(p_investment_amount), v_shares, 'active');
 
   -- 10. Registrar en transacciones públicas
-  INSERT INTO transactions (user_id, market_id, type, amount, shares, description)
+  INSERT INTO transactions (user_id, market_id, outcome, direction, type, amount, shares, description)
   VALUES (
     p_user_id, 
-    v_market_id, 
+    v_market_id,
+    p_market_option_id::text,
+    v_direction,
     'buy', 
     ROUND(p_investment_amount), 
     v_shares, 
@@ -246,10 +248,12 @@ BEGIN
   WHERE id = p_user_id;
 
   -- Registrar en transacciones
-  INSERT INTO transactions (user_id, market_id, type, amount, shares, description)
+  INSERT INTO transactions (user_id, market_id, outcome, direction, type, amount, shares, description)
   VALUES (
     p_user_id, 
     v_market_id, 
+    p_market_option_id::text,
+    v_direction,
     'sell', 
     v_payout, 
     p_shares_to_sell, 

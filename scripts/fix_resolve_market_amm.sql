@@ -78,10 +78,12 @@ BEGIN
       END IF;
 
       -- Registrar transacción (Siempre type 'reward', amount = payout)
-      INSERT INTO transactions (user_id, market_id, type, amount, shares, description)
+      INSERT INTO transactions (user_id, market_id, outcome, direction, type, amount, shares, description)
       VALUES (
         v_share_record.user_id, 
         p_market_id, 
+        v_share_record.market_option_id::text,
+        'yes',
         'reward', 
         v_payout_yes, 
         v_share_record.shares_yes_owned, 
@@ -98,10 +100,12 @@ BEGIN
       END IF;
 
       -- Registrar transacción
-      INSERT INTO transactions (user_id, market_id, type, amount, shares, description)
+      INSERT INTO transactions (user_id, market_id, outcome, direction, type, amount, shares, description)
       VALUES (
         v_share_record.user_id, 
         p_market_id, 
+        v_share_record.market_option_id::text,
+        'no',
         'reward', 
         v_payout_no, 
         v_share_record.shares_no_owned, 

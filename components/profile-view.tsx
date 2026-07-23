@@ -154,8 +154,36 @@ export function ProfileView({ userId }: { userId?: string }) {
         is_eliminated: opt.is_eliminated
       });
 
-      if (sy > 0) activePositions.push(buildPos('yes', sy, Number(share.average_price_yes || share.average_price || 0.5), !!opt.is_eliminated) as any);
-      if (sn > 0) activePositions.push(buildPos('no', sn, Number(share.average_price_no || share.average_price || 0.5), !!opt.is_eliminated) as any);
+      const getAvgPrice = (dir: string) => {
+        let totalAmount = 0;
+        let totalShares = 0;
+        transactions.forEach(tx => {
+          const type = (tx.type || "").toLowerCase();
+          const mId = tx.market_id || tx.markets?.id || tx.market?.id;
+          if (type === 'buy' && String(mId) === String(market.id)) {
+            const txOutcome = String(tx.outcome || tx.metadata?.outcome || '').toLowerCase();
+            const txDir = String(tx.direction || tx.metadata?.direction || 'yes').toLowerCase();
+            if (txOutcome === String(opt.id).toLowerCase() && txDir === dir) {
+              totalAmount += Number(tx.amount || 0);
+              totalShares += Number(tx.shares || tx.metadata?.shares || 0);
+            }
+          }
+        });
+        
+        if (totalShares === 0) {
+           return Number(dir === 'yes' ? share.average_price_yes : share.average_price_no) || Number(share.average_price) || 0; 
+        }
+        return totalAmount / totalShares;
+      };
+
+      if (sy > 0) {
+        const avgYes = getAvgPrice('yes');
+        activePositions.push(buildPos('yes', sy, avgYes, !!opt.is_eliminated) as any);
+      }
+      if (sn > 0) {
+        const avgNo = getAvgPrice('no');
+        activePositions.push(buildPos('no', sn, avgNo, !!opt.is_eliminated) as any);
+      }
     });
 
     const closedPositions = portfolioPositions.filter(p => p.status !== 'active').map(p => {
