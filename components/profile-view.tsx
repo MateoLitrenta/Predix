@@ -1482,8 +1482,20 @@ export function ProfileView({ userId }: { userId?: string }) {
                     badgeText = isOptionNameRedundant ? outcomeName.toUpperCase() : `${dirText} - ${outcomeName}`;
                   }
 
-                  const isRedBadge = pos.is_eliminated || pos.direction === 'no';
-                  const hasDirection = !pos.is_eliminated && (pos.direction === 'yes' || pos.direction === 'no');
+                  const relatedBet = bets.find(b => b.market_id === pos.market_id);
+                  const market = relatedBet ? getMarket(relatedBet) : null;
+                  
+                  let iconStatus: 'success' | 'error' | 'neutral' = 'neutral';
+                  
+                  if (market && String(market.status).toLowerCase() === 'resolved') {
+                    if (pos.direction && pos.outcome) {
+                      const isWinner = (pos.direction === 'yes' && String(pos.outcome) === String(market.winning_outcome)) || 
+                                       (pos.direction === 'no' && String(pos.outcome) !== String(market.winning_outcome));
+                      iconStatus = isWinner ? 'success' : 'error';
+                    }
+                  } else if (pos.is_eliminated) {
+                    iconStatus = 'error';
+                  }
 
                   return (
                     <div key={`${pos.market_id}-${pos.outcome}-${idx}`} className="flex flex-col md:flex-row md:items-center border-b border-border/60 md:border-border/30 py-5 px-4 md:py-4 md:px-5 last:border-0 hover:bg-muted/5 md:hover:bg-muted/10 transition-colors gap-4">
@@ -1491,9 +1503,10 @@ export function ProfileView({ userId }: { userId?: string }) {
                       {/* Arriba: Imagen y Título */}
                       <div className="flex items-start gap-3 w-full md:flex-1 md:items-center">
                         <div className={cn("w-8 h-8 rounded-full flex items-center justify-center shrink-0 border hidden md:flex",
-                          isRedBadge ? "bg-red-500/10 border-red-500/30 text-red-500" : (hasDirection ? "bg-green-500/10 border-green-500/30 text-green-500" : "bg-muted/50 border-border/50 text-muted-foreground")
+                          iconStatus === 'error' ? "bg-red-500/10 border-red-500/30 text-red-500" : 
+                          (iconStatus === 'success' ? "bg-green-500/10 border-green-500/30 text-green-500" : "bg-muted/50 border-border/50 text-muted-foreground")
                         )}>
-                          {isRedBadge ? <XCircle className="w-4 h-4" /> : (hasDirection ? <CheckCircle2 className="w-4 h-4" /> : <MinusCircle className="w-4 h-4" />)}
+                          {iconStatus === 'error' ? <XCircle className="w-4 h-4" /> : (iconStatus === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <MinusCircle className="w-4 h-4" />)}
                         </div>
                         {pos.market_image_url ? (
                           <img src={pos.market_image_url} alt="market" className="w-10 h-10 rounded-full object-cover border border-border/50 shrink-0 mt-0.5 md:mt-0" />
@@ -1512,15 +1525,18 @@ export function ProfileView({ userId }: { userId?: string }) {
                             <div className="flex items-center gap-1 text-green-500 font-semibold text-xs mt-1 md:hidden">
                               <CheckCircle2 className="w-3 h-3" /> Ganado
                             </div>
-                          ) : (
+                          ) : isLoss ? (
                             <div className="flex items-center gap-1 text-muted-foreground text-xs mt-1 font-semibold md:hidden">
                               <XCircle className="w-3 h-3" /> Perdido
                             </div>
-                          )}
+                          ) : null}
 
                           <div className="flex items-center gap-1.5 mt-2 md:mt-1 flex-wrap">
-                            <Badge variant="outline" className={cn("text-[10px] font-bold h-4 px-1 border flex items-center gap-1", isRedBadge ? "bg-red-500/10 text-red-500 border-red-500" : (hasDirection ? "bg-green-500/10 text-green-600 dark:text-green-500 border-green-500/30" : "bg-muted text-muted-foreground border-border"))}>
-                              {isRedBadge && <XCircle size={10} />}
+                            <Badge variant="outline" className={cn("text-[10px] font-bold h-4 px-1 border flex items-center gap-1", 
+                              iconStatus === 'error' ? "bg-red-500/10 text-red-500 border-red-500/30" : 
+                              (iconStatus === 'success' ? "bg-green-500/10 text-green-600 dark:text-green-500 border-green-500/30" : "bg-muted text-muted-foreground border-border")
+                            )}>
+                              {iconStatus === 'error' && <XCircle size={10} />}
                               {badgeText}
                             </Badge>
                             <span className="text-[10px] font-medium text-muted-foreground">
