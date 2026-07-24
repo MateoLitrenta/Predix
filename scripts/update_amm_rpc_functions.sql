@@ -180,6 +180,9 @@ DECLARE
   v_direction TEXT;
   v_option_name TEXT;
   v_current_shares NUMERIC;
+  v_sum NUMERIC;
+  v_discriminant NUMERIC;
+  v_k NUMERIC;
 BEGIN
   IF p_shares_to_sell <= 0 THEN
     RETURN json_build_object('success', false, 'error', 'La cantidad de acciones a vender debe ser positiva');
@@ -211,16 +214,36 @@ BEGIN
     v_pn := 50000;
   END IF;
 
+  v_k := v_py * v_pn;
+  v_sum := v_py + v_pn + p_shares_to_sell;
+
   IF p_sell_yes THEN
     v_direction := 'yes';
-    v_payout := (v_pn * p_shares_to_sell) / (v_py + p_shares_to_sell);
-    v_new_py := v_py + p_shares_to_sell;
+    v_discriminant := v_sum * v_sum - 4 * p_shares_to_sell * v_pn;
+    IF v_discriminant < 0 THEN v_discriminant := 0; END IF;
+    v_payout := (v_sum - SQRT(v_discriminant)) / 2;
+    
     v_new_pn := v_pn - v_payout;
+    IF v_new_pn <= 0 THEN
+       RETURN json_build_object('success', false, 'error', 'Liquidez insuficiente en el pool (NO)');
+    END IF;
+    v_new_py := v_k / v_new_pn;
   ELSE
     v_direction := 'no';
-    v_payout := (v_py * p_shares_to_sell) / (v_pn + p_shares_to_sell);
-    v_new_pn := v_pn + p_shares_to_sell;
+    v_discriminant := v_sum * v_sum - 4 * p_shares_to_sell * v_py;
+    IF v_discriminant < 0 THEN v_discriminant := 0; END IF;
+    v_payout := (v_sum - SQRT(v_discriminant)) / 2;
+    
     v_new_py := v_py - v_payout;
+    IF v_new_py <= 0 THEN
+       RETURN json_build_object('success', false, 'error', 'Liquidez insuficiente en el pool (YES)');
+    END IF;
+    v_new_pn := v_k / v_new_py;
+  END IF;
+
+  -- SAFEGUARD ESTRICTO: El precio de venta nunca puede superar $0.99 por acción.
+  IF (v_payout / p_shares_to_sell) > 0.99 THEN
+    RAISE EXCEPTION 'Error de AMM: Precio de venta excede $1.00';
   END IF;
 
   v_payout := FLOOR(v_payout);

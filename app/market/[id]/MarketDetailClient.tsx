@@ -371,11 +371,13 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       p_sell_yes: dir === 'yes'
     };
     
-    const { error } = await supabase.rpc("sell_shares_amm", payload);
+    const { data, error } = await supabase.rpc("sell_shares_amm", payload);
     setIsSelling(false);
 
     if (error) {
       toast({ title: "Error al vender", description: error.message, variant: "destructive" });
+    } else if (data && data.success === false) {
+      toast({ title: "Error al vender", description: data.error || "Operación rechazada", variant: "destructive" });
     } else {
       const payout = calculatePartialCashout(optId, dir, sharesToSell);
 
@@ -453,7 +455,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       const py = Number(share.shares_yes_owned || 0);
       const pn = Number(share.shares_no_owned || 0);
 
-      if (py > 0) {
+      if (py > 0.0001) {
         const key = `${share.market_option_id}|yes`;
         positions[key] = {
           outcome: share.market_option_id,
@@ -462,7 +464,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
           totalInvested: py * 0.5, // Tracker temporal de PnL base
         };
       }
-      if (pn > 0) {
+      if (pn > 0.0001) {
         const key = `${share.market_option_id}|no`;
         positions[key] = {
           outcome: share.market_option_id,
@@ -1542,7 +1544,10 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                                       <div className="flex justify-between items-center mb-2">
                                         <Label className="text-muted-foreground text-xs font-bold">Cantidad a vender</Label>
                                         <button
-                                          onClick={() => setSellSharesInput(maxShares.toString())}
+                                          onClick={() => {
+                                            const safeMax = Math.floor(maxShares * 10000) / 10000;
+                                            setSellSharesInput(safeMax.toString());
+                                          }}
                                           className="text-[10px] font-bold uppercase tracking-wider text-primary hover:text-primary/80 transition-colors bg-primary/10 px-2 py-0.5 rounded-full"
                                         >
                                           MAX

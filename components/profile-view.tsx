@@ -717,7 +717,7 @@ export function ProfileView({ userId }: { userId?: string }) {
     setTimeout(() => setIsCopied(false), 2000);
   };
 
-  const allActivePositions = useMemo(() => filteredAndSortedPositions.filter(p => p.status === 'active'), [filteredAndSortedPositions]);
+  const allActivePositions = useMemo(() => filteredAndSortedPositions.filter(p => p.status === 'active' && p.shares > 0.0001), [filteredAndSortedPositions]);
   const allClosedPositions = useMemo(() => filteredAndSortedPositions.filter(p => p.status !== 'active'), [filteredAndSortedPositions]);
 
   const predictionsPlayed = useMemo(() => new Set(filteredAndSortedPositions.map(pos => pos.market_id).filter(Boolean)).size, [filteredAndSortedPositions]);
@@ -1306,7 +1306,7 @@ export function ProfileView({ userId }: { userId?: string }) {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full mb-4 md:mb-8">
           <TabsList className="flex w-full h-12 mb-3 md:mb-6 bg-muted/30 rounded-xl p-1 border border-border/50 overflow-x-auto whitespace-nowrap scrollbar-none justify-start sm:justify-center shrink-0 hide-scrollbar">
             <TabsTrigger value="active" className="flex items-center gap-1.5 text-[11px] sm:text-sm font-bold rounded-lg px-4 sm:px-6"><LineChart className="w-3.5 h-3.5 hidden sm:block" />Activas <Badge variant="secondary" className="font-black h-4 px-1 ml-0.5 text-[9px]">{allActivePositions.length}</Badge></TabsTrigger>
-            <TabsTrigger value="finished" className="flex items-center gap-1.5 text-[11px] sm:text-sm font-bold rounded-lg px-4 sm:px-6"><History className="w-3.5 h-3.5 hidden sm:block" />Cerradas</TabsTrigger>
+            <TabsTrigger value="finished" className="flex items-center gap-1.5 text-[11px] sm:text-sm font-bold rounded-lg px-4 sm:px-6"><History className="w-3.5 h-3.5 hidden sm:block" />Cerradas {allClosedPositions.length > 0 && <Badge variant="secondary" className="font-black h-4 px-1 ml-0.5 text-[9px]">{allClosedPositions.length}</Badge>}</TabsTrigger>
             {isOwner && <TabsTrigger value="bank" className="flex items-center gap-1.5 text-[11px] sm:text-sm font-bold rounded-lg px-4 sm:px-6"><Landmark className="w-3.5 h-3.5 hidden sm:block" />Billetera</TabsTrigger>}
           </TabsList>
 
@@ -1340,7 +1340,7 @@ export function ProfileView({ userId }: { userId?: string }) {
           <TabsContent value="active" className="m-0">
             {isLoadingBets ? (
               <div className="flex items-center justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-primary opacity-60" /></div>
-            ) : filteredAndSortedPositions.filter(p => p.status === 'active').length === 0 ? (
+            ) : allActivePositions.length === 0 ? (
               <div className="p-10 sm:p-16 text-center text-muted-foreground bg-muted/10 border-2 border-dashed border-border/50 rounded-2xl">
                 <LineChart className="w-12 h-12 sm:w-16 sm:h-16 mx-auto mb-4 opacity-20" />
                 <p className="text-lg sm:text-xl font-bold mb-2 text-foreground">Tu portfolio activo está vacío o no hay resultados de búsqueda</p>
@@ -1360,7 +1360,7 @@ export function ProfileView({ userId }: { userId?: string }) {
                   </div>
                 </div>
 
-                {filteredAndSortedPositions.filter(p => p.status === 'active').map((pos, idx, arr) => {
+                {allActivePositions.map((pos, idx, arr) => {
 
                   // NUEVO: Matemática AMM Inyectada para la Tabla!
                   const opt = marketOptions.find(o => o.id === pos.outcome);
@@ -1439,7 +1439,7 @@ export function ProfileView({ userId }: { userId?: string }) {
           <TabsContent value="finished" className="m-0 space-y-3">
             {isLoadingBets ? (
               <div className="flex items-center justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-primary opacity-60" /></div>
-            ) : filteredAndSortedPositions.filter(p => p.status === 'closed' || p.status === 'sold').length === 0 ? (
+            ) : allClosedPositions.length === 0 ? (
               <div className="p-12 text-center text-muted-foreground bg-muted/10 rounded-2xl"><History className="w-10 h-10 mx-auto mb-3 opacity-20" /><p className="text-sm font-medium">No hay resultados de búsqueda o historial.</p></div>
             ) : (
               <div className="flex flex-col border border-border/50 rounded-2xl bg-card overflow-hidden shadow-sm">
@@ -1452,7 +1452,7 @@ export function ProfileView({ userId }: { userId?: string }) {
                   </div>
                 </div>
 
-                {filteredAndSortedPositions.filter(p => p.status === 'closed' || p.status === 'sold').map((pos, idx, arr) => {
+                {allClosedPositions.map((pos, idx, arr) => {
                   const totalInvestment = pos.totalInvestment !== undefined ? pos.totalInvestment : (pos.shares * pos.avg_price);
                   const realized_pnl = pos.realized_pnl;
                   const finalAmount = pos.finalReturn !== undefined ? pos.finalReturn : (totalInvestment + realized_pnl);
