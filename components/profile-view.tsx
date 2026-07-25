@@ -390,6 +390,12 @@ export function ProfileView({ userId }: { userId?: string }) {
          if (new Date(pos.closed_at || 0) > new Date(existing.closed_at || 0)) {
            existing.closed_at = pos.closed_at;
          }
+         if (new Date(pos.updated_at || 0) > new Date(existing.updated_at || 0)) {
+           existing.updated_at = pos.updated_at;
+         }
+         if (new Date(pos.created_at || 0) > new Date(existing.created_at || 0)) {
+           existing.created_at = pos.created_at;
+         }
          existing.is_eliminated = existing.is_eliminated || pos.is_eliminated;
          groupedInactive.set(key, existing);
        }
@@ -474,13 +480,13 @@ export function ProfileView({ userId }: { userId?: string }) {
       };
 
       if (sortBy === "recent") {
-        const timeA = getValidTime(a.closed_at);
-        const timeB = getValidTime(b.closed_at);
+        const timeA = getValidTime(a.updated_at || a.closed_at || a.created_at);
+        const timeB = getValidTime(b.updated_at || b.closed_at || b.created_at);
         return timeB - timeA;
       }
       if (sortBy === "oldest") {
-        const timeA = getValidTime(a.closed_at);
-        const timeB = getValidTime(b.closed_at);
+        const timeA = getValidTime(a.updated_at || a.closed_at || a.created_at);
+        const timeB = getValidTime(b.updated_at || b.closed_at || b.created_at);
         return timeA - timeB;
       }
       if (sortBy === "highest_value") {

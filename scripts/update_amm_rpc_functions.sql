@@ -7,6 +7,14 @@ DROP FUNCTION IF EXISTS public.buy_shares_amm(uuid, uuid, integer, boolean);
 DROP FUNCTION IF EXISTS public.sell_shares_amm(uuid, uuid, numeric, boolean);
 DROP FUNCTION IF EXISTS public.sell_shares_amm(uuid, uuid, integer, boolean);
 
+-- PARCHE: Asegurar que user_shares tenga la columna updated_at para el ordenamiento del portfolio
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_shares' AND column_name='updated_at') THEN
+        ALTER TABLE user_shares ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+    END IF;
+END $$;
+
 CREATE OR REPLACE FUNCTION public.buy_shares_amm(
   p_user_id UUID,
   p_market_option_id UUID,
@@ -116,7 +124,8 @@ BEGIN
     UPDATE user_shares
     SET 
       shares_yes_owned = COALESCE(shares_yes_owned, 0) + CASE WHEN p_buy_yes THEN v_shares ELSE 0 END,
-      shares_no_owned = COALESCE(shares_no_owned, 0) + CASE WHEN NOT p_buy_yes THEN v_shares ELSE 0 END
+      shares_no_owned = COALESCE(shares_no_owned, 0) + CASE WHEN NOT p_buy_yes THEN v_shares ELSE 0 END,
+      updated_at = NOW()
     WHERE user_id = p_user_id AND market_option_id = p_market_option_id;
   ELSE
     INSERT INTO user_shares (user_id, market_option_id, shares_yes_owned, shares_no_owned)
@@ -262,7 +271,8 @@ BEGIN
   UPDATE user_shares
   SET 
     shares_yes_owned = CASE WHEN p_sell_yes THEN shares_yes_owned - p_shares_to_sell ELSE shares_yes_owned END,
-    shares_no_owned = CASE WHEN NOT p_sell_yes THEN shares_no_owned - p_shares_to_sell ELSE shares_no_owned END
+    shares_no_owned = CASE WHEN NOT p_sell_yes THEN shares_no_owned - p_shares_to_sell ELSE shares_no_owned END,
+    updated_at = NOW()
   WHERE user_id = p_user_id AND market_option_id = p_market_option_id;
 
   -- Acreditar puntos al usuario
