@@ -121,358 +121,147 @@ export function ProfileView({ userId }: { userId?: string }) {
 
   // Filtrar y ordenar las posiciones del portfolio para mostrarlas en las pestañas
   const filteredAndSortedPositions = useMemo(() => {
-    // NUEVO: Construir posiciones activas desde userShares
-    const activePositions: PortfolioPosition[] = [];
+    const result: PortfolioPosition[] = [];
+    
     userShares.forEach((share) => {
       const opt = share.market_options;
       const market = opt?.markets;
       if (!market || !opt) return;
 
       const marketStatus = String(market.status).toLowerCase();
-      if (!ACTIVE_STATUSES.includes(marketStatus)) return; // solo activas
+      const isMarketActive = ACTIVE_STATUSES.includes(marketStatus);
 
-      // Lectura cruda del balance neto de user_shares (Parseando estrictamente con parseFloat para soportar decimales AMM)
+      // Parseo de shares
       const syStr = share.shares_yes_owned !== undefined && share.shares_yes_owned !== null ? share.shares_yes_owned : (share.share_type === 'yes' ? share.shares : 0);
       const snStr = share.shares_no_owned !== undefined && share.shares_no_owned !== null ? share.shares_no_owned : (share.share_type === 'no' ? share.shares : 0);
       const sy = parseFloat(String(syStr)) || 0;
       const sn = parseFloat(String(snStr)) || 0;
 
-      const buildPos = (dir: 'yes' | 'no', s: number, avgPrice: number, isEliminated: boolean) => ({
-        market_id: market.id,
-        outcome: opt.id,
-        status: isEliminated ? 'closed' : 'active',
-        shares: s,
-        avg_price: avgPrice,
-        realized_pnl: isEliminated ? -(s * avgPrice) : 0,
-        market_title: market.title,
-        market_image_url: market.image_url,
-        option_display_name: opt.option_name,
-        direction: dir,
-        updated_at: share.updated_at,
-        created_at: share.created_at,
-        closed_at: share.updated_at, // para el sort
-        is_eliminated: opt.is_eliminated
-      });
+      // Helper robusto para hacer match de transacciones legacy y nuevas con la opción actual
+      const isTransactionForOption = (tx: any, targetOpt: any, targetDir: string) => {
+        const mId = tx.market_id || tx.markets?.id || tx.market?.id;
+        if (String(mId) !== String(market.id)) return false;
 
+        let txOutcome = String(tx.outcome || tx.metadata?.outcome || '').toLowerCase();
+        let txDir = String(tx.direction || tx.metadata?.direction || '').toLowerCase();
+        
+        // Parsing legacy desde la descripción si no hay UUID válido en tx.outcome
+        if (!tx.outcome || tx.outcome.length < 10) {
+           const desc = (tx.description || "").toLowerCase();
+           const match1 = desc.match(/en ["']([^"']+)["']/i);
+           const match2 = desc.match(/(?:a favor de|en contra de) ["']?([^"']+)["']?/i);
+           const match3 = desc.match(/acciones (?:de )?(?:sí|si|no) a ["']([^"']+)["']/i);
+           
+           if (match1) txOutcome = match1[1].toLowerCase();
+           else if (match2) txOutcome = match2[1].toLowerCase();
+           else if (match3) txOutcome = match3[1].toLowerCase();
+           
+           if (desc.includes('en contra') || desc.includes(' de no a ')) txDir = 'no';
+           else if (desc.includes('a favor') || desc.includes('de sí en') || desc.includes('de si en') || desc.includes(' de sí a ') || desc.includes(' de si a ')) txDir = 'yes';
+        }
+        
+        if (!txDir) txDir = 'yes'; // Fallback
+        
+        const isOutcomeMatch = txOutcome === String(targetOpt.id).toLowerCase() || txOutcome === String(targetOpt.option_name).toLowerCase();
+        return isOutcomeMatch && txDir === targetDir;
+      };
+
+      // Calcular precio promedio
       const getAvgPrice = (dir: string) => {
         let totalAmount = 0;
         let totalShares = 0;
         transactions.forEach(tx => {
           const type = (tx.type || "").toLowerCase();
-          const mId = tx.market_id || tx.markets?.id || tx.market?.id;
-          if (type === 'buy' && String(mId) === String(market.id)) {
-            const txOutcome = String(tx.outcome || tx.metadata?.outcome || '').toLowerCase();
-            const txDir = String(tx.direction || tx.metadata?.direction || 'yes').toLowerCase();
-            if (txOutcome === String(opt.id).toLowerCase() && txDir === dir) {
-              totalAmount += Number(tx.amount || 0);
-              totalShares += Number(tx.shares || tx.metadata?.shares || 0);
-            }
+          if (type === 'buy' && isTransactionForOption(tx, opt, dir)) {
+             totalAmount += Number(tx.amount || 0);
+             totalShares += Number(tx.shares || tx.metadata?.shares || 0);
           }
         });
-        
         if (totalShares === 0) {
            return Number(dir === 'yes' ? share.average_price_yes : share.average_price_no) || Number(share.average_price) || 0; 
         }
         return totalAmount / totalShares;
       };
 
-      if (sy > 0) {
-        const avgYes = getAvgPrice('yes');
-        activePositions.push(buildPos('yes', sy, avgYes, !!opt.is_eliminated) as any);
-      }
-      if (sn > 0) {
-        const avgNo = getAvgPrice('no');
-        activePositions.push(buildPos('no', sn, avgNo, !!opt.is_eliminated) as any);
-      }
-    });
-
-    const closedPositions = portfolioPositions.filter(p => p.status !== 'active').map(p => {
-      // Para posiciones legacy, la fecha de cierre es la de resolución del mercado
-      const relatedBet = bets.find(b => b.market_id === p.market_id);
-      const market = relatedBet ? getMarket(relatedBet) : null;
-      let closedAt = p.closed_at || p.updated_at || p.created_at;
-      // Validar estrictamente para evitar que resoluciones de mercado sobrescriban la venta del AMM
-      if (p.status !== 'sold') {
-        if (market && (market as any).resolved_at) {
-          closedAt = (market as any).resolved_at || closedAt;
-        } else if (market && market.end_date) {
-          // Solo como último recurso usar end_date
-          closedAt = market.end_date || closedAt;
-        }
-      }
-      return {
-        ...p,
-        closed_at: closedAt
-      };
-    });
-
-    // NUEVO: Construir posiciones vendidas (AMM Cashouts) desde transactions
-    const ammSoldPositions: PortfolioPosition[] = [];
-    transactions.forEach(tx => {
-      console.log("Transacción cruda de DB:", tx);
-      const amount = Number(tx.amount || 0);
-      const desc = (tx.description || "").toLowerCase();
-      const type = (tx.type || "").toLowerCase();
-      const isBonus = desc.includes('bonus diario');
-      const isSale = type === 'sell' || type === 'cashout' || type === 'venta' || type === 'reward' || desc.includes('venta') || desc.includes('cashout');
-      const marketId = tx.market_id || tx.markets?.id || tx.market?.id;
-      
-      if (amount > 0 && marketId && isSale && !isBonus) {
-        let shares = parseFloat(String(tx.shares || tx.metadata?.shares || 0)) || 0;
-        let price = parseFloat(String(tx.price || tx.metadata?.price || 0)) || 0;
-
-        if (desc.includes('venta parcial')) {
-           const match = desc.match(/venta parcial de ([\d.,]+) acciones/i);
-           if (match && !shares) shares = parseFloat(match[1].replace(/\./g, '').replace(/,/g, '.'));
-        }
-
-        // Si la tabla no trae shares pero tenemos price y amount, derivamos (Amount / Price)
-        if (!shares && price > 0) {
-           shares = amount / price;
-        }
-
-        // 1. LÓGICA DE EXTRACCIÓN ESTRICTA
-        const extractName = (str: string) => {
-          const match = str.match(/en ["']([^"']+)["']/i);
-          if (match) return match[1];
-          const match2 = str.match(/(?:a favor de|en contra de) ["']?([^"']+)["']?/i);
-          if (match2) return match2[1];
-          return null;
-        };
-
-        let outcome = extractName(desc) || 'unknown';
-
-        let direction = null;
-
-        if (type === 'reward') {
-          if (desc.includes('Ganó NO')) direction = 'no';
-          else if (desc.includes('Ganó SÍ') || desc.includes('Ganó SI')) direction = 'yes';
-        }
-
-        // Buscar última compra original del mismo usuario y mercado para esta misma opción
-        // Ordenamos las transacciones por fecha para encontrar la más reciente antes de esta venta
-        if (outcome !== 'unknown') {
-          const pastBuys = transactions.filter(t => {
-            const pType = (t.type || "").toLowerCase();
-            const pMarketId = t.market_id || t.markets?.id || t.market?.id;
-            return pType === 'buy' && pMarketId === marketId && new Date(t.created_at) < new Date(tx.created_at);
-          }).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
-          for (const pastTx of pastBuys) {
-             const pDesc = (pastTx.description || "").toLowerCase();
-             let pOutcome = extractName(pDesc);
-             if (!pOutcome) {
-               if (pDesc.includes('en contra de')) {
-                 pOutcome = pastTx.description.substring(pastTx.description.indexOf('en contra de') + 13).trim();
-               } else if (pDesc.includes('a favor de')) {
-                 pOutcome = pastTx.description.substring(pastTx.description.indexOf('a favor de') + 11).trim();
-               } else {
-                 pOutcome = 'unknown';
-               }
-             }
-             pOutcome = pOutcome.replace(/"/g, '').toLowerCase();
-             
-             if (pOutcome === outcome.toLowerCase()) {
-               if (pDesc.includes("en contra")) {
-                 direction = "no";
-                 break;
-               } else if (pDesc.includes("a favor")) {
-                 direction = "yes";
-                 break;
-               }
-             }
-          }
-        }
-
-        const option_display_name = outcome !== 'unknown' ? outcome : 'Opción vendida';
-        
-        // Calcular average_buy_price usando las transacciones de compra previas
-        let totalBuyShares = 0;
-        let totalBuyAmount = 0;
-        transactions.forEach(pastTx => {
-          const pType = (pastTx.type || "").toLowerCase();
-          const pMarketId = pastTx.market_id || pastTx.markets?.id || pastTx.market?.id;
-          if (pType === 'buy' && pMarketId === marketId && new Date(pastTx.created_at) <= new Date(tx.created_at)) {
-             const pDesc = (pastTx.description || "").toLowerCase();
-             let matchForAvgPrice = false;
-             if (outcome !== 'unknown') {
-               let pOutcome = 'unknown';
-               if (pDesc.includes('en contra de')) {
-                 pOutcome = pastTx.description.substring(pastTx.description.indexOf('en contra de') + 13).trim();
-               } else if (pDesc.includes('a favor de')) {
-                 pOutcome = pastTx.description.substring(pastTx.description.indexOf('a favor de') + 11).trim();
-               } else {
-                 const m = pDesc.match(/(?:compra|venta)(?: parcial)? de acciones (?:en|a favor de|en contra de) ["']?([^"']+)["']?/i);
-                 if (m) pOutcome = m[1];
-               }
-               pOutcome = pOutcome.replace(/"/g, '').toLowerCase();
-               if (pOutcome === outcome.toLowerCase()) {
-                 matchForAvgPrice = true;
-               }
-             } else if (direction) {
-               if (direction === 'no' && pDesc.includes('en contra')) matchForAvgPrice = true;
-               else if (direction === 'yes' && pDesc.includes('a favor')) matchForAvgPrice = true;
-             } else {
-               matchForAvgPrice = true; // Fallback extremo
-             }
-             
-             if (matchForAvgPrice) {
-                const bShares = parseFloat(String(pastTx.shares || pastTx.metadata?.shares || 0));
-                const bAmount = Math.abs(Number(pastTx.amount || 0));
-                if (bShares > 0) {
-                  totalBuyShares += bShares;
-                  totalBuyAmount += bAmount;
-                }
-             }
-          }
-        });
-
-        let avg_price = Number(tx.metadata?.avg_price || 0);
-        if (avg_price === 0 && totalBuyShares > 0) {
-          avg_price = totalBuyAmount / totalBuyShares;
-        } else if (avg_price === 0) {
-          avg_price = price > 0 ? price : 0.5; // Fallback
-        }
-
-        const investment = shares * avg_price;
-        const realized_pnl = amount - investment; // PnL = Cashout - Inversión
-        const sell_price = price > 0 ? price : (shares > 0 ? amount / shares : 0);
-        
-        const marketTitle = tx.markets?.title || tx.market?.title || "Mercado";
-        const marketImage = tx.markets?.image_url || tx.market?.image_url || null;
-        
-        ammSoldPositions.push({
-          market_id: marketId,
-          outcome: outcome,
-          status: 'sold' as const,
-          shares: shares,
-          avg_price: avg_price,
-          sell_price: sell_price,
-          realized_pnl: realized_pnl,
-          market_title: marketTitle,
-          market_image_url: marketImage,
-          option_display_name: option_display_name,
-          direction: direction,
-          closed_at: tx.created_at, // Asignación explícita del momento de la venta
-          created_at: tx.created_at,
-          updated_at: tx.created_at,
-          is_reward: type === 'reward'
-        });
-      }
-    });
-
-    let rawResult = [...activePositions, ...closedPositions, ...ammSoldPositions];
-
-    const active = rawResult.filter(p => p.status === 'active');
-    const inactive = rawResult.filter(p => p.status !== 'active');
-    
-    const groupedInactive = new Map<string, any>();
-    
-    inactive.forEach((pos: any) => {
-       const key = `${pos.market_id}-${pos.outcome}-${pos.direction || 'yes'}`;
-       if (!groupedInactive.has(key)) {
-         groupedInactive.set(key, { ...pos, all_shares: pos.shares, sum_investment: pos.shares * pos.avg_price, cashout_returns: pos.is_reward ? 0 : (pos.status === 'sold' ? pos.realized_pnl + (pos.shares * pos.avg_price) : 0), has_reward: pos.is_reward });
-       } else {
-         const existing = groupedInactive.get(key);
-         // Acumular acciones e inversión si no es la recompensa final ni un cashout parcial
-         if (!pos.is_reward && pos.status !== 'sold') {
-            existing.all_shares += pos.shares;
-            existing.sum_investment += pos.shares * pos.avg_price;
-         } else if (pos.status === 'sold' && !pos.is_reward) {
-            existing.cashout_returns += (pos.realized_pnl + (pos.shares * pos.avg_price));
-         }
-         
-         if (pos.is_reward) existing.has_reward = true;
-         
-         if (pos.status === 'closed' && existing.status !== 'closed') {
-           existing.status = 'closed';
-         }
-         if (new Date(pos.closed_at || 0) > new Date(existing.closed_at || 0)) {
-           existing.closed_at = pos.closed_at;
-         }
-         if (new Date(pos.updated_at || 0) > new Date(existing.updated_at || 0)) {
-           existing.updated_at = pos.updated_at;
-         }
-         if (new Date(pos.created_at || 0) > new Date(existing.created_at || 0)) {
-           existing.created_at = pos.created_at;
-         }
-         existing.is_eliminated = existing.is_eliminated || pos.is_eliminated;
-         groupedInactive.set(key, existing);
-       }
-    });
-
-    const consolidatedInactive = Array.from(groupedInactive.values()).map((pos: any) => {
-        let totalInvestment = pos.sum_investment || (pos.all_shares * pos.avg_price);
-        let finalReturn = 0;
+      const buildPos = (dir: 'yes' | 'no', s: number, avgPrice: number) => {
+        let status: any = 'active';
         let realized_pnl = 0;
+        let isWinner = false;
         
-        const relatedBet = bets.find(b => b.market_id === pos.market_id && b.outcome === pos.outcome);
-        const market = relatedBet ? getMarket(relatedBet) : null;
-        
-        if (pos.has_reward || (market && (String(market.status).toLowerCase() === 'resolved' || String(market.status).toLowerCase() === 'rejected'))) {
-           pos.status = 'closed';
-           
-           if (pos.is_eliminated) {
-              finalReturn = 0;
-              realized_pnl = -totalInvestment;
-           } else if (market && String(market.status).toLowerCase() === 'rejected') {
-              finalReturn = totalInvestment;
-              realized_pnl = 0;
+        if (opt.is_eliminated) {
+           status = 'closed';
+           realized_pnl = -(s * avgPrice);
+        } else if (!isMarketActive) {
+           status = 'closed';
+           if (marketStatus === 'rejected') {
+             realized_pnl = 0; // Se devuelve la inversión
            } else {
-              const outcomeNameStr = String(pos.outcome_name || pos.option_display_name || pos.outcome);
-              const isOldBinary = ['sí', 'si', 'no', 'yes'].includes(outcomeNameStr.toLowerCase().trim());
-              
-              let won = false;
-              if (isOldBinary) {
-                 won = market?.winning_outcome === pos.outcome;
-              } else {
-                 if (pos.direction === 'yes') {
-                    won = market?.winning_outcome === pos.outcome;
-                 } else if (pos.direction === 'no') {
-                    won = market?.winning_outcome !== pos.outcome && market?.winning_outcome !== null;
-                 } else {
-                    won = market?.winning_outcome === pos.outcome;
-                 }
-              }
-              
-              if (won || pos.has_reward) {
-                 finalReturn = pos.all_shares * 1.0;
-                 realized_pnl = finalReturn - totalInvestment;
-              } else {
-                 finalReturn = 0;
-                 realized_pnl = -totalInvestment;
-              }
+             // Resolved o closed
+             if (dir === 'yes') {
+                isWinner = String(market.winning_outcome) === String(opt.id);
+             } else {
+                isWinner = String(market.winning_outcome) !== String(opt.id) && market.winning_outcome !== null;
+             }
+             
+             if (isWinner) {
+                realized_pnl = (s * 1.0) - (s * avgPrice);
+             } else {
+                realized_pnl = -(s * avgPrice);
+             }
            }
-        } else if (pos.status === 'sold') {
-           finalReturn = pos.cashout_returns;
-           realized_pnl = finalReturn - totalInvestment;
-        } else {
-           finalReturn = totalInvestment + pos.realized_pnl;
-           realized_pnl = pos.realized_pnl;
         }
-        
+
         return {
-           ...pos,
-           shares: pos.all_shares,
-           realized_pnl,
-           finalReturn,
-           totalInvestment
+          market_id: market.id,
+          outcome: opt.id,
+          status,
+          shares: s,
+          avg_price: avgPrice,
+          realized_pnl,
+          isWinner,
+          market_title: market.title,
+          market_image_url: market.image_url,
+          option_display_name: opt.option_name,
+          direction: dir,
+          updated_at: share.updated_at,
+          created_at: share.created_at,
+          closed_at: market.resolved_at || market.end_date || share.updated_at,
+          is_eliminated: opt.is_eliminated
         };
+      };
+
+      const processDir = (dir: 'yes' | 'no', sharesAmt: number) => {
+         let everOwned = sharesAmt > 0;
+         if (!everOwned) {
+            everOwned = transactions.some(tx => 
+              (tx.type === 'buy' || tx.type === 'sell' || tx.type === 'cashout') && 
+              isTransactionForOption(tx, opt, dir)
+            );
+         }
+         
+         if (everOwned) {
+            const avg = getAvgPrice(dir);
+            result.push(buildPos(dir, sharesAmt, avg) as any);
+         }
+      };
+      
+      processDir('yes', sy);
+      processDir('no', sn);
     });
 
-    let result = [...active, ...consolidatedInactive];
+    let filtered = result;
 
     // Filtrar por término de búsqueda (título del mercado o nombre de la opción)
     if (searchTerm.trim() !== "") {
       const term = searchTerm.toLowerCase().trim();
-      result = result.filter(pos => 
+      filtered = filtered.filter(pos => 
         (pos.market_title && pos.market_title.toLowerCase().includes(term)) ||
         (pos.option_display_name && pos.option_display_name.toLowerCase().includes(term))
       );
     }
 
     // Ordenar según el criterio seleccionado
-    result.sort((a, b) => {
+    filtered.sort((a, b) => {
       const getValidTime = (d: any) => {
         if (!d) return 0;
         const t = new Date(d).getTime();
@@ -514,8 +303,8 @@ export function ProfileView({ userId }: { userId?: string }) {
       return 0;
     });
 
-    return result;
-  }, [portfolioPositions, userShares, searchTerm, sortBy, marketOptions, getNormalizedPrice, transactions, bets]);
+    return filtered;
+  }, [userShares, searchTerm, sortBy, marketOptions, getNormalizedPrice, transactions]);
 
   const [isChecking, setIsChecking] = useState(true);
   const [isLoadingBets, setIsLoadingBets] = useState(true);
@@ -1459,47 +1248,36 @@ export function ProfileView({ userId }: { userId?: string }) {
                 </div>
 
                 {allClosedPositions.map((pos, idx, arr) => {
-                  const totalInvestment = pos.totalInvestment !== undefined ? pos.totalInvestment : (pos.shares * pos.avg_price);
-                  const realized_pnl = pos.realized_pnl;
-                  const finalAmount = pos.finalReturn !== undefined ? pos.finalReturn : (totalInvestment + realized_pnl);
+                  const totalInvestment = pos.shares * pos.avg_price;
+                  const realized_pnl = pos.realized_pnl || 0;
+                  const finalAmount = totalInvestment + realized_pnl;
                   const pnlPct = totalInvestment > 0 ? (realized_pnl / totalInvestment) * 100 : 0;
                   const isLoss = realized_pnl < 0;
                   const isProfit = realized_pnl > 0;
                   const isTie = realized_pnl === 0;
 
-                  const outcomeName = String(pos.outcome_name || pos.option_display_name || pos.outcome);
-                  const dirText = pos.direction === 'yes' ? 'SÍ' : 'NO';
+                  const outcomeName = String(pos.option_display_name || pos.outcome);
+                  const isYes = pos.direction === 'yes';
+                  const isNo = pos.direction === 'no';
+                  const dirText = isYes ? 'SÍ' : (isNo ? 'NO' : '');
                   
-                  const nameToShow = outcomeName !== 'unknown' ? outcomeName : 'Opción vendida';
-                  const isOptionNameRedundant = nameToShow.toLowerCase() === 'sí' || nameToShow.toLowerCase() === 'si' || nameToShow.toLowerCase() === 'no';
+                  const isOptionNameRedundant = outcomeName.toLowerCase() === 'sí' || outcomeName.toLowerCase() === 'si' || outcomeName.toLowerCase() === 'no';
                   
                   let badgeText = '';
-                  if (pos.is_eliminated) {
-                    badgeText = `Resuelto - ${nameToShow}`;
-                  } else if (pos.status === 'sold') {
-                    if (pos.is_reward) {
-                      badgeText = `Resuelto - ${nameToShow}`;
-                    } else if (pos.direction === 'yes' || pos.direction === 'no') {
-                      badgeText = isOptionNameRedundant ? nameToShow : `${dirText} - ${nameToShow}`;
-                    } else {
-                      badgeText = nameToShow;
-                    }
+                  if (pos.shares < 0.0001) {
+                     badgeText = isOptionNameRedundant ? `Cashout - ${outcomeName.toUpperCase()}` : `Cashout - ${dirText} a ${outcomeName}`;
                   } else {
-                    badgeText = isOptionNameRedundant ? outcomeName.toUpperCase() : `${dirText} - ${outcomeName}`;
+                     badgeText = isOptionNameRedundant ? outcomeName.toUpperCase() : `${dirText} a ${outcomeName}`;
                   }
 
-                  const relatedBet = bets.find(b => b.market_id === pos.market_id);
-                  const market = relatedBet ? getMarket(relatedBet) : null;
-                  
                   let iconStatus: 'success' | 'error' | 'neutral' = 'neutral';
-                  
-                  if (market && String(market.status).toLowerCase() === 'resolved') {
-                    if (pos.direction && pos.outcome) {
-                      const isWinner = (pos.direction === 'yes' && String(pos.outcome) === String(market.winning_outcome)) || 
-                                       (pos.direction === 'no' && String(pos.outcome) !== String(market.winning_outcome));
-                      iconStatus = isWinner ? 'success' : 'error';
-                    }
+                  if (pos.shares < 0.0001) {
+                    iconStatus = 'neutral';
                   } else if (pos.is_eliminated) {
+                    iconStatus = 'error';
+                  } else if (pos.isWinner) {
+                    iconStatus = 'success';
+                  } else {
                     iconStatus = 'error';
                   }
 
