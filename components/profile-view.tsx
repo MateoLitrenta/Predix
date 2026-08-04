@@ -148,16 +148,19 @@ export function ProfileView({ userId }: { userId?: string }) {
         // Parsing legacy desde la descripción si no hay UUID válido en tx.outcome
         if (!tx.outcome || tx.outcome.length < 10) {
            const desc = (tx.description || "").toLowerCase();
-           const match1 = desc.match(/en ["']([^"']+)["']/i);
-           const match2 = desc.match(/(?:a favor de|en contra de) ["']?([^"']+)["']?/i);
-           const match3 = desc.match(/acciones (?:de )?(?:sí|si|no) a ["']([^"']+)["']/i);
            
-           if (match1) txOutcome = match1[1].toLowerCase();
-           else if (match2) txOutcome = match2[1].toLowerCase();
-           else if (match3) txOutcome = match3[1].toLowerCase();
+           // Extraer nombre de la opción (asumiendo que está entre comillas simples o dobles)
+           const match = desc.match(/(?:en|a favor de|en contra de|a) ["']([^"']+)["']/i);
+           if (match) txOutcome = match[1].toLowerCase();
            
-           if (desc.includes('en contra') || desc.includes(' de no a ')) txDir = 'no';
-           else if (desc.includes('a favor') || desc.includes('de sí en') || desc.includes('de si en') || desc.includes(' de sí a ') || desc.includes(' de si a ')) txDir = 'yes';
+           // Remover la opción citada para evitar falsos positivos si el nombre contiene "no" o "si"
+           const descSinOpcion = desc.replace(/["'][^"']+["']/g, '');
+           
+           if (/\b(?:contra|no)\b/i.test(descSinOpcion)) {
+              txDir = 'no';
+           } else if (/\b(?:favor|s[ií])\b/i.test(descSinOpcion)) {
+              txDir = 'yes';
+           }
         }
         
         if (!txDir) txDir = 'yes'; // Fallback
