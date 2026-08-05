@@ -80,6 +80,26 @@ const getActualAmmPrice = (opt: any, direction: string) => {
   return direction === 'yes' ? priceYes : (1 - priceYes);
 };
 
+// NUEVO: Matemática de Retorno Cuadrático (AMM) con Slippage
+const calculateRealCashout = (opt: any, direction: string, sharesToSell: number) => {
+  if (!opt || sharesToSell <= 0 || opt.pool_yes == null || opt.pool_no == null) return 0;
+  const py = Number(opt.pool_yes);
+  const pn = Number(opt.pool_no);
+  let payout = 0;
+
+  if (direction === 'yes') {
+    const b = py + pn + sharesToSell;
+    const c = sharesToSell * pn;
+    payout = (b - Math.sqrt(b * b - 4 * c)) / 2;
+  } else {
+    const b = py + pn + sharesToSell;
+    const c = sharesToSell * py;
+    payout = (b - Math.sqrt(b * b - 4 * c)) / 2;
+  }
+
+  return payout;
+};
+
 const EmptyTooltip = () => null;
 
 export function ProfileView({ userId }: { userId?: string }) {
@@ -169,31 +189,59 @@ export function ProfileView({ userId }: { userId?: string }) {
         return isOutcomeMatch && txDir === targetDir;
       };
 
-      // Calcular precio promedio
-      const getAvgPrice = (dir: string) => {
-        let totalAmount = 0;
-        let totalShares = 0;
-        transactions.forEach(tx => {
-          const type = (tx.type || "").toLowerCase();
-          if (type === 'buy' && isTransactionForOption(tx, opt, dir)) {
-             totalAmount += Number(tx.amount || 0);
-             totalShares += Number(tx.shares || tx.metadata?.shares || 0);
-          }
+      // Calcular Cost Basis LIFO aislando solo las acciones vivas
+      const getInvestmentData = (dir: string, currentShares: number) => {
+        const buyTxs = transactions.filter(tx => {
+           const type = (tx.type || "").toLowerCase();
+           return type === 'buy' && isTransactionForOption(tx, opt, dir);
         });
-        if (totalShares === 0) {
-           return Number(dir === 'yes' ? share.average_price_yes : share.average_price_no) || Number(share.average_price) || 0; 
+        
+        // Ordenar de más reciente a más antigua
+        buyTxs.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        
+        let accumulatedShares = 0;
+        let accumulatedAmount = 0;
+        
+        for (const tx of buyTxs) {
+           const txShares = Number(tx.shares || tx.metadata?.shares || 0);
+           const txAmount = Number(tx.amount || 0);
+           
+           if (txShares <= 0) continue;
+           
+           const remainingNeeded = currentShares - accumulatedShares;
+           if (remainingNeeded <= 0) break;
+           
+           if (txShares <= remainingNeeded) {
+              accumulatedShares += txShares;
+              accumulatedAmount += txAmount;
+           } else {
+              // Si la transacción supera las acciones que restan contabilizar, tomamos solo la fracción proporcional
+              const fraction = remainingNeeded / txShares;
+              accumulatedShares += remainingNeeded;
+              accumulatedAmount += txAmount * fraction;
+           }
         }
-        return totalAmount / totalShares;
+        
+        let avgPrice = 0;
+        if (accumulatedShares === 0) {
+           // Fallback en caso de que no haya transacciones válidas en el historial
+           avgPrice = Number(dir === 'yes' ? share.average_price_yes : share.average_price_no) || Number(share.average_price) || 0; 
+           accumulatedAmount = currentShares * avgPrice;
+        } else {
+           avgPrice = accumulatedAmount / accumulatedShares;
+        }
+        
+        return { avgPrice, totalAmount: accumulatedAmount };
       };
 
-      const buildPos = (dir: 'yes' | 'no', s: number, avgPrice: number) => {
+      const buildPos = (dir: 'yes' | 'no', s: number, investmentData: { avgPrice: number, totalAmount: number }) => {
         let status: any = 'active';
         let realized_pnl = 0;
         let isWinner = false;
         
         if (opt.is_eliminated) {
            status = 'closed';
-           realized_pnl = -(s * avgPrice);
+           realized_pnl = -(investmentData.totalAmount);
         } else if (!isMarketActive) {
            status = 'closed';
            if (marketStatus === 'rejected') {
@@ -207,9 +255,9 @@ export function ProfileView({ userId }: { userId?: string }) {
              }
              
              if (isWinner) {
-                realized_pnl = (s * 1.0) - (s * avgPrice);
+                realized_pnl = (s * 1.0) - investmentData.totalAmount;
              } else {
-                realized_pnl = -(s * avgPrice);
+                realized_pnl = -(investmentData.totalAmount);
              }
            }
         }
@@ -219,7 +267,8 @@ export function ProfileView({ userId }: { userId?: string }) {
           outcome: opt.id,
           status,
           shares: s,
-          avg_price: avgPrice,
+          avg_price: investmentData.avgPrice,
+          total_investment: investmentData.totalAmount,
           realized_pnl,
           isWinner,
           market_title: market.title,
@@ -243,8 +292,8 @@ export function ProfileView({ userId }: { userId?: string }) {
          }
          
          if (everOwned) {
-            const avg = getAvgPrice(dir);
-            result.push(buildPos(dir, sharesAmt, avg) as any);
+            const investmentData = getInvestmentData(dir, sharesAmt);
+            result.push(buildPos(dir, sharesAmt, investmentData) as any);
          }
       };
       
@@ -1160,15 +1209,16 @@ export function ProfileView({ userId }: { userId?: string }) {
 
                 {allActivePositions.map((pos, idx, arr) => {
 
-                  // NUEVO: Matemática AMM Inyectada para la Tabla!
+                  // NUEVO: Matemática Nominal Estándar (Sin Slippage AMM)
                   const opt = marketOptions.find(o => o.id === pos.outcome);
-                  const currentPrice = getNormalizedPrice(pos.outcome, pos.direction || 'yes');
-                  const currentValue = pos.shares * currentPrice;
+                  const currentSpotPrice = getNormalizedPrice(pos.outcome, pos.direction || 'yes');
+                  const currentValue = pos.shares * currentSpotPrice;
 
-                  const totalInvestment = pos.shares * pos.avg_price;
-                  const floatingPnl = currentValue - totalInvestment;
-                  const floatingPnlPct = totalInvestment > 0 ? (floatingPnl / totalInvestment) * 100 : 0;
-                  const isProfit = floatingPnl >= 0;
+                  // Inversión 100% exacta desde el Join de transacciones (no por multiplicación)
+                  const totalInvestment = pos.total_investment || 0;
+                  const pnlAmount = currentValue - totalInvestment;
+                  const pnlPercentage = totalInvestment > 0 ? (pnlAmount / totalInvestment) * 100 : 0;
+                  const isProfit = pnlAmount >= 0;
 
                   const outcomeName = String(pos.outcome_name || pos.option_display_name || pos.outcome);
                   const isBinary = ['sí', 'si', 'no', 'yes'].includes(outcomeName.toLowerCase().trim());
@@ -1215,7 +1265,7 @@ export function ProfileView({ userId }: { userId?: string }) {
                           </div>
                           <div className="flex flex-col md:w-[50px] md:items-end">
                             <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider md:hidden">Actual</p>
-                            <p className="font-bold text-foreground md:font-medium">${currentPrice.toFixed(2)}</p>
+                            <p className="font-bold text-foreground md:font-medium">${currentSpotPrice.toFixed(2)}</p>
                           </div>
                         </div>
 
@@ -1223,7 +1273,7 @@ export function ProfileView({ userId }: { userId?: string }) {
                           <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-0.5 md:hidden">Valor</p>
                           <p className="font-black text-base text-foreground">{currentValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} pts</p>
                           <p className={cn("text-[11px] font-bold mt-0.5 md:font-medium", isProfit ? "text-green-600 dark:text-[#00FF00]" : "text-red-600 dark:text-[#FF0000]")}>
-                            {isProfit ? '+' : ''}{floatingPnl.toLocaleString(undefined, { maximumFractionDigits: 0 })} ({isProfit ? '+' : ''}{floatingPnlPct.toFixed(1)}%)
+                            {isProfit ? '+' : ''}{pnlAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })} ({isProfit ? '+' : ''}{pnlPercentage.toFixed(1)}%)
                           </p>
                         </div>
                       </div>
