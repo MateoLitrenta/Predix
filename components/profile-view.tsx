@@ -189,144 +189,128 @@ export function ProfileView({ userId }: { userId?: string }) {
         return isOutcomeMatch && txDir === targetDir;
       };
 
-      // Calcular Cost Basis LIFO (para Activas) o Histórico (para Cerradas)
-      const getInvestmentData = (dir: string, currentShares: number) => {
-        const isClosedPosition = !isMarketActive || opt.is_eliminated || currentShares === 0;
-        
-        const buyTxs = transactions.filter(tx => {
-           const type = (tx.type || "").toLowerCase();
-           return type === 'buy' && isTransactionForOption(tx, opt, dir);
-        });
-        
-        let accumulatedShares = 0;
-        let accumulatedAmount = 0;
-        
-        if (isClosedPosition) {
-           let historicalPayout = 0;
-           let historicalShares = 0;
-           
-           buyTxs.forEach(tx => {
-              accumulatedAmount += Number(tx.amount || 0);
-              historicalShares += Number(tx.shares || tx.metadata?.shares || 0);
-           });
-           
-           const sellTxs = transactions.filter(tx => {
-              const type = (tx.type || "").toLowerCase();
-              return (type === 'sell' || type === 'cashout' || type === 'payout') && isTransactionForOption(tx, opt, dir);
-           });
-           
-           sellTxs.forEach(tx => {
-              historicalPayout += Number(tx.amount || 0);
-           });
-           
-           let avgPrice = 0;
-           if (historicalShares > 0) {
-              avgPrice = accumulatedAmount / historicalShares;
-           } else {
-              avgPrice = Number(dir === 'yes' ? share.average_price_yes : share.average_price_no) || Number(share.average_price) || 0; 
-           }
-           
-           return { avgPrice, totalAmount: accumulatedAmount, historicalShares, historicalPayout };
-        }
-        
-        // Lógica LIFO para Posiciones Activas
-        buyTxs.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-        
-        for (const tx of buyTxs) {
-           const txShares = Number(tx.shares || tx.metadata?.shares || 0);
-           const txAmount = Number(tx.amount || 0);
-           
-           if (txShares <= 0) continue;
-           
-           const remainingNeeded = currentShares - accumulatedShares;
-           if (remainingNeeded <= 0) break;
-           
-           if (txShares <= remainingNeeded) {
-              accumulatedShares += txShares;
-              accumulatedAmount += txAmount;
-           } else {
-              const fraction = remainingNeeded / txShares;
-              accumulatedShares += remainingNeeded;
-              accumulatedAmount += txAmount * fraction;
-           }
-        }
-        
-        let avgPrice = 0;
-        if (accumulatedShares === 0) {
-           avgPrice = Number(dir === 'yes' ? share.average_price_yes : share.average_price_no) || Number(share.average_price) || 0; 
-           accumulatedAmount = currentShares * avgPrice;
-        } else {
-           avgPrice = accumulatedAmount / accumulatedShares;
-        }
-        
-        return { avgPrice, totalAmount: accumulatedAmount, historicalShares: currentShares, historicalPayout: 0 };
-      };
-
-      const buildPos = (dir: 'yes' | 'no', s: number, investmentData: { avgPrice: number, totalAmount: number, historicalShares: number, historicalPayout: number }) => {
-        let status: any = 'active';
-        let realized_pnl = 0;
-        let isWinner = false;
-        const isClosedPosition = !isMarketActive || opt.is_eliminated || s === 0;
-        
-        if (isClosedPosition) {
-           status = 'closed';
-           
-           if (marketStatus === 'rejected') {
-             realized_pnl = 0; // Se devuelve la inversión
-           } else {
-             // Resolved, closed, o cashout total
-             if (s === 0 && isMarketActive) {
-                // Cashout total
-                realized_pnl = investmentData.historicalPayout - investmentData.totalAmount;
-             } else {
-                if (dir === 'yes') {
-                   isWinner = String(market.winning_outcome) === String(opt.id);
-                } else {
-                   isWinner = String(market.winning_outcome) !== String(opt.id) && market.winning_outcome !== null;
-                }
-                
-                if (isWinner) {
-                   const expectedPayout = investmentData.historicalPayout > 0 ? investmentData.historicalPayout : (investmentData.historicalShares * 1.0);
-                   realized_pnl = expectedPayout - investmentData.totalAmount;
-                } else {
-                   realized_pnl = investmentData.historicalPayout > 0 ? (investmentData.historicalPayout - investmentData.totalAmount) : -(investmentData.totalAmount);
-                }
-             }
-           }
-        }
-
-        return {
-          market_id: market.id,
-          outcome: opt.id,
-          status,
-          shares: isClosedPosition ? investmentData.historicalShares : s,
-          avg_price: investmentData.avgPrice,
-          total_investment: investmentData.totalAmount,
-          realized_pnl,
-          isWinner,
-          market_title: market.title,
-          market_image_url: market.image_url,
-          option_display_name: opt.option_name,
-          direction: dir,
-          updated_at: share.updated_at,
-          created_at: share.created_at,
-          closed_at: market.resolved_at || market.end_date || share.updated_at,
-          is_eliminated: opt.is_eliminated
-        };
-      };
-
-      const processDir = (dir: 'yes' | 'no', sharesAmt: number) => {
-         let everOwned = sharesAmt > 0;
-         if (!everOwned) {
-            everOwned = transactions.some(tx => 
-              (tx.type === 'buy' || tx.type === 'sell' || tx.type === 'cashout') && 
-              isTransactionForOption(tx, opt, dir)
-            );
-         }
+      const processDir = (dir: 'yes' | 'no', currentShares: number) => {
+         const buyTxs = transactions.filter(tx => (tx.type || "").toLowerCase() === 'buy' && isTransactionForOption(tx, opt, dir));
+         const sellTxs = transactions.filter(tx => {
+            const t = (tx.type || "").toLowerCase();
+            return (t === 'sell' || t === 'cashout' || t === 'payout' || t === 'reward' || t === 'resolution') && isTransactionForOption(tx, opt, dir);
+         });
          
-         if (everOwned) {
-            const investmentData = getInvestmentData(dir, sharesAmt);
-            result.push(buildPos(dir, sharesAmt, investmentData) as any);
+         if (buyTxs.length === 0 && currentShares === 0 && sellTxs.length === 0) return;
+
+         // Calcular Cost Basis (Average Buy Price) de todas las compras históricas
+         let totalBuyAmount = 0;
+         let totalBuyShares = 0;
+         buyTxs.forEach(tx => {
+            totalBuyAmount += Number(tx.amount || 0);
+            totalBuyShares += Number(tx.shares || tx.metadata?.shares || 0);
+         });
+         const globalAvgPrice = totalBuyShares > 0 ? totalBuyAmount / totalBuyShares : (Number(dir === 'yes' ? share.average_price_yes : share.average_price_no) || Number(share.average_price) || 0);
+
+         // Generar una posición cerrada POR CADA venta / cashout / payout
+         sellTxs.forEach(tx => {
+            const txShares = Number(tx.shares || 0);
+            const txAmount = Number(tx.amount || 0);
+            const invAmount = txShares * globalAvgPrice;
+            const tType = (tx.type || "").toLowerCase();
+            const isWinnerTx = tType === 'payout' || tType === 'reward' || tType === 'resolution';
+
+            result.push({
+               market_id: market.id,
+               outcome: opt.id,
+               status: 'closed',
+               shares: txShares,
+               avg_price: globalAvgPrice,
+               total_investment: invAmount,
+               realized_pnl: txAmount - invAmount,
+               isWinner: isWinnerTx,
+               market_title: market.title,
+               market_image_url: market.image_url,
+               option_display_name: opt.option_name,
+               direction: dir,
+               updated_at: tx.created_at,
+               created_at: tx.created_at,
+               closed_at: tx.created_at,
+               is_eliminated: false
+            } as any);
+         });
+
+         const isMarketClosed = !isMarketActive || opt.is_eliminated;
+
+         if (currentShares > 0) {
+            if (isMarketClosed) {
+               // Si perdió o quedó con acciones sin liquidar
+               let isWinner = false;
+               if (marketStatus !== 'rejected') {
+                 if (dir === 'yes') isWinner = String(market.winning_outcome) === String(opt.id);
+                 else isWinner = String(market.winning_outcome) !== String(opt.id) && market.winning_outcome !== null;
+               }
+
+               if (!isWinner && marketStatus !== 'rejected') {
+                  const invAmount = currentShares * globalAvgPrice;
+                  result.push({
+                     market_id: market.id,
+                     outcome: opt.id,
+                     status: 'closed',
+                     shares: currentShares,
+                     avg_price: globalAvgPrice,
+                     total_investment: invAmount,
+                     realized_pnl: -invAmount,
+                     isWinner: false,
+                     market_title: market.title,
+                     market_image_url: market.image_url,
+                     option_display_name: opt.option_name,
+                     direction: dir,
+                     updated_at: share.updated_at,
+                     created_at: share.created_at,
+                     closed_at: market.resolved_at || market.end_date || share.updated_at,
+                     is_eliminated: opt.is_eliminated
+                  } as any);
+               }
+            } else {
+               // Mercado Activo: LIFO para aislar la inversión exacta de las acciones VIVAS
+               buyTxs.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+               let activeShares = 0;
+               let activeAmount = 0;
+               for (const tx of buyTxs) {
+                  const txShares = Number(tx.shares || tx.metadata?.shares || 0);
+                  const txAmount = Number(tx.amount || 0);
+                  if (txShares <= 0) continue;
+                  
+                  const remainingNeeded = currentShares - activeShares;
+                  if (remainingNeeded <= 0) break;
+                  
+                  if (txShares <= remainingNeeded) {
+                     activeShares += txShares;
+                     activeAmount += txAmount;
+                  } else {
+                     const fraction = remainingNeeded / txShares;
+                     activeShares += remainingNeeded;
+                     activeAmount += txAmount * fraction;
+                  }
+               }
+               const activeAvgPrice = activeShares > 0 ? activeAmount / activeShares : globalAvgPrice;
+               if (activeShares === 0) activeAmount = currentShares * globalAvgPrice;
+
+               result.push({
+                 market_id: market.id,
+                 outcome: opt.id,
+                 status: 'active',
+                 shares: currentShares,
+                 avg_price: activeAvgPrice,
+                 total_investment: activeAmount,
+                 realized_pnl: 0,
+                 isWinner: false,
+                 market_title: market.title,
+                 market_image_url: market.image_url,
+                 option_display_name: opt.option_name,
+                 direction: dir,
+                 updated_at: share.updated_at,
+                 created_at: share.created_at,
+                 closed_at: market.resolved_at || market.end_date || share.updated_at,
+                 is_eliminated: opt.is_eliminated
+               } as any);
+            }
          }
       };
       

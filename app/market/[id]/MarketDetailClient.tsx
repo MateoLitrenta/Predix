@@ -447,7 +447,25 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
 
   const toggleThread = (commentId: string) => { setExpandedThreads(prev => ({ ...prev, [commentId]: !prev[commentId] })); };
 
-  // NUEVO: Agrupador de portfolio basado en la tabla user_shares
+  const getNormalizedPrice = useCallback((optId: string, direction: string) => {
+    const opt = options.find(o => o.id === optId);
+    if (!opt || opt.is_eliminated) return 0;
+    
+    const mOptions = options.filter(o => !o.is_eliminated);
+    const rawProbs = mOptions.reduce((acc, o) => {
+      const py = Number(o.pool_yes || 0);
+      const pn = Number(o.pool_no || 0);
+      const totalPool = py + pn;
+      acc[o.id] = totalPool > 0 ? Math.max(0.01, Math.min(0.99, pn / totalPool)) : (1 / (mOptions.length || 1));
+      return acc;
+    }, {} as Record<string, number>);
+    
+    const totalProb = Object.values(rawProbs).reduce((sum, p) => sum + p, 0);
+    let probYes = totalProb > 0 ? ((rawProbs[optId] || 0) / totalProb) : (1 / (mOptions.length || 1));
+    
+    return direction === 'yes' ? probYes : (1 - probYes);
+  }, [options]);
+
   const consolidatedPositions = useMemo(() => {
     const positions: Record<string, { outcome: string; direction: string; totalShares: number; totalInvested: number }> = {};
 
@@ -455,13 +473,39 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       const py = Number(share.shares_yes_owned || 0);
       const pn = Number(share.shares_no_owned || 0);
 
+      const calcInvested = (dir: string, currentShares: number) => {
+         const buyTxs = activityFeed.filter(tx => tx.user_id === user?.id && (tx.type || "").toLowerCase() === 'buy' && (String(tx.outcome) === String(share.market_option_id) || tx.market_id === share.market_id) && tx.direction === dir);
+         buyTxs.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+         
+         let activeShares = 0;
+         let activeAmount = 0;
+         for (const tx of buyTxs) {
+            const txShares = Number(tx.shares || 0);
+            const txAmount = Number(tx.amount || 0);
+            if (txShares <= 0) continue;
+            
+            const remainingNeeded = currentShares - activeShares;
+            if (remainingNeeded <= 0) break;
+            
+            if (txShares <= remainingNeeded) {
+               activeShares += txShares;
+               activeAmount += txAmount;
+            } else {
+               const fraction = remainingNeeded / txShares;
+               activeShares += remainingNeeded;
+               activeAmount += txAmount * fraction;
+            }
+         }
+         return activeShares > 0 ? activeAmount : currentShares * 0.5;
+      };
+
       if (py > 0.0001) {
         const key = `${share.market_option_id}|yes`;
         positions[key] = {
           outcome: share.market_option_id,
           direction: 'yes',
           totalShares: py,
-          totalInvested: py * 0.5, // Tracker temporal de PnL base
+          totalInvested: calcInvested('yes', py),
         };
       }
       if (pn > 0.0001) {
@@ -470,13 +514,13 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
           outcome: share.market_option_id,
           direction: 'no',
           totalShares: pn,
-          totalInvested: pn * 0.5,
+          totalInvested: calcInvested('no', pn),
         };
       }
     });
 
     return Object.values(positions);
-  }, [userShares]);
+  }, [userShares, activityFeed, user]);
 
   const timeframes: ChartTimeframe[] = ['1D', '1W', '1M', 'ALL'];
 
@@ -606,14 +650,14 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
 
     consolidatedPositions.forEach(pos => {
       totalInvested += pos.totalInvested;
-      totalCurrentValue += calculatePartialCashout(pos.outcome, pos.direction, pos.totalShares);
+      totalCurrentValue += pos.totalShares * getNormalizedPrice(pos.outcome, pos.direction);
     });
 
     if (totalInvested === 0) return null;
     const pnl = totalCurrentValue - totalInvested;
     const pnlPct = (pnl / totalInvested) * 100;
     return { totalInvested, totalCurrentValue, pnl, pnlPct };
-  }, [consolidatedPositions, calculatePartialCashout]);
+  }, [consolidatedPositions, getNormalizedPrice]);
 
   const topHolders = useMemo(() => {
     const holders: Record<string, { userId: string, username: string, avatarUrl: string | null, invested: number }> = {};
@@ -1270,7 +1314,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
             </div>
           </div>
 
-          <div className="lg:col-span-4 xl:col-span-3 sticky top-24 self-start flex flex-col gap-6 z-40">
+          <div className="lg:col-span-4 xl:col-span-3 lg:sticky lg:top-24 self-start flex flex-col gap-6 lg:z-40">
 
             {(selectedOptionId || selectedSellPosition) && (
               <div
@@ -1487,9 +1531,9 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2 flex items-center gap-1.5"><Layers className="w-3 h-3" /> Selecciona qué liquidar</p>
                               {consolidatedPositions.map(pos => {
                                 const opt = options.find(o => o.id === pos.outcome);
-                                const cashoutVal = calculatePartialCashout(pos.outcome, pos.direction, pos.totalShares);
+                                const cashoutVal = pos.totalShares * getNormalizedPrice(pos.outcome, pos.direction);
                                 const pnl = cashoutVal - pos.totalInvested;
-                                const pnlPct = (pnl / pos.totalInvested) * 100;
+                                const pnlPct = pos.totalInvested > 0 ? (pnl / pos.totalInvested) * 100 : 0;
                                 const isRed = pos.direction === 'no' || (isBinaryYesNo && opt?.option_name.toLowerCase() === 'no');
 
                                 return (

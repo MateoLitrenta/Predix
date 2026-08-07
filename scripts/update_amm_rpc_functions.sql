@@ -192,6 +192,7 @@ DECLARE
   v_sum NUMERIC;
   v_discriminant NUMERIC;
   v_k NUMERIC;
+  v_spot_price NUMERIC;
 BEGIN
   IF p_shares_to_sell <= 0 THEN
     RETURN json_build_object('success', false, 'error', 'La cantidad de acciones a vender debe ser positiva');
@@ -232,6 +233,11 @@ BEGIN
     IF v_discriminant < 0 THEN v_discriminant := 0; END IF;
     v_payout := (v_sum - SQRT(v_discriminant)) / 2;
     
+    v_spot_price := v_pn / (v_py + v_pn);
+    IF (v_payout / p_shares_to_sell) > v_spot_price THEN
+       v_payout := p_shares_to_sell * v_spot_price;
+    END IF;
+    
     v_new_pn := v_pn - v_payout;
     IF v_new_pn <= 0 THEN
        RETURN json_build_object('success', false, 'error', 'Liquidez insuficiente en el pool (NO)');
@@ -242,6 +248,11 @@ BEGIN
     v_discriminant := v_sum * v_sum - 4 * p_shares_to_sell * v_py;
     IF v_discriminant < 0 THEN v_discriminant := 0; END IF;
     v_payout := (v_sum - SQRT(v_discriminant)) / 2;
+    
+    v_spot_price := v_py / (v_py + v_pn);
+    IF (v_payout / p_shares_to_sell) > v_spot_price THEN
+       v_payout := p_shares_to_sell * v_spot_price;
+    END IF;
     
     v_new_py := v_py - v_payout;
     IF v_new_py <= 0 THEN
