@@ -859,7 +859,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     <div className="min-h-screen bg-background flex flex-col">
       <NavHeader points={profile?.points ?? 10000} isDarkMode={isDarkMode} onToggleDarkMode={toggleDarkMode} onPointsUpdate={() => fetchUserAndProfile()} userId={user?.id ?? null} userEmail={user?.email ?? null} onOpenAuthModal={() => setIsAuthModalOpen(true)} onSignOut={async () => { await supabase.auth.signOut(); fetchUserAndProfile(); }} isAdmin={profile?.role === "admin"} username={profile?.username} avatarUrl={profile?.avatar_url ?? null} />
 
-      <main className="w-full max-w-[1440px] mx-auto px-4 md:px-8 py-8 flex-1">
+      <main className="w-full max-w-[1440px] mx-auto px-4 md:px-8 pt-8 pb-28 md:pb-8 flex-1">
         <Button variant="ghost" size="sm" onClick={() => router.back()} className="mb-6 -ml-2 text-muted-foreground hover:text-foreground">
           <ArrowLeft className="w-4 h-4 mr-2" />Volver a Mercados
         </Button>
@@ -1274,7 +1274,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
 
             {(selectedOptionId || selectedSellPosition) && (
               <div
-                className="fixed inset-0 bg-black/60 z-[45] lg:hidden animate-in fade-in duration-300"
+                className="fixed inset-0 bg-black/60 z-[90] lg:hidden animate-in fade-in duration-300"
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -1285,7 +1285,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
             )}
 
             <div className={cn(
-              "border border-border/50 bg-card shadow-2xl lg:shadow-xl relative z-50",
+              "border border-border/50 bg-card shadow-2xl lg:shadow-xl relative z-[100]",
               (selectedOptionId || selectedSellPosition || isMarketResolved)
                 ? "fixed bottom-0 left-0 right-0 animate-in slide-in-from-bottom duration-300 rounded-t-3xl rounded-b-none lg:static lg:rounded-2xl"
                 : "rounded-2xl overflow-hidden"
@@ -1294,7 +1294,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
               <div className={cn(
                 "p-3 sm:p-4 bg-card relative z-50",
                 (selectedOptionId || selectedSellPosition || isMarketResolved)
-                  ? "rounded-t-3xl rounded-b-none lg:rounded-2xl max-h-[85dvh] overflow-y-auto pb-8 lg:pb-3"
+                  ? "rounded-t-3xl rounded-b-none lg:rounded-2xl max-h-[85dvh] overflow-y-auto pb-32 lg:pb-3"
                   : "rounded-2xl overflow-hidden"
               )}>
 
