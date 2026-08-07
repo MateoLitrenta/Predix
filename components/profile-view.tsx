@@ -1519,15 +1519,19 @@ export function ProfileView({ userId }: { userId?: string }) {
                               let finalDesc = desc;
                               if (marketTitle) {
                                 const txType = String(tx.type || tx.action || "").toLowerCase();
-                                let actionText = "Operación";
-                                if (txType === 'buy' || txType === 'compra') {
-                                  actionText = "Compra";
-                                } else if (txType === 'sell' || txType === 'cashout' || txType === 'venta') {
-                                  actionText = "Venta";
+                                if (txType === 'reward' || txType === 'payout' || txType === 'resolution') {
+                                  finalDesc = `Predicción acertada en "${marketTitle}"`;
                                 } else {
-                                  actionText = amount < 0 ? "Compra" : "Venta";
+                                  let actionText = "Operación";
+                                  if (txType === 'buy' || txType === 'compra') {
+                                    actionText = "Compra";
+                                  } else if (txType === 'sell' || txType === 'cashout' || txType === 'venta') {
+                                    actionText = "Venta";
+                                  } else {
+                                    actionText = amount < 0 ? "Compra" : "Venta";
+                                  }
+                                  finalDesc = `${actionText} de acciones en "${marketTitle}"`;
                                 }
-                                finalDesc = `${actionText} de acciones en "${marketTitle}"`;
                               }
 
                               return (
