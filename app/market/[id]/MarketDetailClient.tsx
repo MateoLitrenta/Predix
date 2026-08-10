@@ -254,20 +254,34 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     const opt = options.find(o => o.id === optId);
     if (!opt || sharesToSell <= 0) return 0;
 
-    let py = Number(opt.pool_yes != null ? opt.pool_yes : 5000);
-    let pn = Number(opt.pool_no != null ? opt.pool_no : 5000);
-    if (py <= 0 || isNaN(py)) py = 5000;
-    if (pn <= 0 || isNaN(pn)) pn = 5000;
+    let py = Number(opt.pool_yes != null ? opt.pool_yes : 50000);
+    let pn = Number(opt.pool_no != null ? opt.pool_no : 50000);
+    if (py <= 0 || isNaN(py)) py = 50000;
+    if (pn <= 0 || isNaN(pn)) pn = 50000;
 
     let payout = 0;
+    const v_sum = py + pn + sharesToSell;
+    let discriminant = 0;
 
     if (direction === 'yes') {
-      payout = (pn * sharesToSell) / (py + sharesToSell);
+      discriminant = v_sum * v_sum - 4 * sharesToSell * pn;
     } else {
-      payout = (py * sharesToSell) / (pn + sharesToSell);
+      discriminant = v_sum * v_sum - 4 * sharesToSell * py;
+    }
+    
+    if (discriminant < 0) discriminant = 0;
+    payout = (v_sum - Math.sqrt(discriminant)) / 2;
+
+    const spotPrice = direction === 'yes' ? (pn / (py + pn)) : (py / (py + pn));
+    if ((payout / sharesToSell) > spotPrice) {
+       payout = sharesToSell * spotPrice;
     }
 
-    return Math.floor(payout); // Redondeamos hacia abajo por seguridad del AMM
+    if ((payout / sharesToSell) > 0.99) {
+       payout = sharesToSell * 0.99;
+    }
+
+    return Math.floor(payout); 
   }, [options]);
 
   // NUEVO: Motor de Compra RPC

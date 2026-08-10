@@ -171,15 +171,6 @@ export async function deleteMarket(marketId: string) {
   // Limpiar usuarios eliminados para que no fallen las Foreign Keys al actualizar/eliminar
   await cleanupGhostData(marketId);
 
-  // Intentamos desvincular las transacciones y notificaciones para evitar el error de Foreign Key
-  await supabase.from("transactions").delete().eq("market_id", marketId);
-  await supabase.from("notifications").delete().eq("market_id", marketId);
-
-  // SOLUCIÓN EXTREMA: Borramos todas las apuestas del mercado. 
-  // Esto evita que el RPC intente hacer reembolsos (lo cual está causando el crash de FK).
-  // Los usuarios no recuperarán sus puntos, pero el mercado se podrá eliminar.
-  await supabase.from("bets").delete().eq("market_id", marketId);
-
   const { error } = await supabase.rpc("eliminar_mercado", { p_market_id: marketId });
   if (error) return { ok: false, error: error.message };
   return { ok: true, error: null };

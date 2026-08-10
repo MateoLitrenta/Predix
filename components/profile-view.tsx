@@ -198,7 +198,7 @@ export function ProfileView({ userId }: { userId?: string }) {
          
          if (buyTxs.length === 0 && currentShares === 0 && sellTxs.length === 0) return;
 
-         // Calcular Cost Basis (Average Buy Price) de todas las compras históricas
+         // Calcular Cost Basis (Average Buy Price) de todas las compras históricas (fallback global)
          let totalBuyAmount = 0;
          let totalBuyShares = 0;
          buyTxs.forEach(tx => {
@@ -209,18 +209,32 @@ export function ProfileView({ userId }: { userId?: string }) {
 
          // Generar una posición cerrada POR CADA venta / cashout / payout
          sellTxs.forEach(tx => {
+            const txTime = new Date(tx.created_at).getTime();
+            
+            // Promedio histórico HASTA el momento de esta venta
+            let histBuyAmount = 0;
+            let histBuyShares = 0;
+            buyTxs.forEach(btx => {
+               if (new Date(btx.created_at).getTime() <= txTime) {
+                  histBuyAmount += Number(btx.amount || 0);
+                  histBuyShares += Number(btx.shares || btx.metadata?.shares || 0);
+               }
+            });
+            const avgPriceAtTx = histBuyShares > 0 ? histBuyAmount / histBuyShares : globalAvgPrice;
+
             const txShares = Number(tx.shares || 0);
             const txAmount = Number(tx.amount || 0);
-            const invAmount = txShares * globalAvgPrice;
+            const invAmount = txShares * avgPriceAtTx;
             const tType = (tx.type || "").toLowerCase();
             const isWinnerTx = tType === 'payout' || tType === 'reward' || tType === 'resolution';
+            const isPartialCashout = tType === 'sell' || tType === 'cashout';
 
             result.push({
                market_id: market.id,
                outcome: opt.id,
                status: 'closed',
                shares: txShares,
-               avg_price: globalAvgPrice,
+               avg_price: avgPriceAtTx,
                total_investment: invAmount,
                realized_pnl: txAmount - invAmount,
                isWinner: isWinnerTx,
@@ -231,7 +245,8 @@ export function ProfileView({ userId }: { userId?: string }) {
                updated_at: tx.created_at,
                created_at: tx.created_at,
                closed_at: tx.created_at,
-               is_eliminated: false
+               is_eliminated: false,
+               is_partial_cashout: isPartialCashout
             } as any);
          });
 
@@ -439,14 +454,14 @@ export function ProfileView({ userId }: { userId?: string }) {
     if (isOwner) {
       const [betsRes, txRes, optionsRes, portfolioRes, sharesRes] = await Promise.all([
         getMyBets(),
-        getMyTransactions(),
+        supabase.from("transactions").select("*, markets(title)").eq("user_id", profile.id).order("created_at", { ascending: false }),
         supabase.from("market_options").select("*"),
         supabase.rpc('get_user_portfolio', { p_user_id: profile.id }),
         supabase.from("user_shares").select("*, market_options(*, markets(*))").eq("user_id", profile.id)
       ]);
 
       if (!betsRes.error && betsRes.data) setBets(betsRes.data);
-      if (!txRes.error && txRes.data) txsResData = txRes.data;
+      if (!txRes.error && txRes.data) txsResData = txRes.data as any[];
       if (optionsRes.data) {
         setMarketOptions(optionsRes.data);
         optionsData = optionsRes.data;
@@ -1341,7 +1356,9 @@ export function ProfileView({ userId }: { userId?: string }) {
                   }
 
                   let iconStatus: 'success' | 'error' | 'neutral' = 'neutral';
-                  if (pos.shares < 0.0001) {
+                  if (pos.is_partial_cashout) {
+                    iconStatus = isProfit ? 'success' : (isLoss ? 'error' : 'neutral');
+                  } else if (pos.shares < 0.0001) {
                     iconStatus = 'neutral';
                   } else if (pos.is_eliminated) {
                     iconStatus = 'error';
@@ -1375,15 +1392,31 @@ export function ProfileView({ userId }: { userId?: string }) {
                           </Link>
 
                           {/* Centro: Insignia Ganado/Perdido debajo del título */}
-                          {isProfit ? (
-                            <div className="flex items-center gap-1 text-green-500 font-semibold text-xs mt-1 md:hidden">
-                              <CheckCircle2 className="w-3 h-3" /> Ganado
-                            </div>
-                          ) : isLoss ? (
-                            <div className="flex items-center gap-1 text-muted-foreground text-xs mt-1 font-semibold md:hidden">
-                              <XCircle className="w-3 h-3" /> Perdido
-                            </div>
-                          ) : null}
+                          {pos.is_partial_cashout ? (
+                            isProfit ? (
+                              <div className="flex items-center gap-1 text-green-500 font-semibold text-xs mt-1 md:hidden">
+                                <CheckCircle2 className="w-3 h-3" /> Profit
+                              </div>
+                            ) : isLoss ? (
+                              <div className="flex items-center gap-1 text-red-500 text-xs mt-1 font-semibold md:hidden">
+                                <XCircle className="w-3 h-3" /> Loss
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1 text-muted-foreground text-xs mt-1 font-semibold md:hidden">
+                                <MinusCircle className="w-3 h-3" /> Neutro
+                              </div>
+                            )
+                          ) : (
+                            isProfit ? (
+                              <div className="flex items-center gap-1 text-green-500 font-semibold text-xs mt-1 md:hidden">
+                                <CheckCircle2 className="w-3 h-3" /> Ganado
+                              </div>
+                            ) : isLoss ? (
+                              <div className="flex items-center gap-1 text-muted-foreground text-xs mt-1 font-semibold md:hidden">
+                                <XCircle className="w-3 h-3" /> Perdido
+                              </div>
+                            ) : null
+                          )}
 
                           <div className="flex items-center gap-1.5 mt-2 md:mt-1 flex-wrap">
                             <Badge variant="outline" className={cn("text-[10px] font-bold h-4 px-1 border flex items-center gap-1", 
