@@ -243,11 +243,13 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     if (!opt) return 0.5;
     if (opt.is_eliminated) return 0;
 
-    const rawProb = rawProbabilities[opt.id] || 0;
-    if (totalImpliedProb === 0) return 1 / (activeOptions.length || 1);
-    
-    return rawProb / totalImpliedProb;
-  }, [rawProbabilities, totalImpliedProb, activeOptions.length]);
+    const py = Number(opt.pool_yes != null ? opt.pool_yes : 50000);
+    const pn = Number(opt.pool_no != null ? opt.pool_no : 50000);
+    const totalPool = py + pn;
+    if (totalPool <= 0) return 0.5;
+
+    return pn / totalPool;
+  }, []);
 
   // NUEVO: Cálculo de Retorno CPMM exacto (k = py * pn)
   const calculatePartialCashout = useCallback((optId: string, direction: string, sharesToSell: number) => {
@@ -705,23 +707,25 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     if (pn <= 0 || isNaN(pn)) pn = 5000;
 
     const k = py * pn;
-    const isYes = selectedDirection === 'yes';
-
     let startPrice = 0;
-    let shares = 0;
+    let estimatedShares = 0;
+    const isBuyingYes = selectedDirection === 'yes';
 
-    if (isYes) {
+    if (isBuyingYes) {
       startPrice = pn / (py + pn);
-      const newPn = pn + amount;
-      const newPyTarget = k / newPn;
-      shares = (py + amount) - newPyTarget;
+      // Para SÍ: inyectamos liquidez en NO
+      const new_pn = pn + amount;
+      const new_py = k / new_pn;
+      estimatedShares = (py + amount) - new_py;
     } else {
       startPrice = py / (py + pn);
-      const newPy = py + amount;
-      const newPnTarget = k / newPy;
-      shares = (pn + amount) - newPnTarget;
+      // Para NO: inyectamos liquidez en SÍ
+      const new_py = py + amount;
+      const new_pn = k / new_py;
+      estimatedShares = (pn + amount) - new_pn;
     }
 
+    const shares = estimatedShares;
     if (shares <= 0) return null;
 
     const avgPrice = amount / shares;
