@@ -326,20 +326,13 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       const { data: updatedOptions } = await supabase.from("market_options").select("*").eq("market_id", marketId);
       if (updatedOptions && updatedOptions.length > 0) {
         const activeOpts = updatedOptions.filter((o: any) => !o.is_eliminated);
-        const rawProbs = activeOpts.reduce((acc: Record<string, number>, opt: any) => {
-          const py = Number(opt.pool_yes || 0);
-          const pn = Number(opt.pool_no || 0);
-          const totalPool = py + pn;
-          acc[opt.id] = totalPool > 0 ? (pn / totalPool) : (1 / (activeOpts.length || 1));
-          return acc;
-        }, {});
-        const totalProb = Object.values(rawProbs).reduce((sum, p) => sum + p, 0);
-
-        const historyInserts = updatedOptions.map(opt => {
+        const historyInserts = updatedOptions.map((opt: any) => {
           let percentage = 0;
           if (!opt.is_eliminated) {
-            const rawProb = rawProbs[opt.id] || 0;
-            percentage = totalProb > 0 ? (rawProb / totalProb) * 100 : (1 / (activeOpts.length || 1)) * 100;
+            const py = Number(opt.pool_yes != null ? opt.pool_yes : 50000);
+            const pn = Number(opt.pool_no != null ? opt.pool_no : 50000);
+            const totalPool = py + pn;
+            percentage = totalPool > 0 ? (pn / totalPool) * 100 : 50;
           }
           return { market_id: marketId, option_id: opt.id, percentage };
         });
@@ -403,20 +396,13 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       const { data: updatedOptions } = await supabase.from("market_options").select("*").eq("market_id", marketId);
       if (updatedOptions && updatedOptions.length > 0) {
         const activeOpts = updatedOptions.filter((o: any) => !o.is_eliminated);
-        const rawProbs = activeOpts.reduce((acc: Record<string, number>, opt: any) => {
-          const py = Number(opt.pool_yes || 0);
-          const pn = Number(opt.pool_no || 0);
-          const totalPool = py + pn;
-          acc[opt.id] = totalPool > 0 ? (pn / totalPool) : (1 / (activeOpts.length || 1));
-          return acc;
-        }, {});
-        const totalProb = Object.values(rawProbs).reduce((sum, p) => sum + p, 0);
-
-        const historyInserts = updatedOptions.map(opt => {
+        const historyInserts = updatedOptions.map((opt: any) => {
           let percentage = 0;
           if (!opt.is_eliminated) {
-            const rawProb = rawProbs[opt.id] || 0;
-            percentage = totalProb > 0 ? (rawProb / totalProb) * 100 : (1 / (activeOpts.length || 1)) * 100;
+            const py = Number(opt.pool_yes != null ? opt.pool_yes : 50000);
+            const pn = Number(opt.pool_no != null ? opt.pool_no : 50000);
+            const totalPool = py + pn;
+            percentage = totalPool > 0 ? (pn / totalPool) * 100 : 50;
           }
           return { market_id: marketId, option_id: opt.id, percentage };
         });
@@ -592,26 +578,21 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       }
     }
 
-    timeline.push({ ...lastKnownState, timestamp: finalTimestamp });
+    const currentSpotState: any = { timestamp: finalTimestamp };
+    options.forEach(opt => {
+      const py = Number(opt.pool_yes != null ? opt.pool_yes : 50000);
+      const pn = Number(opt.pool_no != null ? opt.pool_no : 50000);
+      const totalPool = py + pn;
+      currentSpotState[opt.id] = totalPool > 0 ? (pn / totalPool) * 100 : 50;
+    });
+    timeline.push(currentSpotState);
 
-    // NORMALIZAR TODO EL TIMELINE ANTES DE RETORNAR O DENSIFICAR
+    // NO NORMALIZAR EL TIMELINE: Dejar los precios CPMM puros
     const normalizedTimeline = timeline.map(point => {
-      let totalVal = 0;
-      options.forEach(opt => {
-        if (point[opt.id] !== undefined && point[opt.id] > 0) {
-          totalVal += point[opt.id];
-        }
-      });
-      
       const newPoint = { ...point };
       options.forEach(opt => {
         if (point[opt.id] !== undefined) {
-          if (point[opt.id] === 0) {
-            newPoint[opt.id] = 0;
-          } else {
-            const activeAtThisPoint = options.filter(o => point[o.id] !== undefined && point[o.id] > 0).length;
-            newPoint[opt.id] = totalVal > 0 ? (point[opt.id] / totalVal) * 100 : (1 / (activeAtThisPoint || 1)) * 100;
-          }
+          newPoint[opt.id] = point[opt.id]; // Mantener crudo
         }
       });
       return newPoint;
