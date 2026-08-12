@@ -119,23 +119,18 @@ export function ProfileView({ userId }: { userId?: string }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [sortBy, setSortBy] = useState<"recent" | "oldest" | "highest_value" | "lowest_value">("recent");
 
-  // NUEVO: Precio con Normalización Visual
+  // NUEVO: Precio CPMM Puro SIN Normalización Visual
   const getNormalizedPrice = useCallback((optId: string, direction: string) => {
     const opt = marketOptions.find(o => o.id === optId);
     if (!opt || opt.is_eliminated) return 0;
     
-    const mOptions = marketOptions.filter(o => o.market_id === opt.market_id && !o.is_eliminated);
-    const rawProbs = mOptions.reduce((acc, o) => {
-      const py = Number(o.pool_yes || 0);
-      const pn = Number(o.pool_no || 0);
-      const totalPool = py + pn;
-      acc[o.id] = totalPool > 0 ? Math.max(0.01, Math.min(0.99, pn / totalPool)) : (1 / (mOptions.length || 1));
-      return acc;
-    }, {} as Record<string, number>);
+    const py = Number(opt.pool_yes != null ? opt.pool_yes : 50000);
+    const pn = Number(opt.pool_no != null ? opt.pool_no : 50000);
+    const totalPool = py + pn;
     
-    const totalProb = Object.values(rawProbs).reduce((sum, p) => sum + p, 0);
-    let probYes = totalProb > 0 ? ((rawProbs[optId] || 0) / totalProb) : (1 / (mOptions.length || 1));
+    if (totalPool <= 0) return 0.5;
     
+    const probYes = pn / totalPool;
     return direction === 'yes' ? probYes : (1 - probYes);
   }, [marketOptions]);
 

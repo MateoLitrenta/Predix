@@ -79,21 +79,14 @@ export function MarketCard({
   // 1. Filtramos a los eliminados para que no aparezcan en la UI
   const activeOptions = options.filter(opt => !opt.is_eliminated);
 
-  // 3. Función matemática AMM con normalización visual para sumar 100%
-  const rawProbabilities = activeOptions.reduce((acc, opt) => {
-    const poolYes = Number(opt.pool_yes || 0);
-    const poolNo = Number(opt.pool_no || 0);
-    const totalPool = poolYes + poolNo;
-    acc[opt.id] = totalPool === 0 ? (1 / (activeOptions.length || 1)) : Math.max(0.01, Math.min(0.99, poolNo / totalPool));
-    return acc;
-  }, {} as Record<string, number>);
-
-  const totalRawProb = Object.values(rawProbabilities).reduce((sum, prob) => sum + prob, 0);
-
+  // 3. Función matemática AMM SIN normalización (CPMM puro)
   const getProbability = (opt: MarketOption) => {
-    if (opt.is_eliminated || totalRawProb === 0) return 0;
-    const rawProb = rawProbabilities[opt.id] || 0;
-    return (rawProb / totalRawProb) * 100;
+    if (opt.is_eliminated) return 0;
+    const poolYes = Number(opt.pool_yes != null ? opt.pool_yes : 50000);
+    const poolNo = Number(opt.pool_no != null ? opt.pool_no : 50000);
+    const totalPool = poolYes + poolNo;
+    if (totalPool === 0) return 50;
+    return (poolNo / totalPool) * 100;
   };
 
   // 4. Ordenamos las opciones activas de mayor a menor probabilidad
