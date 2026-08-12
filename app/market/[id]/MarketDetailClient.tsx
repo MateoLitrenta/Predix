@@ -1176,7 +1176,8 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                                   if (ext) {
                                     optionName = ext;
                                   } else if (dbOutcome) {
-                                    optionName = dbOutcome;
+                                    const matchingOption = options.find((opt: any) => opt.id === dbOutcome);
+                                    optionName = matchingOption ? matchingOption.option_name : dbOutcome;
                                   } else {
                                     if (desc.includes('en contra de')) {
                                       optionName = item.description.substring(desc.indexOf('en contra de') + 13).trim();
