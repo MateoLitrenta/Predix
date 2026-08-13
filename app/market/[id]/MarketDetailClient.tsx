@@ -22,7 +22,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Loader2, ArrowLeft, Clock, Coins, X, User as UserIcon, MessageSquare, Reply, ChevronDown, ChevronUp, Trash2, TrendingUp, LineChart as LineChartIcon, Share2, Twitter, MessageCircle, Copy, Check, Lock, CheckCircle2, Trophy, Scale, AlertCircle, Wallet, Layers } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { LightweightChart } from "@/components/lightweight-chart";
+import { MarketRechart } from "@/components/market-rechart";
 import { useTheme } from "@/components/theme-provider";
 import { Slider } from "@/components/ui/slider";
 
@@ -546,19 +546,28 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       genesisPoint[opt.id] = genesisTotalProb > 0 ? (rawProb / genesisTotalProb) * 100 : (1 / (options.length || 1)) * 100;
     });
 
-    // 2. FORWARD FILL
+    // 2. GROUP AND FORWARD FILL (Requerido para Recharts Tooltip)
     const rawHistory = (history || [])
       .filter(h => h.timestamp > marketCreatedAt + 2000)
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-    const events: { type: 'history', timestamp: number, data?: any }[] = [];
-    rawHistory.forEach(h => events.push({ type: 'history', timestamp: h.timestamp, data: h }));
+    // Agrupar eventos que ocurren casi al mismo tiempo (micro-snapshots del bucle SQL)
+    const groupedHistory: any[] = [];
+    rawHistory.forEach(h => {
+      const lastGroup = groupedHistory[groupedHistory.length - 1];
+      if (lastGroup && Math.abs(lastGroup.timestamp - h.timestamp) < 2000) {
+        Object.keys(h).forEach(k => {
+          if (k !== 'timestamp') lastGroup[k] = h[k];
+        });
+      } else {
+        groupedHistory.push({ ...h });
+      }
+    });
 
     const timeline: any[] = [genesisPoint];
     let lastKnownState = { ...genesisPoint };
 
-    events.forEach(event => {
-      const point = event.data;
+    groupedHistory.forEach(point => {
       const newState: any = { timestamp: point.timestamp };
       options.forEach(opt => {
         newState[opt.id] = point[opt.id] !== undefined ? Number(point[opt.id]) : lastKnownState[opt.id];
@@ -590,52 +599,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     });
     timeline.push(currentSpotState);
 
-    // NO NORMALIZAR EL TIMELINE: Dejar los precios CPMM puros
-    const normalizedTimeline = timeline.map(point => {
-      const newPoint = { ...point };
-      options.forEach(opt => {
-        if (point[opt.id] !== undefined) {
-          newPoint[opt.id] = point[opt.id]; // Mantener crudo
-        }
-      });
-      return newPoint;
-    });
-
-    // 3. DENSIFY TIMELINE (Evita que el gráfico quede en blanco)
-    const denseResult = [];
-    if (normalizedTimeline.length > 0) {
-      const minT = normalizedTimeline[0].timestamp;
-      const maxT = normalizedTimeline[normalizedTimeline.length - 1].timestamp;
-      const step = Math.max(1000, (maxT - minT) / 150);
-
-      let currentIndex = 0;
-      for (let t = minT; t <= maxT; t += step) {
-        while (currentIndex < normalizedTimeline.length - 1 && normalizedTimeline[currentIndex + 1].timestamp <= t) {
-          denseResult.push(normalizedTimeline[currentIndex]);
-          currentIndex++;
-        }
-        if (denseResult.length === 0 || denseResult[denseResult.length - 1].timestamp !== t) {
-          denseResult.push({ ...normalizedTimeline[currentIndex], timestamp: t });
-        }
-      }
-      if (denseResult[denseResult.length - 1].timestamp !== maxT) {
-        denseResult.push(normalizedTimeline[normalizedTimeline.length - 1]);
-      }
-      let finalResult = denseResult.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-      
-      const m = market as any;
-      if (m.status === 'resolved' && m.resolved_at) {
-        const lastPoint = finalResult[finalResult.length - 1];
-        const endTime = new Date(m.resolved_at).getTime();
-
-        if (endTime && lastPoint && endTime > lastPoint.timestamp) {
-          finalResult.push({ ...lastPoint, timestamp: endTime });
-        }
-      }
-      return finalResult;
-    }
-
-    return normalizedTimeline;
+    return timeline;
   }, [market, options, history]);
 
   const marketPositionSummary = useMemo(() => {
@@ -976,7 +940,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
 
               {filteredHistory.length > 0 ? (
                 <div className="w-full h-[350px] relative min-w-0 overflow-hidden pr-2 lg:pr-8 mt-4 mb-2">
-                  <LightweightChart data={filteredHistory} options={options} marketCreatedAt={new Date(market.created_at).getTime()} chartTimeframe={isMarketResolved ? 'ALL' : chartTimeframe} />
+                  <MarketRechart data={filteredHistory} options={options} marketCreatedAt={new Date(market.created_at).getTime()} chartTimeframe={isMarketResolved ? 'ALL' : chartTimeframe} />
                 </div>
               ) : (
                 <div className="w-full h-[350px] relative min-w-0 overflow-hidden pr-2 lg:pr-8 mt-4 mb-2 flex items-center justify-center border-2 border-dashed border-border/50 rounded-xl bg-muted/10">
