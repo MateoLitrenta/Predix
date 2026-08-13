@@ -43,37 +43,33 @@ export function MarketRechart({ data, options, marketCreatedAt, chartTimeframe }
     }
 
     // Time-Series Padding (Densify) para que el Tooltip de Recharts reaccione en los espacios vacíos
-    const denseResult: any[] = [];
     if (visibleData.length > 0) {
       const minT = visibleData[0].timestamp;
       const maxT = visibleData[visibleData.length - 1].timestamp;
       
-      // Inyectar alrededor de 150-200 puntos artificiales a lo largo del gráfico para el Tooltip
-      const step = Math.max(1000, (maxT - minT) / 150);
-
-      let currentIndex = 0;
+      const denseMap = new Map();
+      // 1. Insertar todos los puntos reales
+      visibleData.forEach(p => denseMap.set(p.timestamp, p));
+      
+      // 2. Inyectar puntos artificiales
+      const step = Math.max(1000, Math.floor((maxT - minT) / 150));
+      let lastKnown = visibleData[0];
+      let vIdx = 0;
+      
       for (let t = minT; t <= maxT; t += step) {
-        // Añadir puntos reales que hayan ocurrido antes de 't'
-        while (currentIndex < visibleData.length - 1 && visibleData[currentIndex + 1].timestamp <= t) {
-          denseResult.push(visibleData[currentIndex]);
-          currentIndex++;
+        while (vIdx < visibleData.length && visibleData[vIdx].timestamp <= t) {
+          lastKnown = visibleData[vIdx];
+          vIdx++;
         }
-        
-        // Inyectar un punto artificial rellenado (Forward-Fill del último nodo conocido)
-        if (denseResult.length === 0 || denseResult[denseResult.length - 1].timestamp !== t) {
-          denseResult.push({ ...visibleData[currentIndex], timestamp: t });
+        if (!denseMap.has(t)) {
+          denseMap.set(t, { ...lastKnown, timestamp: t });
         }
       }
       
-      // Asegurarse de que el último punto real o de Date.now() esté siempre al final
-      if (denseResult[denseResult.length - 1].timestamp !== maxT) {
-        denseResult.push(visibleData[visibleData.length - 1]);
-      }
-      
-      return denseResult;
+      return Array.from(denseMap.values()).sort((a, b) => a.timestamp - b.timestamp);
     }
 
-    return visibleData;
+    return visibleData.sort((a, b) => a.timestamp - b.timestamp);
   }, [data, chartTimeframe]);
 
   const CustomTooltip = ({ active, payload, label }: any) => {
@@ -111,8 +107,12 @@ export function MarketRechart({ data, options, marketCreatedAt, chartTimeframe }
 
   const xTickFormatter = (tickItem: number) => {
     const date = new Date(tickItem);
-    if (chartTimeframe === '1D') return date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
-    if (chartTimeframe === '1W') return date.toLocaleDateString('es-AR', { weekday: 'short' });
+    
+    // Smart Formatting: Si el rango es menor a 24hs, mostrar hora, sino mostrar fecha
+    const timeRange = data.length > 0 ? data[data.length - 1].timestamp - data[0].timestamp : 0;
+    if (timeRange < 24 * 60 * 60 * 1000) {
+      return date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+    }
     return date.toLocaleDateString('es-AR', { month: 'short', day: 'numeric' });
   };
 
@@ -120,7 +120,7 @@ export function MarketRechart({ data, options, marketCreatedAt, chartTimeframe }
     <div className="w-full h-full min-h-[300px]">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={filteredData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(150, 150, 150, 0.1)" />
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(150, 150, 150, 0.1)" strokeOpacity={0.2} />
           
           <XAxis 
             dataKey="timestamp" 
@@ -131,7 +131,7 @@ export function MarketRechart({ data, options, marketCreatedAt, chartTimeframe }
             tick={{ fontSize: 12, fill: '#888' }}
             tickLine={false}
             axisLine={false}
-            minTickGap={40}
+            minTickGap={50}
             allowDataOverflow={true}
           />
           
@@ -145,7 +145,7 @@ export function MarketRechart({ data, options, marketCreatedAt, chartTimeframe }
             allowDataOverflow={false}
           />
           
-          <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(150, 150, 150, 0.2)', strokeWidth: 1 }} />
+          <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#a3a3a3', strokeWidth: 1, strokeDasharray: '3 3' }} />
           
           {options.map((opt, index) => {
             let color = opt.color || '#2962FF';
