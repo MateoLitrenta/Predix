@@ -251,40 +251,44 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     return pn / totalPool;
   }, []);
 
-  // NUEVO: Cálculo de Retorno CPMM exacto (k = py * pn)
-  const calculatePartialCashout = useCallback((optId: string, direction: string, sharesToSell: number) => {
-    const opt = options.find(o => o.id === optId);
-    if (!opt || sharesToSell <= 0) return 0;
+  const [sellSimulation, setSellSimulation] = useState<any>(null);
 
-    let py = Number(opt.pool_yes != null ? opt.pool_yes : 50000);
-    let pn = Number(opt.pool_no != null ? opt.pool_no : 50000);
-    if (py <= 0 || isNaN(py)) py = 50000;
-    if (pn <= 0 || isNaN(pn)) pn = 50000;
+  useEffect(() => {
+    let isSubscribed = true;
 
-    let payout = 0;
-    const v_sum = py + pn + sharesToSell;
-    let discriminant = 0;
+    async function fetchSellSimulation() {
+      if (!selectedSellPosition || !sellSharesInput || isNaN(Number(sellSharesInput)) || Number(sellSharesInput) <= 0) {
+        if (isSubscribed) setSellSimulation(null);
+        return;
+      }
+      
+      const [optId, dir] = selectedSellPosition.split('|');
+      const sharesToSell = parseFloat(sellSharesInput);
 
-    if (direction === 'yes') {
-      discriminant = v_sum * v_sum - 4 * sharesToSell * pn;
-    } else {
-      discriminant = v_sum * v_sum - 4 * sharesToSell * py;
-    }
-    
-    if (discriminant < 0) discriminant = 0;
-    payout = (v_sum - Math.sqrt(discriminant)) / 2;
+      const { data, error } = await supabase.rpc('simulate_sell_lmsr', {
+        p_market_option_id: optId,
+        p_shares_to_sell: sharesToSell,
+        p_sell_yes: dir === 'yes'
+      });
 
-    const spotPrice = direction === 'yes' ? (pn / (py + pn)) : (py / (py + pn));
-    if ((payout / sharesToSell) > spotPrice) {
-       payout = sharesToSell * spotPrice;
-    }
+      if (!isSubscribed) return;
 
-    if ((payout / sharesToSell) > 0.99) {
-       payout = sharesToSell * 0.99;
+      if (!error && data && data.success) {
+        setSellSimulation(data.payout);
+      } else {
+        setSellSimulation(null);
+      }
     }
 
-    return Math.floor(payout); 
-  }, [options]);
+    const timer = setTimeout(() => {
+      fetchSellSimulation();
+    }, 300);
+
+    return () => {
+      isSubscribed = false;
+      clearTimeout(timer);
+    };
+  }, [sellSharesInput, selectedSellPosition]);
 
   // NUEVO: Motor de Compra RPC
   const handlePlaceBet = async () => {
@@ -388,8 +392,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     } else if (data && data.success === false) {
       toast({ title: "Error al vender", description: data.error || "Operación rechazada", variant: "destructive" });
     } else {
-      const payout = calculatePartialCashout(optId, dir, sharesToSell);
-
+      const payout = data.payout || 0;
       // La creación de la transacción ahora se delega completamente al RPC backend
 
       // 2. Tomar la foto del precio tras la venta para el Gráfico
@@ -673,68 +676,68 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       .slice(0, 5);
   }, [activityFeed]);
 
-  // NUEVO: Simulador AMM en el Frontend (CPMM Estricto sobre pool_yes y pool_no vivos)
-  const orderSummary = useMemo(() => {
-    if (!selectedOptionId || !betAmount || isNaN(Number(betAmount)) || Number(betAmount) <= 0) return null;
-    const amount = Number(betAmount);
-    const opt = options.find(o => o.id === selectedOptionId);
-    if (!opt) return null;
+  const [orderSummary, setOrderSummary] = useState<any>(null);
 
-    console.log("Liquidez real del pool:", opt.pool_yes, opt.pool_no);
+  useEffect(() => {
+    let isSubscribed = true;
 
-    let py = Number(opt.pool_yes != null ? opt.pool_yes : 5000);
-    let pn = Number(opt.pool_no != null ? opt.pool_no : 5000);
-    if (py <= 0 || isNaN(py)) py = 5000;
-    if (pn <= 0 || isNaN(pn)) pn = 5000;
+    async function fetchSimulation() {
+      if (!selectedOptionId || !betAmount || isNaN(Number(betAmount)) || Number(betAmount) <= 0) {
+        if (isSubscribed) setOrderSummary(null);
+        return;
+      }
 
-    const k = py * pn;
-    let startPrice = 0;
-    let estimatedShares = 0;
-    const isBuyingYes = selectedDirection === 'yes';
+      const amount = Number(betAmount);
+      const isBuyingYes = selectedDirection === 'yes';
 
-    if (isBuyingYes) {
-      startPrice = pn / (py + pn);
-      // Para SÍ: inyectamos liquidez en NO
-      const new_pn = pn + amount;
-      const new_py = k / new_pn;
-      estimatedShares = (py + amount) - new_py;
-    } else {
-      startPrice = py / (py + pn);
-      // Para NO: inyectamos liquidez en SÍ
-      const new_py = py + amount;
-      const new_pn = k / new_py;
-      estimatedShares = (pn + amount) - new_pn;
+      const { data, error } = await supabase.rpc('simulate_buy_lmsr', {
+        p_market_option_id: selectedOptionId,
+        p_investment_amount: amount,
+        p_buy_yes: isBuyingYes
+      });
+
+      if (!isSubscribed) return;
+
+      if (error || !data || !data.success) {
+        setOrderSummary(null);
+        return;
+      }
+
+      const shares = data.shares;
+      if (shares <= 0) {
+        setOrderSummary(null);
+        return;
+      }
+
+      const avgPrice = amount / shares;
+      const startPrice = data.spot_price;
+      const slippage = startPrice > 0 ? ((avgPrice - startPrice) / startPrice) * 100 : 0;
+
+      const potentialPayout = shares;
+      const potentialProfit = potentialPayout - amount;
+      const roi = (potentialProfit / amount) * 100;
+
+      setOrderSummary({
+        avgPriceCents: Math.round(avgPrice * 100),
+        shares: Number(shares.toFixed(3)),
+        potentialPayout: Number(potentialPayout.toFixed(3)),
+        potentialProfit: Number(potentialProfit.toFixed(3)),
+        roi,
+        slippage
+      });
     }
 
-    const shares = estimatedShares;
-    if (shares <= 0) return null;
+    const timer = setTimeout(() => {
+      fetchSimulation();
+    }, 300);
 
-    const avgPrice = amount / shares;
-    const slippage = ((avgPrice - startPrice) / startPrice) * 100;
-
-    const potentialPayout = shares;
-    const potentialProfit = potentialPayout - amount;
-    const roi = (potentialProfit / amount) * 100;
-
-    console.log("Auditoría AMM Simulador (CPMM Estricto):", {
-      inversion: amount,
-      poolYes: py,
-      poolNo: pn,
-      k: k,
-      precioSpot: startPrice,
-      accionesCalculadas: shares,
-      precioPromedio: avgPrice
-    });
-
-    return {
-      avgPriceCents: Math.round(avgPrice * 100),
-      shares: Number(shares.toFixed(3)),
-      potentialPayout: Number(potentialPayout.toFixed(3)),
-      potentialProfit: Number(potentialProfit.toFixed(3)),
-      roi,
-      slippage
+    return () => {
+      isSubscribed = false;
+      clearTimeout(timer);
     };
-  }, [betAmount, selectedOptionId, selectedDirection, options]);
+  }, [betAmount, selectedOptionId, selectedDirection]);
+
+
 
   if (isLoading) {
     return (
@@ -1564,8 +1567,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
 
                                 const maxShares = pos.totalShares;
                                 const sharesToSell = parseFloat(sellSharesInput) || maxShares;
-                                const expectedReturn = calculatePartialCashout(optId, dir, sharesToSell);
-                                const isRed = dir === 'no' || (isBinaryYesNo && opt?.option_name.toLowerCase() === 'no');
+                                const expectedReturn = sellSimulation || 0;                                const isRed = dir === 'no' || (isBinaryYesNo && opt?.option_name.toLowerCase() === 'no');
 
                                 return (
                                   <>
