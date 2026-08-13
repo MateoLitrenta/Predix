@@ -23,22 +23,54 @@ export function MarketRechart({ data, options, marketCreatedAt, chartTimeframe }
   const filteredData = useMemo(() => {
     if (!data || data.length === 0) return [];
     
-    if (chartTimeframe === 'ALL') return data;
-    
+    let visibleData = data;
+    let fromTimestamp = 0;
     const lastDataPointTime = data[data.length - 1].timestamp;
     const targetEnd = new Date(lastDataPointTime).getTime();
-    let fromTimestamp = 0;
 
-    if (chartTimeframe === '1D') fromTimestamp = targetEnd - (24 * 60 * 60 * 1000);
-    else if (chartTimeframe === '1W') fromTimestamp = targetEnd - (7 * 24 * 60 * 60 * 1000);
-    else if (chartTimeframe === '1M') fromTimestamp = targetEnd - (30 * 24 * 60 * 60 * 1000);
+    if (chartTimeframe !== 'ALL') {
+      if (chartTimeframe === '1D') fromTimestamp = targetEnd - (24 * 60 * 60 * 1000);
+      else if (chartTimeframe === '1W') fromTimestamp = targetEnd - (7 * 24 * 60 * 60 * 1000);
+      else if (chartTimeframe === '1M') fromTimestamp = targetEnd - (30 * 24 * 60 * 60 * 1000);
 
-    // Keep the last point before the timeframe starts so the line comes in horizontally
-    const pointBefore = [...data].reverse().find(d => d.timestamp < fromTimestamp);
-    const visibleData = data.filter(d => d.timestamp >= fromTimestamp);
-    
-    if (pointBefore && visibleData.length > 0 && visibleData[0].timestamp > fromTimestamp) {
-       return [{...pointBefore, timestamp: fromTimestamp}, ...visibleData];
+      // Keep the last point before the timeframe starts so the line comes in horizontally
+      const pointBefore = [...data].reverse().find(d => d.timestamp < fromTimestamp);
+      visibleData = data.filter(d => d.timestamp >= fromTimestamp);
+      
+      if (pointBefore && visibleData.length > 0 && visibleData[0].timestamp > fromTimestamp) {
+         visibleData = [{...pointBefore, timestamp: fromTimestamp}, ...visibleData];
+      }
+    }
+
+    // Time-Series Padding (Densify) para que el Tooltip de Recharts reaccione en los espacios vacíos
+    const denseResult: any[] = [];
+    if (visibleData.length > 0) {
+      const minT = visibleData[0].timestamp;
+      const maxT = visibleData[visibleData.length - 1].timestamp;
+      
+      // Inyectar alrededor de 150-200 puntos artificiales a lo largo del gráfico para el Tooltip
+      const step = Math.max(1000, (maxT - minT) / 150);
+
+      let currentIndex = 0;
+      for (let t = minT; t <= maxT; t += step) {
+        // Añadir puntos reales que hayan ocurrido antes de 't'
+        while (currentIndex < visibleData.length - 1 && visibleData[currentIndex + 1].timestamp <= t) {
+          denseResult.push(visibleData[currentIndex]);
+          currentIndex++;
+        }
+        
+        // Inyectar un punto artificial rellenado (Forward-Fill del último nodo conocido)
+        if (denseResult.length === 0 || denseResult[denseResult.length - 1].timestamp !== t) {
+          denseResult.push({ ...visibleData[currentIndex], timestamp: t });
+        }
+      }
+      
+      // Asegurarse de que el último punto real o de Date.now() esté siempre al final
+      if (denseResult[denseResult.length - 1].timestamp !== maxT) {
+        denseResult.push(visibleData[visibleData.length - 1]);
+      }
+      
+      return denseResult;
     }
 
     return visibleData;
