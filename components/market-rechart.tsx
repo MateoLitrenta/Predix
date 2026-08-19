@@ -125,6 +125,25 @@ export function MarketRechart({ data, options, marketCreatedAt, chartTimeframe }
     return date.toLocaleDateString('es-AR', { month: 'short', day: 'numeric' });
   };
 
+  const renderCustomDot = (props: any, dataLength: number) => {
+    const { cx, cy, stroke, index } = props;
+    if (index === dataLength - 1) {
+      return (
+        <g key={`dot-${index}`}>
+          <circle cx={cx} cy={cy} r={4} fill={stroke} />
+          <circle 
+            cx={cx} cy={cy} r={4} 
+            fill={stroke} 
+            opacity={0.4} 
+            className="animate-ping" 
+            style={{ transformOrigin: `${cx}px ${cy}px` }} 
+          />
+        </g>
+      );
+    }
+    return null;
+  };
+
   return (
     <div className="w-full h-full min-h-[300px]">
       <ResponsiveContainer width="100%" height="100%">
@@ -142,6 +161,7 @@ export function MarketRechart({ data, options, marketCreatedAt, chartTimeframe }
             axisLine={false}
             minTickGap={50}
             allowDataOverflow={true}
+            padding={{ right: 40 }}
           />
           
           <YAxis 
@@ -177,7 +197,7 @@ export function MarketRechart({ data, options, marketCreatedAt, chartTimeframe }
                 name={opt.option_name}
                 stroke={color}
                 strokeWidth={2}
-                dot={false}
+                dot={(props) => renderCustomDot(props, filteredData.length)}
                 activeDot={{ r: 4, strokeWidth: 0 }}
                 connectNulls={true}
                 isAnimationActive={true}
