@@ -29,16 +29,25 @@ export function MarketRechart({ data, options, marketCreatedAt, chartTimeframe }
     const targetEnd = new Date(lastDataPointTime).getTime();
 
     if (chartTimeframe !== 'ALL') {
-      if (chartTimeframe === '1D') fromTimestamp = targetEnd - (24 * 60 * 60 * 1000);
-      else if (chartTimeframe === '1W') fromTimestamp = targetEnd - (7 * 24 * 60 * 60 * 1000);
-      else if (chartTimeframe === '1M') fromTimestamp = targetEnd - (30 * 24 * 60 * 60 * 1000);
+      const now = Date.now();
+      if (chartTimeframe === '1D') fromTimestamp = now - (24 * 60 * 60 * 1000);
+      else if (chartTimeframe === '1W') fromTimestamp = now - (7 * 24 * 60 * 60 * 1000);
+      else if (chartTimeframe === '1M') fromTimestamp = now - (30 * 24 * 60 * 60 * 1000);
 
       // Keep the last point before the timeframe starts so the line comes in horizontally
-      const pointBefore = [...data].reverse().find(d => d.timestamp < fromTimestamp);
-      visibleData = data.filter(d => d.timestamp >= fromTimestamp);
+      const pointBefore = [...data].reverse().find(d => d.timestamp <= fromTimestamp);
+      visibleData = data.filter(d => d.timestamp > fromTimestamp);
       
-      if (pointBefore && visibleData.length > 0 && visibleData[0].timestamp > fromTimestamp) {
-         visibleData = [{...pointBefore, timestamp: fromTimestamp}, ...visibleData];
+      if (pointBefore) {
+        if (visibleData.length === 0) {
+          // Si no hubo transacciones en este periodo, dibujamos una línea plana
+          visibleData = [
+            { ...pointBefore, timestamp: fromTimestamp },
+            { ...pointBefore, timestamp: now }
+          ];
+        } else {
+          visibleData = [{ ...pointBefore, timestamp: fromTimestamp }, ...visibleData];
+        }
       }
     }
 
@@ -171,7 +180,9 @@ export function MarketRechart({ data, options, marketCreatedAt, chartTimeframe }
                 dot={false}
                 activeDot={{ r: 4, strokeWidth: 0 }}
                 connectNulls={true}
-                isAnimationActive={false}
+                isAnimationActive={true}
+                animationDuration={800}
+                animationEasing="ease-in-out"
               />
             );
           })}
