@@ -251,44 +251,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     return pn / totalPool;
   }, []);
 
-  const [sellSimulation, setSellSimulation] = useState<any>(null);
 
-  useEffect(() => {
-    let isSubscribed = true;
-
-    async function fetchSellSimulation() {
-      if (!selectedSellPosition || !sellSharesInput || isNaN(Number(sellSharesInput)) || Number(sellSharesInput) <= 0) {
-        if (isSubscribed) setSellSimulation(null);
-        return;
-      }
-      
-      const [optId, dir] = selectedSellPosition.split('|');
-      const sharesToSell = parseFloat(sellSharesInput);
-
-      const { data, error } = await supabase.rpc('simulate_sell_lmsr', {
-        p_market_option_id: optId,
-        p_shares_to_sell: sharesToSell,
-        p_sell_yes: dir === 'yes'
-      });
-
-      if (!isSubscribed) return;
-
-      if (!error && data && data.success) {
-        setSellSimulation(data.payout);
-      } else {
-        setSellSimulation(null);
-      }
-    }
-
-    const timer = setTimeout(() => {
-      fetchSellSimulation();
-    }, 300);
-
-    return () => {
-      isSubscribed = false;
-      clearTimeout(timer);
-    };
-  }, [sellSharesInput, selectedSellPosition]);
 
   // NUEVO: Motor de Compra RPC
   const handlePlaceBet = async () => {
@@ -368,9 +331,15 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     }
 
     const maxShares = pos.totalShares;
-    const sharesToSell = parseFloat(sellSharesInput) || maxShares;
+    
+    let sharesToSellStr = sellSharesInput;
+    if (!sharesToSellStr) {
+      sharesToSellStr = maxShares.toString();
+    }
+    const sanitizedInput = sharesToSellStr.replace(',', '.');
+    const sharesToSell = parseFloat(sanitizedInput);
 
-    if (sharesToSell <= 0 || sharesToSell > maxShares) {
+    if (isNaN(sharesToSell) || sharesToSell <= 0 || sharesToSell > maxShares) {
       toast({ title: "Error", description: "Cantidad inválida", variant: "destructive" });
       return;
     }
@@ -521,6 +490,70 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
 
     return Object.values(positions);
   }, [userShares, activityFeed, user]);
+
+  const [sellSimulation, setSellSimulation] = useState<any>(null);
+
+  useEffect(() => {
+    let isSubscribed = true;
+
+    async function fetchSellSimulation() {
+      console.log("fetchSellSimulation triggered", { selectedSellPosition, sellSharesInput, consolidatedPositions });
+      if (!selectedSellPosition) {
+        if (isSubscribed) setSellSimulation(null);
+        return;
+      }
+      
+      const [optId, dir] = selectedSellPosition.split('|');
+      
+      let sharesToSellStr = sellSharesInput;
+      if (!sharesToSellStr) {
+        const pos = consolidatedPositions.find((p: any) => p.outcome === optId && p.direction === dir);
+        if (pos) {
+          sharesToSellStr = pos.totalShares.toString();
+        } else {
+          console.log("fetchSellSimulation: no pos found for default");
+          if (isSubscribed) setSellSimulation(null);
+          return;
+        }
+      }
+
+      console.log("Input:", sellSharesInput, "Sanitizing:", sharesToSellStr);
+      const sanitizedInput = sharesToSellStr.replace(',', '.');
+      const sharesToSell = parseFloat(sanitizedInput);
+      console.log("sharesToSell parsed:", sharesToSell);
+
+      if (isNaN(sharesToSell) || sharesToSell <= 0) {
+        console.log("fetchSellSimulation aborted: invalid sharesToSell");
+        if (isSubscribed) setSellSimulation(null);
+        return;
+      }
+
+      const { data, error } = await supabase.rpc('simulate_sell_shares_amm', {
+        p_market_option_id: optId,
+        p_shares_to_sell: sharesToSell,
+        p_sell_yes: dir === 'yes'
+      });
+
+      console.log("Respuesta RPC:", data, "Error:", error);
+
+      if (!isSubscribed) return;
+
+      if (!error && data && data.success) {
+        setSellSimulation(data.payout);
+      } else {
+        setSellSimulation(null);
+      }
+    }
+
+    const timer = setTimeout(() => {
+      fetchSellSimulation();
+    }, 300);
+
+    return () => {
+      isSubscribed = false;
+      clearTimeout(timer);
+    };
+  }, [sellSharesInput, selectedSellPosition, consolidatedPositions]);
 
   const timeframes: ChartTimeframe[] = ['1D', '1W', '1M', 'ALL'];
 
