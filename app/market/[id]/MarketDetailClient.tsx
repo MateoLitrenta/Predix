@@ -532,18 +532,10 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
 
     // 1. PUNTO GÉNESIS (Basado en precio con normalización visual si no hay historia)
     const genesisPoint: any = { timestamp: marketCreatedAt };
-    const genesisRawProbs = options.reduce((acc, opt) => {
-      const py = Number(opt.pool_yes || 0);
-      const pn = Number(opt.pool_no || 0);
-      const totalPool = py + pn;
-      acc[opt.id] = totalPool > 0 ? (pn / totalPool) : (1 / (options.length || 1));
-      return acc;
-    }, {} as Record<string, number>);
-    const genesisTotalProb = Object.values(genesisRawProbs).reduce((sum, p) => sum + p, 0);
-
+    const initialProb = options.length > 0 ? 100 / options.length : 50;
+    
     options.forEach(opt => {
-      const rawProb = genesisRawProbs[opt.id] || 0;
-      genesisPoint[opt.id] = genesisTotalProb > 0 ? (rawProb / genesisTotalProb) * 100 : (1 / (options.length || 1)) * 100;
+      genesisPoint[opt.id] = initialProb;
     });
 
     // 2. GROUP AND FORWARD FILL (Requerido para Recharts Tooltip)
