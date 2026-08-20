@@ -895,7 +895,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
         </Button>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 relative items-start">
-          <div className="lg:col-span-8 xl:col-span-9 flex flex-col gap-6 min-w-0">
+          <div className="lg:col-span-8 xl:col-span-9 flex flex-col gap-6 min-w-0 order-1">
             <div className="flex gap-4 sm:gap-6 items-start">
               {market.image_url && <img src={market.image_url} alt="Mercado" className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl object-cover shrink-0 shadow-md border border-border/50" />}
               <div>
@@ -1085,7 +1085,9 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                 </>
               )}
             </div>
-
+          </div>
+          
+          <div className="lg:col-span-8 xl:col-span-9 flex flex-col gap-6 min-w-0 order-3 lg:order-2">
             <div className="w-full mt-2">
               <Tabs defaultValue="activity" className="w-full">
                 <TabsList className="grid w-full grid-cols-2 h-14 p-1.5 bg-muted/50 rounded-xl mb-8 border border-border/50 shadow-sm">
@@ -1301,7 +1303,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
             </div>
           </div>
 
-          <div className="lg:col-span-4 xl:col-span-3 lg:sticky lg:top-24 self-start flex flex-col gap-6 lg:z-40">
+          <div className="lg:col-span-4 xl:col-span-3 lg:sticky lg:top-24 self-start flex flex-col gap-6 lg:z-40 order-2 lg:order-3 lg:col-start-9 xl:col-start-10 lg:row-start-1 lg:row-span-2">
 
             {(selectedOptionId || selectedSellPosition) && (
               <div
