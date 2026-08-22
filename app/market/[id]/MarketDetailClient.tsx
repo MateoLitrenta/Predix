@@ -258,7 +258,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     if (!user) { setIsAuthModalOpen(true); return; }
     if (!selectedOptionId || !betAmount) return;
 
-    const numericAmount = parseInt(betAmount, 10);
+    const numericAmount = parseFloat(betAmount.replace(',', '.'));
     const userPoints = profile?.points || 0;
 
     if (isNaN(numericAmount) || numericAmount <= 0) {
@@ -671,12 +671,19 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
     let isSubscribed = true;
 
     async function fetchSimulation() {
-      if (!selectedOptionId || !betAmount || isNaN(Number(betAmount)) || Number(betAmount) <= 0) {
+      if (!selectedOptionId || !betAmount) {
         if (isSubscribed) setOrderSummary(null);
         return;
       }
 
-      const amount = Number(betAmount);
+      const amountToInvest = parseFloat(betAmount.replace(',', '.'));
+
+      if (isNaN(amountToInvest) || amountToInvest <= 0) {
+        if (isSubscribed) setOrderSummary(null);
+        return;
+      }
+
+      const amount = amountToInvest;
       const isBuyingYes = selectedDirection === 'yes';
 
       const { data, error } = await supabase.rpc('simulate_buy_lmsr', {
