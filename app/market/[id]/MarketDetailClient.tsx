@@ -695,13 +695,13 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
       if (!isSubscribed) return;
 
       if (error || !data || !data.success) {
-        setOrderSummary(null);
+        setOrderSummary({ error: error?.message || data?.error || "Error de conexión" });
         return;
       }
 
       const shares = data.shares;
       if (shares <= 0) {
-        setOrderSummary(null);
+        setOrderSummary({ error: "Cantidad muy pequeña" });
         return;
       }
 
@@ -1422,47 +1422,55 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                                   </div>
                                 </div>
 
-                                {orderSummary && (
                                   <div className="p-4 rounded-xl bg-muted/20 border border-border/50 space-y-3">
-                                    <div className="flex justify-between items-center w-full mb-3 text-sm">
-                                      <span className="text-muted-foreground whitespace-nowrap mr-2">Precio promedio</span>
-                                      <div className="flex items-center gap-2 text-right whitespace-nowrap">
-                                        <span className="font-bold">{orderSummary.avgPriceCents}¢</span>
+                                    {orderSummary?.error ? (
+                                      <div className="text-center py-2">
+                                        <p className="text-sm font-bold text-red-500 flex items-center justify-center gap-2">
+                                          <AlertCircle className="w-4 h-4" /> {orderSummary.error}
+                                        </p>
                                       </div>
-                                    </div>
-                                    <div className="flex justify-between items-center w-full mb-3 text-sm">
-                                      <span className="text-muted-foreground whitespace-nowrap mr-2">Acciones estimadas</span>
-                                      <div className="flex items-center gap-2 text-right whitespace-nowrap">
-                                        <span className="font-bold">{orderSummary.shares.toLocaleString()}</span>
-                                      </div>
-                                    </div>
+                                    ) : (
+                                      <>
+                                        <div className="flex justify-between items-center w-full mb-3 text-sm">
+                                          <span className="text-muted-foreground whitespace-nowrap mr-2">Precio promedio</span>
+                                          <div className="flex items-center gap-2 text-right whitespace-nowrap">
+                                            <span className="font-bold">{orderSummary ? orderSummary.avgPriceCents : 0}¢</span>
+                                          </div>
+                                        </div>
+                                        <div className="flex justify-between items-center w-full mb-3 text-sm">
+                                          <span className="text-muted-foreground whitespace-nowrap mr-2">Acciones estimadas</span>
+                                          <div className="flex items-center gap-2 text-right whitespace-nowrap">
+                                            <span className="font-bold">{orderSummary ? orderSummary.shares.toLocaleString() : '0'}</span>
+                                          </div>
+                                        </div>
 
-                                    <div className="h-px w-full bg-border/50 my-2" />
+                                        <div className="h-px w-full bg-border/50 my-2" />
 
-                                    <div className="flex justify-between items-center w-full mb-3 text-sm">
-                                      <span className="text-muted-foreground whitespace-nowrap mr-2">Ganancia Potencial</span>
-                                      <div className="flex items-center gap-2 text-right whitespace-nowrap">
-                                        <span className={cn("font-bold", !isRedTheme ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400")}>+{orderSummary.potentialProfit.toLocaleString()} pts</span>
-                                        <span className={cn("text-[10px] px-1.5 py-0.5 rounded-md", !isRedTheme ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400")}>+{orderSummary.roi.toFixed(1)}%</span>
-                                      </div>
-                                    </div>
-                                    <div className="flex justify-between items-center w-full mb-3 text-base">
-                                      <span className="font-bold text-foreground whitespace-nowrap mr-2">Retorno Total</span>
-                                      <div className="flex items-center gap-2 text-right whitespace-nowrap">
-                                        <span className={cn("font-black", !isRedTheme ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400")}>{orderSummary.potentialPayout.toLocaleString()} pts</span>
-                                      </div>
-                                    </div>
+                                        <div className="flex justify-between items-center w-full mb-3 text-sm">
+                                          <span className="text-muted-foreground whitespace-nowrap mr-2">Ganancia Potencial</span>
+                                          <div className="flex items-center gap-2 text-right whitespace-nowrap">
+                                            <span className={cn("font-bold", !isRedTheme ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400")}>+{orderSummary ? orderSummary.potentialProfit.toLocaleString() : '0'} pts</span>
+                                            <span className={cn("text-[10px] px-1.5 py-0.5 rounded-md", !isRedTheme ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400")}>+{orderSummary ? orderSummary.roi.toFixed(1) : '0.0'}%</span>
+                                          </div>
+                                        </div>
+                                        <div className="flex justify-between items-center w-full mb-3 text-base">
+                                          <span className="font-bold text-foreground whitespace-nowrap mr-2">Retorno Total</span>
+                                          <div className="flex items-center gap-2 text-right whitespace-nowrap">
+                                            <span className={cn("font-black", !isRedTheme ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400")}>{orderSummary ? orderSummary.potentialPayout.toLocaleString() : '0'} pts</span>
+                                          </div>
+                                        </div>
+                                      </>
+                                    )}
                                   </div>
-                                )}
 
-                                {orderSummary && orderSummary.slippage > 3 && (
-                                  <div className="px-3 py-2 bg-yellow-500/10 border border-yellow-500/20 rounded-lg flex items-start gap-2 text-yellow-600 dark:text-yellow-500 animate-in fade-in">
-                                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                                    <p className="text-[11px] font-medium leading-tight">
-                                      ⚠️ Deslizamiento alto ({orderSummary.slippage.toFixed(1)}%). Tu orden mueve la liquidez y el precio promedio será superior al inicial.
-                                    </p>
-                                  </div>
-                                )}
+                                  {orderSummary && !orderSummary.error && orderSummary.slippage > 3 && (
+                                    <div className="px-3 py-2 bg-yellow-500/10 border border-yellow-500/20 rounded-lg flex items-start gap-2 text-yellow-600 dark:text-yellow-500 animate-in fade-in">
+                                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                                      <p className="text-[11px] font-medium leading-tight">
+                                        ⚠️ Deslizamiento alto ({orderSummary.slippage.toFixed(1)}%). Tu orden mueve la liquidez y el precio promedio será superior al inicial.
+                                      </p>
+                                    </div>
+                                  )}
 
                                 {user && (
                                   <div className="flex justify-between items-center text-xs text-muted-foreground px-1">
