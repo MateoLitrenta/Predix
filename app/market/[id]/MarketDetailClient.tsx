@@ -1446,11 +1446,11 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
 
                                         <div className="h-px w-full bg-border/50 my-2" />
 
-                                        <div className="flex justify-between items-center w-full mb-3 text-sm">
-                                          <span className="text-muted-foreground whitespace-nowrap mr-2">Ganancia Potencial</span>
-                                          <div className="flex items-center gap-2 text-right whitespace-nowrap">
-                                            <span className={cn("font-bold", !isRedTheme ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400")}>+{orderSummary ? orderSummary.potentialProfit.toLocaleString() : '0'} pts</span>
-                                            <span className={cn("text-[10px] px-1.5 py-0.5 rounded-md", !isRedTheme ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400")}>+{orderSummary ? orderSummary.roi.toFixed(1) : '0.0'}%</span>
+                                        <div className="flex justify-between items-start w-full mb-3 text-sm">
+                                          <span className="text-muted-foreground whitespace-nowrap mr-2 mt-0.5">Ganancia Potencial</span>
+                                          <div className="flex flex-col items-end gap-1 text-right">
+                                            <span className={cn("font-bold whitespace-nowrap", !isRedTheme ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400")}>+{orderSummary ? orderSummary.potentialProfit.toLocaleString() : '0'} pts</span>
+                                            <span className={cn("text-[10px] px-1.5 py-0.5 rounded-md whitespace-nowrap", !isRedTheme ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400")}>+{orderSummary ? orderSummary.roi.toFixed(1) : '0.0'}%</span>
                                           </div>
                                         </div>
                                         <div className="flex justify-between items-center w-full mb-3 text-base">
