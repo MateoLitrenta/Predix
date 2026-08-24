@@ -1385,7 +1385,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                               <p className={cn("text-xs font-bold uppercase mb-1 opacity-90", !isRedTheme ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400')}>Estás comprando</p>
                               <div className="flex justify-between items-center">
                                 <span className={cn("font-black text-lg sm:text-xl", !isRedTheme ? 'text-green-700 dark:text-green-500' : 'text-red-700 dark:text-red-500')}>
-                                  {isBinaryYesNo ? `Comprar ${selectedOptName}` : `Comprar ${selectedDirection === 'yes' ? 'Sí' : 'No'}`}
+                                  {isBinaryYesNo ? `Comprar ${selectedDirection === 'no' ? noOption?.option_name : yesOption?.option_name}` : `Comprar ${selectedDirection === 'yes' ? 'Sí' : 'No'}`}
                                 </span>
                                 <span className={cn("font-bold text-xl", !isRedTheme ? 'text-green-700 dark:text-green-500' : 'text-red-700 dark:text-red-500')}>
                                   {selectedDirection === 'yes'
@@ -1493,7 +1493,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                                     {isMarketClosed ? <><Lock className="w-4 h-4 mr-2 inline-block" /> Mercado Cerrado</> :
                                       isPlacingBet ? <><Loader2 className="w-4 h-4 mr-2 animate-spin inline-block" /> Procesando...</> :
                                         !user ? "Ingresar para Operar" :
-                                          `Comprar ${isBinaryYesNo ? selectedOptName : (selectedDirection === 'yes' ? 'Sí' : 'No')} por ${betAmount || 0} pts`}
+                                          `Comprar ${isBinaryYesNo ? (selectedDirection === 'no' ? noOption?.option_name : yesOption?.option_name) : (selectedDirection === 'yes' ? 'Sí' : 'No')} por ${betAmount || 0} pts`}
                                   </span>
                                 </Button>
                               </>
@@ -1546,7 +1546,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                                       <div>
                                         <p className="font-bold text-foreground">
                                           {isBinaryYesNo ? (
-                                            <span className={cn("mr-1", isRed ? "text-red-600 dark:text-red-500" : "text-green-600 dark:text-green-500")}>{opt?.option_name}</span>
+                                            <span className={cn("mr-1", isRed ? "text-red-600 dark:text-red-500" : "text-green-600 dark:text-green-500")}>{(opt?.id === yesOption?.id && pos.direction === 'no') || (opt?.id === noOption?.id && pos.direction === 'yes') ? noOption?.option_name : yesOption?.option_name}</span>
                                           ) : (
                                             <><span className={cn("mr-1", isRed ? "text-red-600 dark:text-red-500" : "text-green-600 dark:text-green-500")}>{pos.direction === 'no' ? 'No' : 'Sí'}</span> a {opt?.option_name || "Opción"}</>
                                           )}
@@ -1583,7 +1583,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
                                     </div>
 
                                     <div className={cn("p-4 rounded-xl border", !isRed ? 'border-green-500/30 bg-green-500/5' : 'border-red-500/30 bg-red-500/5')}>
-                                      <p className="text-sm font-black text-foreground">{isBinaryYesNo ? opt?.option_name : `${dir === 'yes' ? 'Sí' : 'No'} a ${opt?.option_name}`}</p>
+                                      <p className="text-sm font-black text-foreground">{isBinaryYesNo ? ((opt?.id === yesOption?.id && dir === 'no') || (opt?.id === noOption?.id && dir === 'yes') ? noOption?.option_name : yesOption?.option_name) : `${dir === 'yes' ? 'Sí' : 'No'} a ${opt?.option_name}`}</p>
                                       <p className="text-xs font-medium text-muted-foreground mt-1">Posición total: <span className="font-bold text-foreground">{maxShares.toLocaleString()} acciones</span></p>
                                     </div>
 
