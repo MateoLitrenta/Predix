@@ -35,6 +35,7 @@ export default function RankingPage() {
   const supabase = createClient();
   const [users, setUsers] = useState<LeaderboardUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isFetching, setIsFetching] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const { isDarkMode, toggleDarkMode } = useTheme();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -42,7 +43,11 @@ export default function RankingPage() {
 
 
   const loadData = async (selectedTimeframe: TimeframeType) => {
-    setIsLoading(true);
+    if (users.length === 0) {
+      setIsLoading(true);
+    } else {
+      setIsFetching(true);
+    }
     const userProfile = await getProfile();
     setCurrentUser(userProfile);
 
@@ -143,6 +148,7 @@ export default function RankingPage() {
       console.error("Error cargando ranking:", error?.message || error);
     }
     setIsLoading(false);
+    setIsFetching(false);
   };
 
   useEffect(() => {
@@ -278,7 +284,7 @@ export default function RankingPage() {
             <p className="text-lg font-medium text-foreground">Aún no hay traders para mostrar.</p>
           </div>
         ) : (
-          <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
+          <div className={cn("flex flex-col lg:flex-row gap-6 lg:gap-8 transition-opacity duration-200", isFetching && "opacity-50 pointer-events-none")}>
             
             {/* EL PROTAGONISTA: RANKING PRINCIPAL DE RENDIMIENTO */}
             <div className="lg:w-2/3 flex flex-col">
