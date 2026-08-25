@@ -1049,7 +1049,7 @@ export default function MarketDetailClient({ marketId }: MarketDetailClientProps
 
                           <div className="flex justify-end sm:justify-center w-16 sm:w-24 shrink-0 sm:mr-16">
                             <span className={cn("font-black text-lg sm:text-xl", isWinner ? "text-primary" : isEliminated ? "text-red-500 font-bold" : "text-foreground")}>
-                              {isEliminated ? "No" : `${yesCents}%`}
+                              {isEliminated ? "No" : `${(yesPrice * 100).toFixed(1)}%`}
                             </span>
                           </div>
                         </div>
