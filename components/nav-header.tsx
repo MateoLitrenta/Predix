@@ -306,29 +306,29 @@ export function NavHeader({
 
             {userId && (
               <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-secondary/20 border border-secondary/30">
-                <Coins className="w-5 h-5 text-secondary-foreground" />
+                <Coins strokeWidth={1.5} className="w-5 h-5 text-secondary-foreground" />
                 <span className="font-semibold text-foreground">{(points || 0).toLocaleString()}</span>
                 <span className="text-sm text-muted-foreground">pts</span>
               </div>
             )}
 
-            <Button variant="ghost" asChild className="rounded-xl hover:text-amber-500 hover:bg-amber-500/10 transition-colors">
+            <Button variant="ghost" asChild className="rounded-xl text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors">
               <Link href="/ranking">
-                <Trophy className="w-4 h-4 mr-2 text-amber-500" />
-                <span>Ranking</span>
+                <Trophy strokeWidth={1.5} className="w-5 h-5 mr-2" />
+                <span className="font-medium">Ranking</span>
               </Link>
             </Button>
 
-            <Button id="tour-bonus-btn" onClick={userId ? handleClaimBonus : onOpenAuthModal} disabled={isClaimingBonus} variant="outline" className={cn("relative overflow-hidden rounded-xl border-primary/30 hover:border-primary hover:bg-primary/10 transition-all duration-300", bonusClaimed && "bg-green-500/20 border-green-500/50", bonusError && "bg-red-500/20 border-red-500/50")}>
-              {isClaimingBonus ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /><span>Reclamando...</span></> : bonusClaimed ? <><Sparkles className="w-4 h-4 mr-2 text-green-500" /><span className="text-green-600 dark:text-green-400">+2000 pts</span></> : bonusError ? <span className="text-red-600 dark:text-red-400 text-xs">Ya reclamaste hoy</span> : <><Gift className="w-4 h-4 mr-2 text-primary" /><span>Bonus Diario</span></>}
+            <Button id="tour-bonus-btn" onClick={userId ? handleClaimBonus : onOpenAuthModal} disabled={isClaimingBonus} variant="outline" className={cn("relative overflow-hidden rounded-xl border-border/50 text-muted-foreground hover:text-primary hover:border-primary hover:bg-primary/10 transition-all duration-300 font-medium", bonusClaimed && "bg-green-500/20 border-green-500/50 text-green-600 dark:text-green-400", bonusError && "bg-red-500/20 border-red-500/50 text-red-600 dark:text-red-400")}>
+              {isClaimingBonus ? <><Loader2 strokeWidth={1.5} className="w-5 h-5 mr-2 animate-spin" /><span>Reclamando...</span></> : bonusClaimed ? <><Sparkles strokeWidth={1.5} className="w-5 h-5 mr-2" /><span>+2000 pts</span></> : bonusError ? <span className="text-xs">Ya reclamaste hoy</span> : <><Gift strokeWidth={1.5} className="w-5 h-5 mr-2" /><span>Bonus Diario</span></>}
               {canClaimBonus && !bonusClaimed && !bonusError && !isClaimingBonus && <Badge className="ml-2 h-5 px-1.5 text-[10px] bg-primary text-primary-foreground rounded-xl">NUEVO</Badge>}
             </Button>
 
             {userId && (
               <Popover onOpenChange={handleOpenNotifications}>
                 <PopoverTrigger asChild>
-                  <Button variant="ghost" size="icon" className="relative">
-                    <Bell className="w-5 h-5" />
+                  <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors">
+                    <Bell strokeWidth={1.5} className="w-5 h-5" />
                     {unreadCount > 0 && (
                       <span className="absolute top-1.5 right-2 flex h-2.5 w-2.5">
                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
@@ -343,12 +343,12 @@ export function NavHeader({
               </Popover>
             )}
 
-            <Button variant="ghost" size="icon" onClick={() => window.dispatchEvent(new Event('start-onboarding-tour'))} className="hover:bg-primary/10">
-              <HelpCircle className="w-5 h-5" />
+            <Button variant="ghost" size="icon" onClick={() => window.dispatchEvent(new Event('start-onboarding-tour'))} className="text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors">
+              <HelpCircle strokeWidth={1.5} className="w-5 h-5" />
             </Button>
 
-            <Button variant="ghost" size="icon" onClick={onToggleDarkMode} className="hover:bg-primary/10">
-              {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+            <Button variant="ghost" size="icon" onClick={onToggleDarkMode} className="text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors">
+              {isDarkMode ? <Sun strokeWidth={1.5} className="w-5 h-5" /> : <Moon strokeWidth={1.5} className="w-5 h-5" />}
             </Button>
 
             {userId ? (
@@ -359,7 +359,7 @@ export function NavHeader({
                       {avatarUrl ? (
                         <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
                       ) : (
-                        <User className="w-4 h-4 text-primary" />
+                        <User strokeWidth={1.5} className="w-4 h-4 text-primary" />
                       )}
                     </div>
                     <span className="font-semibold text-sm max-w-[100px] truncate">{getUserDisplayName()}</span>
@@ -370,22 +370,22 @@ export function NavHeader({
                     <p className="text-sm font-bold truncate text-foreground">{userEmail || username}</p>
                     <p className="text-xs font-semibold text-primary mt-1">{(points || 0).toLocaleString()} puntos</p>
                   </div>
-                  <DropdownMenuItem asChild className="rounded-lg mb-1 cursor-pointer">
-                    <Link href="/profile" className="flex items-center font-medium"><UserCircle className="w-4 h-4 mr-3" />Mi Perfil</Link>
+                  <DropdownMenuItem asChild className="rounded-lg mb-1 cursor-pointer text-muted-foreground hover:text-foreground">
+                    <Link href="/profile" className="flex items-center font-medium"><UserCircle strokeWidth={1.5} className="w-4 h-4 mr-3" />Mi Perfil</Link>
                   </DropdownMenuItem>
                   {isAdmin && (
-                    <DropdownMenuItem asChild className="rounded-lg mb-1 cursor-pointer">
-                      <Link href="/admin" className="flex items-center font-medium text-amber-500 focus:text-amber-500"><ShieldCheck className="w-4 h-4 mr-3" />Panel Admin</Link>
+                    <DropdownMenuItem asChild className="rounded-lg mb-1 cursor-pointer text-muted-foreground hover:text-amber-500 focus:text-amber-500">
+                      <Link href="/admin" className="flex items-center font-medium"><ShieldCheck strokeWidth={1.5} className="w-4 h-4 mr-3" />Panel Admin</Link>
                     </DropdownMenuItem>
                   )}
                   <DropdownMenuSeparator className="bg-border/50 my-2" />
-                  <DropdownMenuItem onClick={onSignOut} className="rounded-lg cursor-pointer font-bold text-red-600 focus:bg-red-500/10 focus:text-red-600">
-                    <LogOut className="w-4 h-4 mr-3" />Cerrar Sesión
+                  <DropdownMenuItem onClick={onSignOut} className="rounded-lg cursor-pointer font-bold text-muted-foreground hover:text-red-600 focus:bg-red-500/10 focus:text-red-600">
+                    <LogOut strokeWidth={1.5} className="w-4 h-4 mr-3" />Cerrar Sesión
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
-              <Button onClick={onOpenAuthModal} variant="default" className="rounded-xl shadow-md font-bold px-6 hover:scale-[1.02] transition-transform"><User className="w-4 h-4 mr-2" />Ingresar</Button>
+              <Button onClick={onOpenAuthModal} variant="default" className="rounded-xl shadow-md font-bold px-6 hover:scale-[1.02] transition-transform"><User strokeWidth={1.5} className="w-4 h-4 mr-2" />Ingresar</Button>
             )}
           </div>
 
@@ -393,7 +393,7 @@ export function NavHeader({
           <div className="md:hidden flex items-center gap-1">
             {userId && (
               <div className="flex items-center gap-1.5 px-3 py-1.5 mr-1 rounded-lg bg-secondary/20">
-                <Coins className="w-4 h-4 text-secondary-foreground" />
+                <Coins strokeWidth={1.5} className="w-4 h-4 text-secondary-foreground" />
                 <span className="font-semibold text-sm">{(points || 0).toLocaleString()}</span>
               </div>
             )}
@@ -401,8 +401,8 @@ export function NavHeader({
             {userId && (
               <Popover onOpenChange={handleOpenNotifications}>
                 <PopoverTrigger asChild>
-                  <Button variant="ghost" size="icon" className="relative h-9 w-9">
-                    <Bell className="w-5 h-5" />
+                  <Button variant="ghost" size="icon" className="relative h-9 w-9 text-muted-foreground hover:text-primary transition-colors">
+                    <Bell strokeWidth={1.5} className="w-5 h-5" />
                     {unreadCount > 0 && (
                       <span className="absolute top-1.5 right-1.5 flex h-2 w-2">
                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
@@ -417,8 +417,8 @@ export function NavHeader({
               </Popover>
             )}
 
-            <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => setShowMobileMenu(!showMobileMenu)}>
-              {showMobileMenu ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            <Button variant="ghost" size="icon" className="h-9 w-9 text-muted-foreground hover:text-primary transition-colors" onClick={() => setShowMobileMenu(!showMobileMenu)}>
+              {showMobileMenu ? <X strokeWidth={1.5} className="w-6 h-6" /> : <Menu strokeWidth={1.5} className="w-6 h-6" />}
             </Button>
           </div>
         </div>
@@ -441,7 +441,7 @@ export function NavHeader({
                     {avatarUrl ? (
                       <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
                     ) : (
-                      <User className="w-6 h-6 text-primary" />
+                      <User strokeWidth={1.5} className="w-6 h-6 text-primary" />
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -451,7 +451,7 @@ export function NavHeader({
                 </div>
               ) : (
                 <Button onClick={() => { setShowMobileMenu(false); onOpenAuthModal(); }} className="w-full h-12 text-base font-bold rounded-xl shadow-md">
-                  <User className="w-5 h-5 mr-2" /> Ingresar / Registrarse
+                  <User strokeWidth={1.5} className="w-5 h-5 mr-2" /> Ingresar / Registrarse
                 </Button>
               )}
 
@@ -470,19 +470,19 @@ export function NavHeader({
               >
                 {isClaimingBonus ? (
                   <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <Loader2 strokeWidth={1.5} className="w-5 h-5 animate-spin" />
                     <span>Reclamando...</span>
                   </>
                 ) : bonusClaimed ? (
                   <>
-                    <Sparkles className="w-5 h-5 text-green-500" />
+                    <Sparkles strokeWidth={1.5} className="w-5 h-5 text-green-500" />
                     <span>¡Bonus Reclamado! (+2000 pts)</span>
                   </>
                 ) : bonusError ? (
                   <span>Ya reclamaste tu bonus hoy</span>
                 ) : (
                   <>
-                    <Gift className="w-5 h-5 text-primary" />
+                    <Gift strokeWidth={1.5} className="w-5 h-5" />
                     <span>Bonus Diario</span>
                   </>
                 )}
@@ -490,27 +490,27 @@ export function NavHeader({
 
               <div className="space-y-1 bg-muted/10 p-2 rounded-2xl border border-border/50">
                 {isAdmin && (
-                  <Button variant="ghost" className="w-full justify-start h-12 rounded-xl" asChild>
+                  <Button variant="ghost" className="w-full justify-start h-12 rounded-xl text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10 transition-colors" asChild>
                     <Link href="/admin" onClick={() => setShowMobileMenu(false)}>
-                      <ShieldCheck className="w-5 h-5 mr-3 text-amber-500" />
+                      <ShieldCheck strokeWidth={1.5} className="w-5 h-5 mr-3" />
                       <span className="text-sm font-medium">Panel de Control</span>
                     </Link>
                   </Button>
                 )}
 
                 <div className="flex items-center justify-between px-4 py-2 my-1">
-                  <div className="flex items-center gap-3">
-                    {isDarkMode ? <Moon className="w-5 h-5 text-muted-foreground" /> : <Sun className="w-5 h-5 text-muted-foreground" />}
+                  <div className="flex items-center gap-3 text-muted-foreground">
+                    {isDarkMode ? <Moon strokeWidth={1.5} className="w-5 h-5" /> : <Sun strokeWidth={1.5} className="w-5 h-5" />}
                     <span className="text-sm font-medium">Modo Oscuro</span>
                   </div>
-                  <Button variant="ghost" size="icon" onClick={onToggleDarkMode} className="rounded-full h-8 w-8 bg-background border border-border/50 shadow-sm">
-                    {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                  <Button variant="ghost" size="icon" onClick={onToggleDarkMode} className="rounded-full h-8 w-8 bg-background border border-border/50 shadow-sm text-muted-foreground hover:text-primary transition-colors">
+                    {isDarkMode ? <Sun strokeWidth={1.5} className="w-4 h-4" /> : <Moon strokeWidth={1.5} className="w-4 h-4" />}
                   </Button>
                 </div>
 
                 {userId && (
-                  <Button onClick={() => { setShowMobileMenu(false); onSignOut(); }} variant="ghost" className="w-full justify-start h-12 text-red-600 dark:text-red-500 hover:text-red-700 dark:hover:text-red-400 hover:bg-red-500/10 rounded-xl mt-1">
-                    <LogOut className="w-5 h-5 mr-3" />
+                  <Button onClick={() => { setShowMobileMenu(false); onSignOut(); }} variant="ghost" className="w-full justify-start h-12 text-muted-foreground hover:text-red-600 dark:hover:text-red-500 hover:bg-red-500/10 rounded-xl mt-1 transition-colors">
+                    <LogOut strokeWidth={1.5} className="w-5 h-5 mr-3" />
                     <span className="text-sm font-bold">Cerrar Sesión</span>
                   </Button>
                 )}

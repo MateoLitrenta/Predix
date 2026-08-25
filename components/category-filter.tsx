@@ -6,10 +6,10 @@ import {
   LayoutGrid,
   Landmark,
   Trophy,
-  TrendingUp,
+  LineChart,
   Bitcoin,
   Cpu,
-  Atom,
+  Microscope,
   CloudSun,
   Clapperboard,
   Music
@@ -19,10 +19,10 @@ const categories = [
   { id: "all", label: "Todos", icon: LayoutGrid },
   { id: "politica", label: "Política", icon: Landmark },
   { id: "deportes", label: "Deportes", icon: Trophy },
-  { id: "finanzas", label: "Finanzas", icon: TrendingUp },
+  { id: "finanzas", label: "Finanzas", icon: LineChart },
   { id: "cripto", label: "Cripto", icon: Bitcoin },
   { id: "tecnologia", label: "Tecnología", icon: Cpu },
-  { id: "ciencia", label: "Ciencia", icon: Atom },
+  { id: "ciencia", label: "Ciencia", icon: Microscope },
   { id: "clima", label: "Clima", icon: CloudSun },
   { id: "entretenimiento", label: "Entretenimiento", icon: Clapperboard },
   { id: "musica", label: "Música", icon: Music },
@@ -48,10 +48,10 @@ export function CategoryFilter({ selectedCategory, onSelectCategory }: CategoryF
             onClick={() => onSelectCategory(cat.id)}
             className={cn(
               "whitespace-nowrap shrink-0 h-8 rounded-md px-3 text-xs font-medium transition-colors",
-              isSelected ? "bg-muted text-foreground font-semibold" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+              isSelected ? "bg-muted text-primary font-semibold" : "text-muted-foreground/70 hover:text-foreground hover:bg-muted/50"
             )}
           >
-            <Icon className="w-3.5 h-3.5 mr-1.5" />
+            <Icon strokeWidth={1.5} className="w-4 h-4 mr-1.5" />
             {cat.label}
           </Button>
         );
